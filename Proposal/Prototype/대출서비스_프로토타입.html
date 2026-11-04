@@ -1,0 +1,1259 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대출 서비스 프로토타입</title>
+<style>
+:root{
+  --blue:#2f8ff0; --blue-d:#1f6fd1; --blue-l:#eaf4fe; --ink:#141414; --sub:#6b6b6b; --line:#e7e7e7;
+  --bg:#eef1f5; --card:#fff; --ok:#16a34a; --ok-l:#e8f7ee; --warn:#d97706; --warn-l:#fff5e6; --ng:#dc2626; --ng-l:#fdecec;
+  --grad:linear-gradient(90deg,#3b82f6,#a78bfa,#e879f9);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{color:var(--blue)}
+.layout{display:flex;justify-content:center;align-items:flex-start;gap:20px}
+.phone{flex:0 0 440px;width:100%;max-width:440px;height:100vh;overflow-y:auto;overflow-x:hidden;background:#fff;position:relative;box-shadow:0 0 30px rgba(0,0,0,.06)}
+.side{display:flex;flex-direction:column}
+.side>.screen{flex:1}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#888;padding:40px 30px;font-size:15px;line-height:1.6}
+.empty svg{width:120px;height:110px;margin-bottom:16px}
+.pc.sel{background:var(--blue-l)}
+.pc.sel:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--blue)}
+.still .box,.still .doc,.still .reco,.still .fm,.still .verdict,.still .pc,.still .acc{animation:none}
+.screen.still{animation:none}
+/* 한 화면 전환: 좁은 화면(899px 이하)이거나 '모바일 보기'를 고르면 한 칸만 보이고 메인 ↔ 상세·신청을 전환 */
+body.single .layout{display:block}
+body.single .phone{margin:0 auto;height:auto;min-height:100vh;overflow:visible}
+body.single.open .left{display:none}
+body.single:not(.open) .side{display:none}
+.viewsw{position:fixed;top:12px;right:16px;z-index:60;display:flex;background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.viewsw button{border:0;background:none;padding:7px 12px;border-radius:16px;font-size:13px;color:#555;white-space:nowrap}
+.viewsw button.on{background:var(--blue);color:#fff;font-weight:700}
+@media (max-width:899px){
+  .viewsw{display:none}
+  .layout{display:block}
+  .phone{margin:0 auto;height:auto;min-height:100vh;overflow:visible}
+  body.open .left{display:none}
+  body:not(.open) .side{display:none}
+}
+/* header */
+.hd{position:sticky;top:0;z-index:20;background:#fff;display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 16px;border-bottom:1px solid var(--line)}
+.hd h1{font-size:19px;margin:0;font-weight:700}
+.ic{width:36px;height:36px;border:0;background:none;display:grid;place-items:center;border-radius:8px}
+.ic:hover{background:#f4f4f4}
+.ic svg{width:24px;height:24px;stroke:#222;fill:none;stroke-width:1.8}
+/* tabs */
+.tabs{display:flex;gap:6px;padding:0 12px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;position:sticky;top:56px;background:#fff;z-index:19}
+.tab{border:0;background:none;padding:14px 12px 12px;font-size:16px;color:#333;position:relative;white-space:nowrap}
+.tab.on{color:var(--blue);font-weight:700}
+.tab.on:after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:3px;background:var(--blue);border-radius:2px;animation:grow .3s}
+.tab.off{color:#bbb}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+/* hero */
+.hero{position:relative;overflow:hidden;background:#fff;border-bottom:8px solid #f3f5f8}
+.slides{display:flex;transition:transform .6s cubic-bezier(.6,.05,.25,1)}
+.slide{min-width:100%;padding:34px 24px 26px;cursor:pointer;position:relative}
+.slide .k{font-size:28px;line-height:1.35;color:#555;font-weight:300}
+.slide .pn{display:inline-block;margin-top:14px;font-weight:700;font-size:15px;padding-bottom:6px;border-bottom:1.5px solid #222}
+.slide .badge{display:inline-block;margin-top:28px;background:#1f5fbf;color:#fff;font-size:12px;font-weight:700;padding:3px 7px;border-radius:2px}
+.slide .amt{font-size:46px;font-weight:300;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;margin-top:4px}
+.slide .go{margin-top:18px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px;justify-content:center}
+.slide .art{position:absolute;right:22px;bottom:70px;width:120px;height:110px;opacity:.95}
+.float{animation:float 3.2s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-8px)}}
+.dots{display:flex;gap:6px;justify-content:center;padding-bottom:14px}
+.dot{width:7px;height:7px;border-radius:50%;background:#d6d6d6;border:0;padding:0;transition:.3s}
+.dot.on{width:20px;border-radius:4px;background:var(--blue)}
+/* chips */
+.chips{display:flex;gap:8px;padding:14px 16px 6px;overflow-x:auto}
+.chip{border:1px solid var(--line);background:#fff;border-radius:18px;padding:7px 14px;font-size:14px;white-space:nowrap;color:#444}
+.chip.on{border-color:var(--blue);color:var(--blue);background:var(--blue-l);font-weight:700}
+/* product card */
+.pc{padding:22px 20px 22px 24px;border-bottom:1px solid var(--line);position:relative;cursor:pointer;animation:fadeUp .45s both}
+.pc:hover{background:#fafcff}
+.pc .s{font-size:15px;color:var(--sub)}
+.pc .n{font-size:21px;font-weight:700;margin:6px 0 10px;letter-spacing:-.3px}
+.pc .m{font-size:15px;color:#333}
+.pc .m b{font-size:21px;color:var(--blue);font-weight:600;margin-left:4px}
+.pc .m .tr,.big-m .tr{font-size:13px;color:#666;margin-left:10px;padding-left:10px;border-left:1px solid #d6d6d6;font-weight:400;white-space:nowrap}
+.err{color:var(--ng);font-size:13px;font-weight:700;margin-top:6px;display:none}.err.on{display:block;animation:pop .3s}
+input.bad{border-color:var(--ng);background:#fff7f7}
+.pc .chev{position:absolute;right:18px;top:34px;width:12px;height:12px;border-right:1.5px solid #999;border-top:1.5px solid #999;transform:rotate(45deg)}
+.pc .tag{position:absolute;right:44px;top:24px;font-size:11px;padding:2px 7px;border-radius:10px;background:#f1f3f6;color:#555}
+.obtn{margin-top:16px;border:1px solid var(--blue);color:var(--blue);background:#fff;font-weight:700;font-size:15px;padding:7px 11px;border-radius:2px}
+.obtn:hover{background:var(--blue-l)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.screen{animation:slideIn .35s ease both}
+@keyframes slideIn{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+/* drawer */
+.drawer{position:fixed;top:0;bottom:0;left:0;width:440px;z-index:50;overflow:hidden;pointer-events:none;visibility:hidden;transition:visibility 0s .35s}
+.drawer.open{visibility:visible;transition:none}
+.drawer .pane{width:100%;background:#fff;height:100%;transform:translateX(100%);transition:transform .35s ease;pointer-events:auto;display:flex;flex-direction:column}
+.drawer.open .pane{transform:none}
+.drawer:not(.open) .pane{pointer-events:none}
+.dr-top{padding:30px 24px 20px;border-bottom:1px solid #ccc;position:relative}
+.dr-r button.on{color:var(--blue)}
+.dr-r button.on:after{content:"현재 화면";float:right;font-size:12px;font-weight:400;color:var(--blue)}
+.dr-top .lg{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:600}
+.dr-top p{margin:12px 0 0;color:#555;font-size:14px}
+.dr-top .x{position:absolute;right:18px;top:20px}
+.dr-body{flex:1;display:flex;min-height:0}
+.dr-l{width:30%;background:#f1f1f1;overflow:auto}
+.dr-l button{display:block;width:100%;text-align:left;border:0;background:none;padding:20px 18px;font-size:16px;color:#333}
+.dr-l button.on{background:var(--blue);color:#fff;font-weight:700}
+.dr-r{flex:1;overflow:auto;padding:0 22px}
+.dr-r button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:22px 14px;font-size:16px;font-weight:600}
+.dr-r button:hover{color:var(--blue)}
+.dr-ft{background:#e2eded;text-align:center;padding:18px;font-size:15px;font-weight:700}
+.dr-ft span{display:block;font-weight:400;font-size:12px;color:#555;margin-top:4px}
+/* detail / flow */
+.wrap{padding:20px}
+.big-sub{color:var(--sub);font-size:15px}
+.big-n{font-size:25px;font-weight:700;margin:8px 0 6px;letter-spacing:-.4px}
+.big-m{font-size:16px}.big-m b{font-size:30px;color:var(--blue);font-weight:600;margin-left:4px}
+.info{width:100%;border-collapse:collapse;margin-top:18px;font-size:14px}
+.info th{width:30%;text-align:left;color:#555;font-weight:600;padding:11px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.info td{padding:11px 0;border-bottom:1px solid var(--line);line-height:1.5}
+.sec{font-size:16px;font-weight:700;margin:26px 0 10px}
+.flowmap{display:flex;flex-wrap:wrap;gap:6px}
+.fm{font-size:12px;padding:5px 8px;border-radius:12px;background:#f2f5f9;color:#445;animation:fadeUp .4s both}
+.fm b{color:var(--blue);font-weight:700;margin-right:3px}
+.cta{position:sticky;bottom:0;width:100%;padding:28px 16px 16px;background:linear-gradient(rgba(255,255,255,0),#fff 40%);z-index:30;display:flex;gap:8px;margin-top:auto}
+.btn{flex:1;border:0;background:var(--blue);color:#fff;font-size:17px;font-weight:700;padding:15px;border-radius:8px;transition:.2s}
+.btn:hover{background:var(--blue-d)}
+.btn:disabled{background:#c9d6e6;cursor:not-allowed}
+.btn.ghost{background:#fff;color:var(--blue);border:1px solid var(--blue);flex:.55}
+.prog{height:4px;background:#eef2f7;position:sticky;top:56px;z-index:18}
+.prog i{display:block;height:100%;background:var(--blue);transition:width .5s}
+.stepinfo{padding:16px 20px 4px;font-size:13px;color:var(--sub);display:flex;justify-content:space-between;align-items:center}
+.code{font-size:11px;background:#f1f5fb;color:#3b5b8a;padding:3px 7px;border-radius:10px;font-weight:700}
+.st-t{font-size:22px;font-weight:700;padding:4px 20px 2px;letter-spacing:-.3px}
+.st-d{font-size:14px;color:var(--sub);padding:4px 20px 8px;line-height:1.55}
+.box{border:1px solid var(--line);border-radius:10px;padding:14px;margin:10px 0;background:#fff;animation:fadeUp .35s both}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.lbl{font-size:13px;color:#555;margin:14px 0 6px;font-weight:600}
+input[type=text],input[type=number],select{width:100%;padding:12px;border:1px solid #d9d9d9;border-radius:8px;font-size:15px;font-family:inherit;background:#fff}
+input:focus,select:focus{outline:2px solid var(--blue-l);border-color:var(--blue)}
+.unit{position:relative}.unit span{position:absolute;right:12px;top:12px;color:#888;font-size:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ck{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid #f0f0f0;font-size:14px}
+.ck input{width:20px;height:20px;margin:0;accent-color:var(--blue);flex:none}
+.ck .t{flex:1;line-height:1.45}
+.req{font-size:11px;color:var(--ng);font-weight:700;margin-right:4px}.opt{font-size:11px;color:#888;font-weight:700;margin-right:4px}
+.view{font-size:12px;white-space:nowrap}
+.all{background:var(--blue-l);border-radius:10px;padding:14px;font-weight:700}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid #d9d9d9;background:#fff;border-radius:8px;padding:9px 12px;font-size:14px}
+.seg button.on{border-color:var(--blue);background:var(--blue-l);color:var(--blue);font-weight:700}
+.doc{display:flex;gap:12px;align-items:center;padding:14px;border:1px solid var(--line);border-radius:10px;margin:8px 0;animation:fadeUp .35s both}
+.doc .ico{width:38px;height:44px;border-radius:5px;background:#f2f5f9;display:grid;place-items:center;font-size:11px;color:#58708f;font-weight:700;flex:none}
+.doc .i{flex:1;min-width:0}.doc .i b{display:block;font-size:14px}.doc .i small{display:block;color:#777;font-size:12px;margin-top:3px;word-break:break-all}
+.fbtn{border:1px solid var(--blue);color:var(--blue);background:#fff;border-radius:6px;padding:8px 10px;font-size:13px;font-weight:700;white-space:nowrap}
+.st{font-size:12px;font-weight:700;padding:2px 7px;border-radius:10px;display:inline-block}
+.st.ok{background:var(--ok-l);color:var(--ok)}.st.ng{background:var(--ng-l);color:var(--ng)}.st.wa{background:var(--warn-l);color:var(--warn)}.st.no{background:#f1f1f1;color:#888}
+.pipe{margin:8px 0}
+.pi{display:flex;gap:12px;align-items:flex-start;padding:10px 0;opacity:.35;transition:.3s}
+.pi.on{opacity:1}
+.pi .b{width:26px;height:26px;border-radius:50%;border:2px solid #cfd8e3;display:grid;place-items:center;font-size:13px;flex:none;background:#fff}
+.pi.run .b{border-color:var(--blue);border-top-color:transparent;animation:spin .8s linear infinite}
+.pi.ok .b{background:var(--ok);border-color:var(--ok);color:#fff}
+.pi.ng .b{background:var(--ng);border-color:var(--ng);color:#fff}
+.pi.wa .b{background:var(--warn);border-color:var(--warn);color:#fff}
+.pi .tx{flex:1}.pi .tx b{display:block;font-size:15px}.pi .tx small{color:#666;font-size:13px;line-height:1.45}
+@keyframes spin{to{transform:rotate(360deg)}}
+.verdict{border-radius:14px;padding:22px 18px;text-align:center;margin:12px 0;animation:pop .45s both}
+.verdict .v{font-size:24px;font-weight:800}.verdict p{margin:8px 0 0;font-size:14px;line-height:1.5}
+.verdict.ok{background:var(--ok-l);color:#14532d}.verdict.wa{background:var(--warn-l);color:#7c3d00}.verdict.ng{background:var(--ng-l);color:#7f1d1d}
+@keyframes pop{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
+.rc{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #f1f1f1;font-size:14px}
+.rc code{font-size:11px;background:#f3f4f6;padding:2px 6px;border-radius:4px;color:#374151;height:fit-content;white-space:nowrap}
+.reco{border:1.5px solid var(--line);border-radius:12px;padding:16px;margin:10px 0;cursor:pointer;transition:.2s;animation:fadeUp .4s both;position:relative}
+.reco.on{border-color:var(--blue);box-shadow:0 4px 14px rgba(47,143,240,.15)}
+.reco .best{position:absolute;top:-10px;left:14px;background:var(--blue);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px}
+.reco h4{margin:2px 0 8px;font-size:16px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:13px;color:#444}
+.kv b{color:var(--ink)}
+.vchips{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.vc{font-size:11px;padding:3px 7px;border-radius:10px;background:#f1f1f1;color:#999;transition:.3s}
+.vc.pass{background:var(--ok-l);color:var(--ok);font-weight:700}
+table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+table.t th,table.t td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:right}
+table.t th:first-child,table.t td:first-child{text-align:left}
+table.t th{background:#f7f9fc;color:#444;font-weight:600}
+.scroll{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px;line-height:1.65;background:#fbfcfe}
+.q{padding:10px 0;border-bottom:1px solid #f1f1f1;font-size:14px}
+.q .seg{margin-top:8px}
+.sum{background:#f7f9fc;border-radius:12px;padding:16px;margin:10px 0}
+.sum .big{font-size:28px;font-weight:800;color:var(--blue)}
+.okcircle{width:84px;height:84px;margin:30px auto 10px;border-radius:50%;background:var(--ok);display:grid;place-items:center;animation:pop .5s both}
+.okcircle svg{width:46px;height:46px;stroke:#fff;stroke-width:4;fill:none;stroke-dasharray:60;stroke-dashoffset:60;animation:draw .6s .3s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%) translateY(20px);background:#222;color:#fff;padding:11px 16px;border-radius:20px;font-size:14px;opacity:0;transition:.3s;z-index:90;max-width:90%;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:70;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:.25s}
+.sheet.open{opacity:1;pointer-events:auto}
+.sheet .in{background:#fff;width:100%;max-width:440px;border-radius:18px 18px 0 0;max-height:86vh;overflow:auto;padding:20px;transform:translateY(40px);transition:.3s}
+.sheet.open .in{transform:none}
+.sheet h3{margin:0 0 6px;font-size:19px}
+.acc{border:1px solid var(--line);border-radius:12px;padding:18px;margin:12px 16px;animation:fadeUp .4s both}
+.acc .n{font-weight:700;font-size:17px}.acc .acctno{font-size:14px;color:#555;margin-top:12px}.acc .acctno b{color:var(--ink);letter-spacing:.3px}.acc .bal{font-size:26px;font-weight:700;margin:2px 0 8px}
+.acts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px}
+.acts button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:10px 4px;font-size:13px}
+.acts button:hover{border-color:var(--blue);color:var(--blue)}
+.note{font-size:12px;color:#777;line-height:1.55;padding:6px 20px}
+.foot{font-size:11px;color:#999;text-align:center;padding:24px 16px;line-height:1.6}
+.cmp td.g{color:var(--ok);font-weight:700}.cmp td.b{color:var(--ng);font-weight:700}
+.demo{background:linear-gradient(135deg,#f5f8ff,#fdf5ff);border:1px dashed #b9c8ef;border-radius:12px;padding:14px;margin-top:20px}
+.demo b{font-size:14px}.demo p{font-size:12px;color:#666;margin:6px 0 10px;line-height:1.5}
+.caution{font-size:12px;color:#777;margin-top:12px;padding-top:9px;border-top:1px dashed #e1e1e1;line-height:1.5}
+.law{color:var(--blue);text-decoration:underline;cursor:pointer;font-weight:700}
+.opt-card{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:10px;padding:12px;margin:8px 0;cursor:pointer;font-size:14px;line-height:1.5}
+.opt-card.on{border-color:var(--blue);background:var(--blue-l)}
+.opt-card.dis{opacity:.5;cursor:not-allowed}
+.opt-card input{margin-top:3px;accent-color:var(--blue)}
+.sheet-btns{display:flex;gap:8px;margin-top:14px}
+.schedwrap{max-height:262px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:10px}
+.schedwrap table.t{margin-top:0}
+.schedwrap thead th{position:sticky;top:0;z-index:1}
+.schedwrap tfoot td{position:sticky;bottom:0;background:#f7f9fc;font-weight:700}
+table.sched td,table.sched th{font-size:11.5px;padding:7px 4px;white-space:nowrap}
+.bar{height:10px;border-radius:6px;background:#eef2f7;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;transition:width .8s}
+@media (max-width:360px){.grid2{grid-template-columns:1fr}.slide .k{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="viewsw" role="group" aria-label="화면 보기 방식"><button id="vwSingle" onclick="setView('single')">📱 모바일 보기</button><button id="vwSplit" onclick="setView('split')">🖥 분할 보기</button></div>
+<div class="layout"><div class="phone left" id="app"></div><div class="phone side" id="side"></div></div>
+
+<div class="drawer" id="drawer">
+  <div class="pane">
+    <div class="dr-top">
+      <div class="lg">대출 서비스</div>
+      <button class="ic x" onclick="drawer(false)" aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+    </div>
+    <div class="dr-body">
+      <div class="dr-r" id="drR"></div>
+    </div>
+  </div>
+</div>
+<div class="sheet" id="sheet" onclick="if(event.target===this)closeSheet()"><div class="in" id="sheetIn"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =====================================================================
+   대출 서비스 프로토타입 — 기획서(Loan_Service_main.md, 하위 기획서) 로직을 화면으로 옮긴 데모
+   모든 상품·금리·기준값은 예시입니다. 실제 금융상품이 아닙니다.
+   ===================================================================== */
+const DOC_L = "../Loan_Service/Contract Document/", DOC_R = "../Refinancing_Service/Contract Document/";
+const LN = {1:"01_약관동의_여신거래기본약관(가계용)",2:"02_신용정보조회동의_개인(신용)정보 수집·이용·조회 동의서",3:"03_적합성검사_고객정보확인서",4:"04_증빙제출_소득·담보 증빙서류 제출 안내서",5:"05_심사결과_대출 심사결과 통지서",6:"06_심사결과(부적합)_대출 거절사유 통지서",7:"07_심사결과(부적합)_제휴사 대출 안내용 제3자 정보제공 동의서",8:"08_대출조건설정_자동이체 출금 동의서",9:"09_금액금리확정_대출 상환 스케줄표",10:"10_상품설명서확인_대출 상품설명서",11:"11_상품설명서확인_금융소비자 권리 안내서(청약철회·금리인하요구권)",12:"12_대출약정_대출거래약정서(가계용)",13:"13_담보보증설정(부동산)_근저당권 설정계약서",14:"14_담보보증설정(전월세)_전세자금 보증신청 및 채권양도 동의서",15:"15_담보보증설정(자동차)_자동차 저당권 설정계약서",16:"16_담보보증설정(예금담보)_예금 질권설정 승낙서",17:"17_대출실행_대출금 지급 의뢰서",18:"18_결과통보_대출 실행 완료 통지서",19:"19_정부대출자격확인_행정정보 공동이용 동의서",20:"20_정부대출자격확인_배우자·세대원 개인(신용)정보 조회 동의서",21:"21_정부대출설명확인_정책자금 대출 의무사항 확인서",22:"22_협약대출소속확인_협약기관 재직정보 조회·제공 동의서",23:"23_협약대출조건설정_급여공제 상환 동의서",24:"24_협약대출약정_협약대출 특약서",25:"25_대출관리_중도상환 신청서",26:"26_대출관리_금리인하요구 신청서",27:"27_대출관리_청약철회 신청서",28:"28_대출관리_대출 조건변경(기간연장) 신청서"};
+const RF = {1:"01_약관동의_여신거래기본약관(가계용)",2:"02_신용정보조회동의_개인(신용)정보 수집·이용·조회 동의서",3:"03_기존대출조회_마이데이터 개인신용정보 전송요구 동의서",4:"04_대환대상선택_대환 대상 대출 확인서",5:"05_적합성검사_고객정보확인서",6:"06_증빙제출_소득·담보 증빙서류 제출 안내서",7:"07_심사결과_대환대출 심사결과 통지서",8:"08_심사결과(부적합)_대환대출 거절사유 통지서",9:"09_심사결과(부적합)_제휴사 대출 안내용 제3자 정보제공 동의서",10:"10_대환유불리비교_대환대출 비교 안내서",11:"11_대환조건설정_자동이체 출금 동의서",12:"12_금액금리확정_대환대출 상환 스케줄표",13:"13_상품설명서확인_대환대출 상품설명서",14:"14_상품설명서확인_금융소비자 권리 안내서(청약철회·금리인하요구권)",15:"15_대환약정_대환대출 거래약정서",16:"16_담보보증설정_담보 말소·이전·설정 동의서",17:"17_대환실행_기존대출 상환자금 지급 위임장",18:"18_기존대출상환확인_기존대출 상환(완제) 확인서",19:"19_결과통보_대환대출 실행 완료 통지서"};
+const docUrl = (set, n) => encodeURI((set === "RF" ? DOC_R : DOC_L) + (set === "RF" ? RF : LN)[n] + ".pdf");
+const docLink = (set, n, label) => `<a class="view" href="${docUrl(set, n)}" target="_blank" rel="noopener">${label || "보기"}</a>`;
+
+/* ---------- 상품 카탈로그 (예시) ---------- */
+const PRODUCTS = [
+  {id:"g1",type:"GENERAL",cat:"CREDIT",sub:"바로 쓰는 직장인 신용대출",name:"OO 직장인 신용대출",max:1e8,min:1e6,rate:[4.3,7.9],terms:[12,24,36,48,60],repay:["원리금균등분할","만기일시상환","원금균등분할"],target:"재직 3개월 이상 급여소득자"},
+  {id:"g2",type:"GENERAL",cat:"JEONSE",sub:"쉽고 빠른 전월세보증금대출",name:"OO 스마트 전세대출",max:2.22e8,min:1e7,rate:[3.6,5.2],terms:[24],repay:["만기일시상환"],target:"임차보증금 5% 이상 지급한 무주택 세대주"},
+  {id:"g3",type:"GENERAL",cat:"MORTGAGE",sub:"내 집 마련 주택담보대출",name:"OO 주택담보대출",max:1e9,min:1e7,rate:[3.9,5.6],terms:[120,240,360],repay:["원리금균등분할","원금균등분할"],target:"주택 구입 예정자·보유자"},
+  {id:"g4",type:"GENERAL",cat:"AUTO",sub:"신차·중고차 구입자금",name:"OO 오토론",max:1e8,min:3e6,rate:[4.9,8.9],terms:[12,24,36,48,60],repay:["원리금균등분할"],target:"자동차 구입 예정자"},
+  {id:"g5",type:"GENERAL",cat:"DEPOSIT",sub:"예금 해지 없이 급전 마련",name:"OO 예금담보대출",max:3e8,min:1e6,rate:[3.5,4.5],terms:[12],repay:["만기일시상환"],target:"OO은행 예금 보유 고객"},
+  {id:"p1",type:"POLICY",cat:"MORTGAGE",sub:"무주택 서민 내 집 마련",name:"정책 주택구입자금 (디딤돌형)",max:2.5e8,min:1e7,rate:[2.6,3.9],terms:[120,240,360],repay:["원리금균등분할","원금균등분할"],target:"무주택 세대주, 부부합산 소득·순자산 기준 충족 (공고 기준)"},
+  {id:"p2",type:"POLICY",cat:"JEONSE",sub:"무주택 세대주 전세자금",name:"정책 전세자금 (버팀목형)",max:1.2e8,min:1e7,rate:[2.3,3.3],terms:[24],repay:["만기일시상환"],target:"무주택 세대주, 소득·자산 기준 충족 (공고 기준)"},
+  {id:"i1",type:"INST",sub2:"A",cat:"JEONSE",sub:"보증기관 보증으로 한도 UP",name:"OO 보증부 전세대출 (HUG·HF·SGI)",max:5e8,min:1e7,rate:[3.4,4.9],terms:[24],repay:["만기일시상환"],target:"보증기관 보증 대상 임차인"},
+  {id:"i2",type:"INST",sub2:"B",cat:"CREDIT",sub:"협약기관 임직원 전용 우대",name:"OO 협약기관 임직원 신용대출",max:1.5e8,min:1e6,rate:[3.9,5.5],terms:[12,24,36,48,60],repay:["원리금균등분할","만기일시상환"],target:"협약기관 정규직 임직원"},
+  {id:"r1",type:"REFI",cat:"CREDIT",sub:"고금리 신용대출 갈아타기",name:"OO 신용대출 갈아타기",max:1e8,min:1e6,rate:[4.5,7.5],terms:[12,24,36,48,60],repay:["원리금균등분할"],target:"타 금융사 신용대출 보유자"},
+  {id:"r2",type:"REFI",cat:"MORTGAGE",sub:"주담대 이자 줄이기",name:"OO 주택담보대출 갈아타기",max:1e9,min:1e7,rate:[3.8,5.2],terms:[120,240,300,360],repay:["원리금균등분할"],target:"타 금융사 주택담보대출 보유자"},
+  {id:"r3",type:"REFI",cat:"JEONSE",sub:"전세대출 갈아타기",name:"OO 전세대출 갈아타기",max:5e8,min:1e7,rate:[3.5,4.6],terms:[24],repay:["만기일시상환"],target:"타 금융사 전세자금대출 보유자"},
+  {id:"r4",type:"REFI",cat:"AUTO",sub:"자동차 할부 갈아타기",name:"OO 오토 대환",max:1e8,min:3e6,rate:[5.2,8.5],terms:[12,24,36,48,60],repay:["원리금균등분할"],target:"캐피탈 자동차 할부 보유자"}
+];
+const TYPE_NM = {GENERAL:"일반대출",POLICY:"정부대출",INST:"기관대출",REFI:"대환대출"};
+const CAT_NM = {CREDIT:"신용",JEONSE:"전월세",MORTGAGE:"주택담보",AUTO:"자동차",DEPOSIT:"예금담보"};
+
+/* ---------- 가상 고객 시나리오 (Customer_Submission_Documents 정답표 기준) ---------- */
+const SCN = {
+  NONE:{label:"직접 입력해서 체험"},
+  KIM_OK:{label:"Kim 김민수 · 적합 (신용)",name:"김민수",job:"급여소득자",tenure:80,income:62e6,debtM:41e4,score:880,inquiries:1,
+    refi:[{id:"e1",lender:"다온캐피탈(가상)",kind:"신용대출",bal:12.4e6,rate:12.9,since:30,remain:30,total:60,monthly:41e4,prepay:1.5}]},
+  KIM_BAD:{label:"Kim 김민수 · 부적합 (양식 불량 + 신용 부족)",name:"김민수",job:"급여소득자",tenure:80,income:62e6,debtM:165e4,score:520,inquiries:7,delinqCurrent:true,multiDebt:5,
+    defects:["CONSENT-DENIED","SIGN-MISSING","FIELD-BLANK","DOC-EXPIRED","DOC-OUTDATED","NAME-MISMATCH"],
+    refi:[{id:"e1",lender:"다온캐피탈(가상)",kind:"신용대출",bal:12.4e6,rate:12.9,since:30,remain:30,total:60,monthly:41e4,prepay:1.5,delinq:true}]},
+  PARK_OK:{label:"Park 박지영 · 적합 (전세)",name:"박지영",job:"급여소득자",tenure:58,income:43e6,debtM:49e4,score:820,inquiries:1,deposit:2e8,value:3.2e8,senior:0,
+    refi:[{id:"e1",lender:"가나은행(가상)",kind:"전세자금대출",bal:1.2e8,rate:4.9,since:8,remain:16,total:24,monthly:49e4,prepay:0.7,bullet:true}]},
+  PARK_BAD:{label:"Park 박지영 · 부적합 (담보·소득 부족)",name:"박지영",job:"급여소득자",tenure:4,income:18e6,debtM:49e4,score:820,inquiries:1,deposit:2e8,value:2.6e8,senior:1.8e8,
+    defects:["PARTY-MISMATCH","MISSING-CERT"],
+    refi:[{id:"e1",lender:"가나은행(가상)",kind:"전세자금대출",bal:1.2e8,rate:4.9,since:22,remain:2,total:24,monthly:49e4,prepay:0.7,bullet:true,docExpired:true}]},
+  NAM_OK:{label:"Nam 남준호 · 적합 (주택담보)",name:"남준호",job:"급여소득자",tenure:220,income:130e6,debtM:192e4,score:910,inquiries:1,value:7.1e8,price:7e8,amount:4e8,term:360,
+    refi:[{id:"e1",lender:"가나은행(가상)",kind:"주택담보대출",bal:3.5e8,rate:5.2,since:65,remain:295,total:360,monthly:192e4,prepay:1.2}]},
+  NAM_BAD:{label:"Nam 남준호 · 부적합 (LTV·DSR 초과)",name:"남준호",job:"급여소득자",tenure:55,income:36e6,debtM:343e4,score:760,inquiries:3,value:5.2e8,price:5.5e8,amount:4.5e8,term:360,
+    refi:[{id:"e1",lender:"가나은행(가상)",kind:"주택담보대출",bal:3.5e8,rate:5.2,since:2,remain:358,total:360,monthly:193e4,prepay:1.2,legal:true}]},
+  LIM_OK:{label:"Lim 임소라 · 적합 (자동차, 개인사업자)",name:"임소라",job:"개인사업자",tenure:91,income:54e6,debtM:59e4,score:840,inquiries:1,price:4.2e7,amount:3.5e7,term:60,
+    refi:[{id:"e1",lender:"다온캐피탈(가상)",kind:"자동차 할부",bal:2.8e7,rate:9.9,since:21,remain:39,total:60,monthly:59e4,prepay:1.0}]},
+  LIM_BAD:{label:"Lim 임소라 · 부적합 (소득·신용 부족 + 위변조 의심)",name:"임소라",job:"개인사업자",tenure:91,income:9e6,debtM:231e4,score:610,inquiries:9,multiDebt:6,bizClosed:true,price:4.2e7,amount:4.5e7,term:60,
+    defects:["BIZ-MISMATCH","ALTERED","SIGN-MISSING"],
+    refi:[{id:"e1",lender:"다온캐피탈(가상)",kind:"자동차 할부",bal:2.8e7,rate:9.9,since:21,remain:39,total:60,monthly:59e4,prepay:1.0,assetMismatch:true}]}
+};
+const DEFAULT_EXISTING = [
+  {id:"e1",lender:"다온캐피탈(가상)",kind:"신용대출",bal:12.4e6,rate:12.9,since:30,remain:30,total:60,monthly:41e4,prepay:1.5},
+  {id:"e2",lender:"나래카드(가상)",kind:"카드론",bal:5e6,rate:15.9,since:3,remain:33,total:36,monthly:17e4,prepay:1.0}
+];
+
+/* ---------- 사유 코드 (main 6.1.3) ---------- */
+const RC = {
+  "CONSENT-DENIED":"제출한 동의서에서 필수 '신용정보 조회'가 동의하지 않음으로 표시됨",
+  "SIGN-MISSING":"서명·직인이 없는 서류가 있음","FIELD-BLANK":"필수 칸(연 소득, 작성일 등)이 비어 있음",
+  "DOC-EXPIRED":"발급일로부터 1개월이 지난 서류","DOC-OUTDATED":"최신 귀속연도가 아닌 소득 서류",
+  "NAME-MISMATCH":"서류 명의자가 신청인과 다름","PARTY-MISMATCH":"임대인이 등기부 소유자와 다름",
+  "BIZ-MISMATCH":"서류 간 상호·사업자번호가 다름","ASSET-MISMATCH":"담보 차량번호가 서류마다 다름",
+  "MISSING-CERT":"임대차계약서에 확정일자가 없음","ALTERED":"수기 정정·정정인 없음 (위변조 의심)","DOC-MISSING":"필수 서류가 제출되지 않음",
+  "DOC-INVALID":"허용되지 않는 파일 형식 또는 10MB 초과",
+  "KO-DELINQ-CURRENT":"현재 연체 중인 대출·카드대금이 있음","KO-BIZ-CLOSED":"사업자 상태가 폐업",
+  "INC-BELOW-MIN":"연 소득이 상품 최소 기준(예시 2,000만원)에 못 미침","INC-TENURE-SHORT":"재직 기간이 12개월(예시) 미만",
+  "CRD-SCORE-LOW":"신용평점이 상품 기준(예시 600점) 미만","CRD-MULTI-DEBT":"대출 5건 이상 다중채무","CRD-INQUIRY-MANY":"최근 6개월 신용조회 7건 이상",
+  "DSR-OVER":"DSR이 규제 한도(예시 40%)를 넘음","COL-LTV-OVER":"신청 금액이 담보 한도(시세의 70%, 예시)를 넘음",
+  "COL-SENIOR-LIEN":"선순위 근저당이 있음","COL-DEPOSIT-OVER-VALUE":"선순위 채권 + 보증금이 주택 시세의 90%(예시)를 넘음 (보증 불가)",
+  "SUIT-BURDEN":"월 상환 부담이 월 소득의 70%(예시)를 넘음",
+  "POL-HOME-OWNED":"세대원 중 주택 소유자가 있음","POL-INCOME-OVER":"부부합산 소득이 공고 기준(예시)을 넘음","POL-ASSET-OVER":"순자산이 공고 기준(예시)을 넘음",
+  "ORG-EMP-TYPE":"협약 대상 고용 형태(정규직)가 아님","GUA-REJECTED":"보증 대상 기준을 충족하지 않음",
+  "REFI-DELINQ":"대환 대상 대출이 연체 중","REFI-TOO-RECENT":"기존 대출 실행 후 6개월(예시)이 지나지 않음","REFI-LEGAL-HOLD":"담보에 가압류 등 법적 제한이 있음",
+  "REFI-SHORT-REMAIN":"남은 기간이 6개월(예시) 미만이라 대환 실익이 없음","REFI-NOT-BENEFICIAL":"순 절감액이 0원 이하"
+};
+const DOC_FIXABLE = c => /^(DOC-|SIGN-|FIELD-|NAME-|PARTY-|BIZ-|ASSET-|MISSING-|ALTERED|CONSENT-)/.test(c);
+
+/* ---------- 상태 ---------- */
+const today = new Date();
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const ymd = d => `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+let S = {screen:"home",tab:"loan",filter:"ALL",slide:0};
+const newAcct = () => `${String(Math.floor(Math.random()*900)+100)}-${String(Math.floor(Math.random()*900000)+100000)}-${String(Math.floor(Math.random()*90000)+10000)}`;
+let LOANS = [{no:"LA-2025-000123",acct:"123-456789-01234",name:"OO 직장인 신용대출",type:"GENERAL",amount:3e7,balance:2.14e7,rate:5.1,term:60,repay:"원리금균등분할",start:new Date(2025,2,10),executed:new Date(2025,2,10),status:"ACTIVE"}];
+
+function resetFlow(p){
+  const sc = SCN[S.scn || "NONE"] || {};
+  S.product = p; S.flow = buildFlow(p); S.step = 0;
+  S.consents = {}; S.docs = {}; S.autolink = false; S.defects = []; S.review = null; S.reco = null; S.terms = null;
+  S.price = null; S.scrolled = false; S.quiz = {}; S.signed = false; S.sel = 0; S.override = false; S.added = false;
+  S._scnDocs = false; S._pc = false; S._reviewed = false; S._col = false; S._ex = false; S.cc = null; S.prefs = null;
+  S.chosen = null; S.cmp = null; S.finalRate = null; S.payroll = false; S.suitAck = false; S.suitOverride = false; S._refiTerm = false;
+  S.policy = {homeless:true, married:false, hhIncome:sc.income || 5e7, netAssets:2e8, spouseSent:false};
+  S.inst = {org:"", sabun:"", empType:"정규직", checked:null, agency:null};
+  S.existing = JSON.parse(JSON.stringify(sc.refi || DEFAULT_EXISTING)); S.targets = S.existing.map(()=>false); S.fetched = false;
+  S.profile = {
+    name: sc.name || "홍길동", job: sc.job || "급여소득자", tenure: sc.tenure ?? 36, income: sc.income ?? 5e7, assets: 3e7,
+    debtM: sc.debtM ?? 0, delinq1y: !!sc.delinqCurrent, amount: sc.amount || defaultAmount(p), term: sc.term || p.terms[Math.min(2,p.terms.length-1)],
+    repay: p.repay[0], ratePref: "고정금리", deposit: sc.deposit || 2e8, value: sc.value || (p.cat==="JEONSE"?3.2e8:7e8), senior: sc.senior || 0,
+    price: sc.price || (p.cat==="AUTO"?4e7:7e8), depBal: 5e7
+  };
+  if (p.cat==="JEONSE") S.profile.amount = Math.min(sc.deposit ? sc.deposit*0.8 : 1.6e8, p.max);
+  if (p.cat==="MORTGAGE" && !sc.amount) S.profile.amount = 4e8;
+  S.profile.amount = Math.min(S.profile.amount, p.max);   // 희망 금액 기본값은 상품 최대 한도를 넘지 않음
+}
+const fmtTerm = t => t % 12 === 0 ? (t/12) + "년" : t + "개월";
+function termRange(p){ const a = Math.min(...p.terms), b = Math.max(...p.terms); return a===b ? fmtTerm(a) : `${fmtTerm(a)} ~ ${fmtTerm(b)}`; }
+const amtOver = () => S.product && S.product.type!=="REFI" && S.profile.amount > S.product.max;
+function defaultAmount(p){ return {CREDIT:3e7,JEONSE:1.6e8,MORTGAGE:4e8,AUTO:3e7,DEPOSIT:3e7}[p.cat]; }
+const needsCollateral = p => p.cat !== "CREDIT";
+function buildFlow(p){
+  const tail = ["terms","pricing","explain","contract"];
+  if (p.type==="REFI") return ["consent","fetch","targets","profile","docs","review","compare",...tail,...(needsCollateral(p)?["collateral"]:[]),"execute","payoff","done"];
+  if (p.type==="POLICY") return ["precheck","consent","profile","policycheck","docs","review","result",...tail,"collateral","execute","done"];
+  if (p.type==="INST") return ["consent","profile",p.sub2==="A"?"guarantee":"affiliation","docs","review","result",...tail,...(p.sub2==="A"?["collateral"]:[]),"execute","done"];
+  return ["consent","profile","docs","review","result",...tail,...(needsCollateral(p)?["collateral"]:[]),"execute","done"];
+}
+const STEP = {
+  precheck:{n:"정책 자격 사전 확인",c:"C01",code:{POLICY:"G01"}},
+  consent:{n:"약관·동의",c:"C02",code:{GENERAL:"S02",POLICY:"G02",INST:"I02",REFI:"R02"}},
+  fetch:{n:"기존 대출 조회",c:"C02x",code:{REFI:"R03"}},
+  targets:{n:"대환 대상 선택",c:"C02x",code:{REFI:"R04"}},
+  profile:{n:"고객정보 확인·적합성",c:"C03",code:{GENERAL:"S03",POLICY:"G03",INST:"I03",REFI:"R05"}},
+  policycheck:{n:"정책 자격 검증",c:"C04",code:{POLICY:"G04"}},
+  guarantee:{n:"보증 대상 확인·보증기관 선택",c:"C04",code:{INST:"I04-A·I07"}},
+  affiliation:{n:"협약기관 소속·재직 확인",c:"C04",code:{INST:"I04-B"}},
+  docs:{n:"소득·담보 증빙 제출",c:"C04",code:{GENERAL:"S04",POLICY:"G05",INST:"I05",REFI:"R06"}},
+  review:{n:"심사",c:"C05",code:{GENERAL:"S05",POLICY:"G06",INST:"I06",REFI:"R07"}},
+  result:{n:"심사 결과·권장 상품",c:"C06",code:{GENERAL:"S06",POLICY:"G07",INST:"I08"}},
+  compare:{n:"심사 결과·대환 유불리 비교",c:"C06",code:{REFI:"R08·R09"}},
+  terms:{n:"대출 조건 설정",c:"C07",code:{GENERAL:"S07",POLICY:"G08",INST:"I09",REFI:"R10"}},
+  pricing:{n:"금액·금리 확정",c:"C08",code:{GENERAL:"S08",POLICY:"G09",INST:"I10",REFI:"R11"}},
+  explain:{n:"상품설명서 확인",c:"C09",code:{GENERAL:"S09",POLICY:"G10",INST:"I11",REFI:"R12"}},
+  contract:{n:"약정·전자서명",c:"C10",code:{GENERAL:"S10",POLICY:"G11",INST:"I12",REFI:"R13"}},
+  collateral:{n:"담보·보증 설정",c:"C11",code:{GENERAL:"S11",POLICY:"G12",INST:"I13",REFI:"R14"}},
+  execute:{n:"대출 실행·지급",c:"C12",code:{GENERAL:"S12",POLICY:"G13",INST:"I14",REFI:"R15"}},
+  payoff:{n:"기존 대출 완제 확인",c:"C12x",code:{REFI:"R16"}},
+  done:{n:"결과 통보·서류 교부",c:"C13",code:{GENERAL:"S13",POLICY:"G14",INST:"I15",REFI:"R17"}}
+};
+
+/* ---------- 계산 (main 6.2·6.3) ---------- */
+const fmt = n => Math.round(n).toLocaleString("ko-KR");
+const won = n => fmt(n) + "원";
+function kwon(n){ n = Math.round(n); if (n < 0) return "-" + kwon(-n); if (n < 1e4) return fmt(n) + "원"; const e = Math.floor(n/1e8), m = Math.round((n % 1e8)/1e4); let s=""; if(e) s += e+"억"; if(m) s += (e?" ":"") + m.toLocaleString("ko-KR") + "만"; if(!e && !m) return fmt(n)+"원"; return s+"원"; }
+function monthly(P, rate, n, method){ const r = rate/1200; if (method==="만기일시상환") return P*r; if (method==="원금균등분할") return P/n + P*r; return r ? P*r/(1-Math.pow(1+r,-n)) : P/n; }
+function totalInterest(P, rate, n, method){ const r = rate/1200; if (method==="만기일시상환") return P*r*n; if (method==="원금균등분할") return P*r*(n+1)/2; return monthly(P,rate,n,method)*n - P; }
+function annualForDsr(P, rate, n, method, cat){
+  if (cat==="JEONSE" || cat==="DEPOSIT") return P*rate/100;   // 전세·예금담보: 이자만 반영 (예시)
+  if (method==="만기일시상환") return P/Math.max(n/12,1) + P*rate/100;
+  return monthly(P,rate,n,method)*12;
+}
+function baseRate(){ return 3.10; }
+function estRate(p, score, income){
+  const [lo, hi] = p.rate;
+  if (p.type==="POLICY") return +(lo + (income > 6e7 ? 0.5 : income > 4e7 ? 0.25 : 0)).toFixed(2);
+  if (p.type==="INST" && p.sub2==="B") return +(lo + (score < 800 ? 0.4 : 0)).toFixed(2);
+  const r = lo + Math.max(0, (920 - score))/100 * 0.9;
+  return +Math.min(hi, Math.max(lo, r)).toFixed(2);
+}
+function scen(){ return SCN[S.scn || "NONE"] || {}; }
+function score(){ const sc = scen(); return sc.score || (S.profile.delinq1y ? 690 : 820); }
+function refiTargets(){ return S.existing.filter((e,i)=>S.targets[i]); }
+function refiAmount(){ return refiTargets().reduce((a,e)=>a + e.bal + prepayFee(e), 0); }
+function prepayFee(e){ return e.since >= 36 ? 0 : Math.round(e.bal * e.prepay/100 * (e.remain/e.total)); }
+
+function evaluate(){
+  const p = S.product, pr = S.profile, sc = scen(), st = [];
+  const income = pr.income || 0, sco = score();
+  const amt = p.type==="REFI" ? refiAmount() : pr.amount;
+  const n = pr.term, rate = estRate(p, sco, income), stress = rate + 1.0;
+  if (S.suitOverride) st.push({n:"적합성 확인", s:"wa", t:"적합성 부적합 상태 · 고객이 고지를 확인하고 심사 진행에 동의함 (suitability_override 기록)"});
+  // 1 KO
+  const ko = []; if (sc.delinqCurrent) ko.push("KO-DELINQ-CURRENT"); if (sc.bizClosed) ko.push("KO-BIZ-CLOSED");
+  st.push({n:"결격(KO) 확인", s: ko.length?"ng":"ok", t: ko.length? ko.map(c=>RC[c]).join(" / ") : "현재 연체·회생·명의도용·폐업 없음"});
+  // 2 소득
+  const inc = [];
+  if (p.cat!=="DEPOSIT" && income < 2e7) inc.push("INC-BELOW-MIN");
+  if (p.cat!=="DEPOSIT" && pr.job==="급여소득자" && pr.tenure < 12) inc.push("INC-TENURE-SHORT");
+  st.push({n:"소득 확정", s: inc.length?"ng":"ok", t:`확정 연 소득 ${kwon(income)} (공공 연동 > 서류 > 고객 진술 순 채택)` + (inc.length? " · "+inc.map(c=>RC[c]).join(" / "):"")});
+  // 3 신용
+  const crd = []; if (sco < 600) crd.push("CRD-SCORE-LOW"); if ((sc.multiDebt||0) >= 5) crd.push("CRD-MULTI-DEBT"); if ((sc.inquiries||0) >= 7) crd.push("CRD-INQUIRY-MANY");
+  st.push({n:"신용평가", s: crd.length?"ng":"ok", t:`신용평점 ${sco}점 · 예상 금리 연 ${rate.toFixed(2)}%` + (crd.length? " · "+crd.map(c=>RC[c]).join(" / "):"")});
+  // 4 DSR
+  const excl = p.type==="REFI" ? refiTargets().reduce((a,e)=>a+e.monthly,0) : 0;
+  const existA = Math.max(0, pr.debtM - excl) * 12;
+  const dsrAt = A => (existA + annualForDsr(A, stress, n, pr.repay, p.cat)) / Math.max(income,1);
+  const dsr = dsrAt(amt);
+  let lo = 0, hi = p.max;
+  if (dsrAt(p.max) <= 0.4) lo = p.max;                       // 상품 최대에서도 기준 이내면 여유 한도 = 상품 최대
+  else for (let i=0;i<40;i++){ const mid=(lo+hi)/2; if (dsrAt(mid) <= 0.4) lo = mid; else hi = mid; }
+  const dsrRoom = Math.floor(lo/1e6)*1e6;
+  st.push({n:"DSR 계산", s: dsr<=0.4?"ok":(dsrRoom>=p.min?"wa":"ng"), t:`DSR ${(dsr*100).toFixed(1)}% (스트레스 금리 ${stress.toFixed(2)}% 적용, 한도 40%)${p.type==="REFI"?" · 대환 대상 상환분 제외":""} · DSR 여유 한도 ${kwon(dsrRoom)}`});
+  // 5 담보
+  const colHard = [], colCond = []; let collLimit = Infinity, colTxt = "담보 없음 (신용)";
+  if (p.cat==="MORTGAGE"){ collLimit = pr.value*0.7 - pr.senior; if (amt > collLimit) colCond.push("COL-LTV-OVER"); colTxt = `시세 ${kwon(pr.value)} · LTV ${(amt/pr.value*100).toFixed(1)}% · 담보 한도 ${kwon(collLimit)}`; }
+  if (p.cat==="JEONSE"){ const over = pr.senior + pr.deposit > pr.value*0.9; if (over){ if (pr.senior>0) colHard.push("COL-SENIOR-LIEN"); colHard.push("COL-DEPOSIT-OVER-VALUE"); } collLimit = pr.deposit*0.8; colTxt = `(선순위 ${kwon(pr.senior)} + 보증금 ${kwon(pr.deposit)}) ÷ 시세 ${kwon(pr.value)} = ${((pr.senior+pr.deposit)/pr.value*100).toFixed(0)}% · 보증금의 80% 한도 ${kwon(collLimit)}`; }
+  if (p.cat==="AUTO"){ collLimit = pr.price*0.9; colTxt = `차량 가격 ${kwon(pr.price)} · 한도(90%) ${kwon(collLimit)}`; }
+  if (p.cat==="DEPOSIT"){ collLimit = pr.depBal*0.95; colTxt = `담보 예금 ${kwon(pr.depBal)} · 한도(95%) ${kwon(collLimit)}`; }
+  st.push({n:"담보·보증 평가", s: colHard.length?"ng":colCond.length?"wa":"ok", t: colTxt + ([...colHard,...colCond].length? " · "+[...colHard,...colCond].map(c=>RC[c]).join(" / "):"")});
+  // 6 한도
+  const limit = Math.max(0, Math.floor(Math.min(p.max, dsrRoom, collLimit)/1e6)*1e6);
+  st.push({n:"한도 산출", s:"ok", t:`min(상품 ${kwon(p.max)}, DSR 여유 ${kwon(dsrRoom)}, 담보 ${collLimit===Infinity?"-":kwon(collLimit)}) = ${kwon(limit)}`});
+  // 7 판정
+  const hard = [...ko, ...inc, ...crd, ...colHard, ...(dsrRoom < p.min ? ["DSR-OVER"] : [])];
+  const docD = S.defects.slice();
+  let res, cond = [];
+  if (hard.length) res = "REJECTED";
+  else if (docD.length) res = "DOCS_REQUIRED";
+  else if (limit < amt){ res = "COND_APPROVED"; if (dsr>0.4) cond.push("DSR-OVER"); cond.push(...colCond); }
+  else res = "APPROVED";
+  st.push({n:"판정", s: res==="APPROVED"?"ok":res==="REJECTED"?"ng":"wa", t: {APPROVED:"승인",COND_APPROVED:"조건부 승인 (감액)",DOCS_REQUIRED:"서류 보완 요청",REJECTED:"거절"}[res]});
+  return {res, stages:st, hard, docD, cond, limit, rate, dsr, amt, score:sco};
+}
+
+/* ---------- 공통 렌더 ---------- */
+const svg = {
+  home:'<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10"/></svg>',
+  menu:'<svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M7 18h14"/></svg>',
+  back:'<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>'
+};
+function header(title, left){ return `<div class="hd"><button class="ic" onclick="${left==="back"?"goBack()":"goHome()"}" aria-label="${left==="back"?"뒤로":"홈"}">${left==="back"?svg.back:svg.home}</button><h1>${title}</h1><button class="ic" onclick="drawer(true,this)" aria-label="메뉴">${svg.menu}</button></div>`; }
+function toast(m){ const t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("show"), 2300); }
+function openSheet(html){ document.getElementById("sheetIn").innerHTML = html; document.getElementById("sheet").classList.add("open"); }
+function closeSheet(){ document.getElementById("sheet").classList.remove("open"); }
+let slideTimer = null;
+/* 왼쪽: 메인(목록)은 그대로 두고, 오른쪽: 상세·신청 화면만 바뀝니다. 좁은 화면에서는 한쪽만 보입니다. */
+let leftKey = "", leftTab = "", rightKey = "";
+function render(){
+  document.body.classList.toggle("open", S.screen!=="home");
+  renderLeft(); renderRight();
+}
+function renderLeft(){
+  const el = document.getElementById("app");
+  const key = JSON.stringify([S.tab, S.filter, LOANS.map(l=>[l.no,l.balance,l.rate,l.status,l.term])]);
+  if (key !== leftKey){
+    const keep = leftTab === S.tab ? el.scrollTop : 0;
+    clearInterval(slideTimer); el.innerHTML = renderHome(); leftKey = key; leftTab = S.tab;
+    if (leftTab===S.tab) el.scrollTop = keep;
+    if (S.tab!=="manage") startSlides();
+  }
+  document.querySelectorAll(".pc").forEach(c=>c.classList.toggle("sel", S.screen!=="home" && c.dataset.pid===S.pid));
+}
+function renderRight(){
+  const el = document.getElementById("side");
+  if (S.screen==="home"){
+    if (rightKey!=="empty"){ el.innerHTML = emptyPane(); rightKey = "empty"; }
+    return;
+  }
+  const key = S.screen + "|" + S.pid + "|" + (S.screen==="flow" ? S.step : "");
+  const same = key === rightKey, top = el.scrollTop, winTop = window.scrollY;
+  el.innerHTML = S.screen==="detail" ? renderDetail() : renderFlow();
+  rightKey = key;
+  if (same){ el.firstElementChild && el.firstElementChild.classList.add("still"); el.scrollTop = top; window.scrollTo(0, winTop); }
+  else { el.scrollTop = 0; window.scrollTo(0, 0); }
+  if (S.screen==="detail" && !same) countUp(); else if (S.screen==="detail") { const c = document.getElementById("cu"); if (c) c.textContent = kwon(+c.dataset.v).replace("원",""); }
+  if (S.screen==="flow") afterFlowRender();
+}
+function emptyPane(){
+  return `<div class="empty">${art("calc").replace('class="art float"','class="float"')}<b style="color:#333;font-size:17px">상품을 선택해 주세요</b><span>왼쪽 목록이나 배너에서 상품을 누르면<br>이쪽에 상세 화면과 신청 단계가 열립니다.</span></div>`;
+}
+function goHome(){ S.screen = "home"; render(); if (document.body.classList.contains("single")) window.scrollTo(0, 0); }
+
+/* ---------- 홈 ---------- */
+const SLIDES = {
+  loan:[
+    {k:"직장인 전용<br>비대면 신용대출",p:"g1",amt:"1억원",art:"calc"},
+    {k:"무주택 세대주<br>정책 전세자금",p:"p2",amt:"1억2천만원",art:"house"},
+    {k:"협약기관 임직원<br>우대금리 신용대출",p:"i2",amt:"1억5천만원",art:"card"}
+  ],
+  refi:[
+    {k:"고금리 대출<br>이자 줄이는 갈아타기",p:"r1",amt:"1억원",art:"calc"},
+    {k:"주담대 금리 비교하고<br>한 번에 갈아타기",p:"r2",amt:"10억원",art:"house"}
+  ]
+};
+function art(kind){
+  if (kind==="house") return `<svg class="art float" viewBox="0 0 120 110"><rect x="10" y="20" width="100" height="85" rx="18" fill="#eef3fb"/><path d="M30 60l30-24 30 24v32H30z" fill="#fff" stroke="#8aa0c2" stroke-width="2"/><rect x="52" y="70" width="16" height="22" fill="#cfe0f7"/><circle cx="92" cy="34" r="12" fill="#fff" stroke="#8aa0c2" stroke-width="2"/><text x="87" y="39" font-size="13" fill="#8aa0c2">%</text></svg>`;
+  if (kind==="card") return `<svg class="art float" viewBox="0 0 120 110"><rect x="10" y="20" width="100" height="85" rx="18" fill="#f3eefb"/><rect x="24" y="44" width="72" height="46" rx="6" fill="#fff" stroke="#9b8cc2" stroke-width="2"/><rect x="24" y="54" width="72" height="8" fill="#ddd3f2"/><circle cx="92" cy="34" r="12" fill="#fff" stroke="#9b8cc2" stroke-width="2"/><text x="86" y="39" font-size="13" fill="#9b8cc2">%</text></svg>`;
+  return `<svg class="art float" viewBox="0 0 120 110"><rect x="10" y="20" width="100" height="85" rx="18" fill="#eef3fb"/><path d="M28 30h44l14 14v56H28z" fill="#fff" stroke="#8aa0c2" stroke-width="2"/><rect x="36" y="48" width="34" height="10" fill="#cfe0f7"/><g fill="#8aa0c2">${[0,1,2].map(r=>[0,1,2].map(c=>`<rect x="${37+c*12}" y="${64+r*10}" width="8" height="6" rx="1"/>`).join("")).join("")}</g><circle cx="92" cy="72" r="14" fill="#fff" stroke="#8aa0c2" stroke-width="2"/><text x="86" y="77" font-size="13" fill="#8aa0c2">%</text></svg>`;
+}
+function renderHome(){
+  let h = header("대출 서비스");
+  h += `<div class="tabs">${[["loan","대출"],["refi","대환"],["manage","대출관리"]].map(([k,t])=>`<button class="tab ${S.tab===k?"on":""}" onclick="S.tab='${k}';render()">${t}</button>`).join("")}</div>`;
+  if (S.tab==="manage") return h + renderManage();
+  const sl = SLIDES[S.tab];
+  h += `<div class="hero"><div class="slides" id="slides" style="transform:translateX(-${(S.slide % sl.length)*100}%)">` +
+    sl.map(s=>`<div class="slide" onclick="openDetail('${s.p}')"><div class="k">${s.k}</div><div class="pn">${PRODUCTS.find(x=>x.id===s.p).name} &nbsp;›</div><div><span class="badge">최대</span></div><div class="amt">${s.amt}</div>${art(s.art)}<div class="go">바로 신청하기 <span style="border:1.5px solid #222;border-radius:50%;width:20px;height:20px;display:inline-grid;place-items:center;font-size:12px">›</span></div></div>`).join("") +
+    `</div><div class="dots">${sl.map((_,i)=>`<button class="dot ${i===S.slide % sl.length?"on":""}" onclick="event.stopPropagation();setSlide(${i})" aria-label="${i+1}번 배너"></button>`).join("")}</div></div>`;
+  let list = PRODUCTS.filter(p => S.tab==="refi" ? p.type==="REFI" : p.type!=="REFI");
+  if (S.tab==="loan"){
+    h += `<div class="chips">${[["ALL","전체"],["GENERAL","일반대출"],["POLICY","정부대출"],["INST","기관대출"]].map(([k,t])=>`<button class="chip ${S.filter===k?"on":""}" onclick="S.filter='${k}';render()">${t}</button>`).join("")}</div>`;
+    if (S.filter!=="ALL") list = list.filter(p=>p.type===S.filter);
+  }
+  h += list.map((p,i)=>`<div class="pc" data-pid="${p.id}" style="animation-delay:${i*60}ms" onclick="openDetail('${p.id}')"><span class="tag">${TYPE_NM[p.type]} · ${CAT_NM[p.cat]}</span><div class="chev"></div><div class="s">${p.sub}</div><div class="n">${p.name}</div><div class="m">최대<b>${kwon(p.max).replace("원","")}원</b><span class="tr">기간 ${termRange(p)}</span></div><button class="obtn" onclick="event.stopPropagation();openDetail('${p.id}')">${p.type==="REFI"?"갈아타기 신청":"대출신청"}</button></div>`).join("");
+  h += `<div class="foot">이 화면은 기획서 로직을 체험하기 위한 가상 프로토타입입니다.<br>상품명·금리·한도·기준값은 모두 예시이며 실제 금융상품이 아닙니다.</div>`;
+  return `<div class="screen">${h}</div>`;
+}
+function setSlide(i){ S.slide = i; const el = document.getElementById("slides"); if (el){ el.style.transform = `translateX(-${i*100}%)`; document.querySelectorAll(".dot").forEach((d,j)=>d.classList.toggle("on", j===i)); } }
+function startSlides(){ const n = SLIDES[S.tab].length; slideTimer = setInterval(()=>setSlide((S.slide+1) % n), 3800); }
+
+/* ---------- 메뉴 ---------- */
+const MENU_R = ["대출","대환","대출관리"];
+/* 메뉴 창: ≡를 누른 칸(메인 칸)과 같은 위치·폭에 겹쳐 열고, 항목을 누르면 같은 자리에 해당 화면을 보여 줌 */
+function drawer(open, btn){
+  if (open){
+    const cur = {loan:"대출", refi:"대환", manage:"대출관리"}[S.tab];
+    document.getElementById("drR").innerHTML = MENU_R.map(m=>`<button class="${S.screen==="home" && m===cur?"on":""}" onclick="menuGo('${m}')">${m}</button>`).join("");
+    S._menuPane = (btn && btn.closest(".phone")) || document.getElementById(S.screen==="home" ? "app" : "side");
+    placeDrawer();
+  }
+  document.getElementById("drawer").classList.toggle("open", open);
+}
+function placeDrawer(){
+  const d = document.getElementById("drawer"), pane = S._menuPane;
+  if (!pane || !pane.offsetParent) return;
+  const r = pane.getBoundingClientRect();
+  d.style.left = r.left + "px"; d.style.width = r.width + "px";
+}
+window.addEventListener("resize", placeDrawer);
+function menuGo(m){
+  const map = {"대출":"loan","대환":"refi","대출관리":"manage"};
+  drawer(false); S.tab = map[m]; goHome();
+}
+
+/* ---------- 상품 상세 ---------- */
+function openDetail(id, direct){
+  S.pid = id; S.scn = S.scn || "NONE";
+  /* 카드 클릭·카드의 신청 버튼·배너 모두 상품 상세(C01)를 먼저 보여 줌 */
+  S.screen = "detail"; render();
+}
+function renderDetail(){
+  const p = PRODUCTS.find(x=>x.id===S.pid), flow = buildFlow(p);
+  const docs = (requiredDocs(p, "급여소득자").map(d=>d.t).join(", ") || "없음") + (p.cat!=="DEPOSIT"?" <small style='color:#888'>(개인사업자는 소득금액증명원·사업자등록증명)</small>":"");
+  let h = header(TYPE_NM[p.type], "back");
+  h += `<div class="wrap"><div class="big-sub">${p.sub}</div><div class="big-n">${p.name}</div><div class="big-m">최대<b id="cu" data-v="${p.max}">0</b>원<span class="tr">대출 기간 ${termRange(p)}</span></div>
+  <table class="info">
+   <tr><th>대상</th><td>${p.target}</td></tr>
+   <tr><th>대출 기간</th><td>${p.terms.map(t=>t>=12&&t%12===0?t/12+"년":t+"개월").join(", ")}</td></tr>
+   <tr><th>금리 (예시)</th><td>연 ${p.rate[0].toFixed(2)}% ~ ${p.rate[1].toFixed(2)}% <small style="color:#888">(${p.type==="POLICY"?"정책 금리표":p.type==="INST"&&p.sub2==="B"?"협약 금리표":"기준금리 + 가산금리 − 우대금리"})</small></td></tr>
+   <tr><th>상환 방법</th><td>${p.repay.join(", ")}</td></tr>
+   <tr><th>필요 서류</th><td>${docs}</td></tr>
+   <tr><th>관련 서류</th><td>${p.type==="REFI"?docLink("RF",13,"대환대출 상품설명서")+" · "+docLink("RF",15,"거래약정서"):docLink("LN",10,"상품설명서")+" · "+docLink("LN",12,"대출거래약정서")}</td></tr>
+  </table>
+  <div class="sec">이 상품의 진행 순서 <small style="font-weight:400;color:#888">(${TYPE_NM[p.type]} 기획서 구간 코드)</small></div>
+  <div class="flowmap">${["detail",...flow].map((k,i)=>k==="detail"?`<span class="fm"><b>C01</b>상품 선택</span>`:`<span class="fm" style="animation-delay:${i*40}ms"><b>${(STEP[k].code[p.type]||STEP[k].c)}</b>${STEP[k].n}</span>`).join("")}</div>
+  <div class="demo"><b>🎬 체험 고객 선택</b><p>가상 고객을 고르면 고객정보와 제출 서류가 자동으로 채워지고, 정답표(README)와 같은 판정이 나오는지 볼 수 있습니다. 직접 입력해도 됩니다.</p>
+   <select onchange="S.scn=this.value">${Object.entries(SCN).map(([k,v])=>`<option value="${k}" ${S.scn===k?"selected":""}>${v.label}</option>`).join("")}</select></div>
+  </div>
+  <div class="cta"><button class="btn" onclick="startFlow()">${p.type==="REFI"?"갈아타기 신청":"대출신청"}</button></div>`;
+  return `<div class="screen">${h}</div>`;
+}
+function countUp(){
+  const el = document.getElementById("cu"); if (!el) return; const v = +el.dataset.v, t0 = performance.now();
+  const step = t => { const k = Math.min(1,(t-t0)/900), e = 1-Math.pow(1-k,3); el.textContent = kwon(v*e).replace("원",""); if (k<1) requestAnimationFrame(step); else el.textContent = kwon(v).replace("원",""); };
+  requestAnimationFrame(step); setTimeout(()=>{ el.textContent = kwon(v).replace("원",""); }, 1000);
+}
+function startFlow(){ const p = PRODUCTS.find(x=>x.id===S.pid); resetFlow(p); S.screen = "flow"; render(); }
+function goBack(){
+  if (S.screen==="detail"){ goHome(); return; }
+  if (S.screen==="flow"){ if (S.step===0){ S.screen="detail"; render(); } else { S.step--; render(); } }
+}
+
+/* ---------- 흐름 화면 ---------- */
+let NEXT = {label:"다음", ok:true, fn:null}, AFTER = null;
+function renderFlow(){
+  const p = S.product, key = S.flow[S.step], meta = STEP[key];
+  NEXT = {label:"다음", ok:true, fn:null}; AFTER = null;
+  const body = STEPS[key]();
+  const pct = ((S.step+1)/S.flow.length*100).toFixed(0);
+  return `<div class="screen">${header(p.name, "back")}<div class="prog"><i style="width:${pct}%"></i></div>
+   <div class="stepinfo"><span>${S.step+1} / ${S.flow.length} 단계 · ${TYPE_NM[p.type]}</span><span class="code">${meta.c} · ${meta.code[p.type]||""}</span></div>
+   <div class="st-t">${meta.n}</div>${body}</div>
+   <div class="cta">${S.step>0 && key!=="done"?`<button class="btn ghost" onclick="goBack()">이전</button>`:""}<button class="btn" id="nextBtn" ${NEXT.ok?"":"disabled"} onclick="doNext()">${NEXT.label}</button></div>`;
+}
+function afterFlowRender(){ if (AFTER) AFTER(); }
+function doNext(){ if (NEXT.fn && NEXT.fn()===false) return; S.step = Math.min(S.step+1, S.flow.length-1); render(); }
+/* 대출·대환 불가로 더 진행할 수 없을 때: 하단 버튼을 비활성화하지 않고 '처음으로'로 바꿉니다 */
+function stopHere(){ NEXT.label = "처음으로"; NEXT.ok = true; NEXT.fn = () => { goHome(); return false; }; }
+function setNext(ok){ NEXT.ok = ok; const b = document.getElementById("nextBtn"); if (b) b.disabled = !ok; }
+function jumpTo(key){ const i = S.flow.indexOf(key); if (i>=0){ S.step = i; render(); } }
+function seg(name, opts, cur, onpick){ return `<div class="seg">${opts.map(o=>`<button class="${o===cur?"on":""}" onclick="${onpick}('${name}','${o}')">${o}</button>`).join("")}</div>`; }
+function pickP(k,v){ S.profile[k] = isNaN(+v) ? v : +v; render(); }
+function numIn(k, label, unit, div){ const v = S.profile[k]; return `<div class="lbl">${label}</div><div class="unit"><input type="number" inputmode="numeric" value="${div? Math.round(v/div) : v}" oninput="S.profile['${k}']=(+this.value)*${div||1};liveProfile()"><span>${unit}</span></div>`; }
+function anim(list, id, cb, gap){
+  gap = gap || 650; let i = 0;
+  const tick = () => {
+    const el = document.getElementById(id+"-"+i); if (!el){ cb && cb(); return; }
+    el.classList.add("on","run");
+    setTimeout(()=>{ el.classList.remove("run"); el.classList.add(list[i].s || "ok"); el.querySelector(".b").textContent = (list[i].s==="ng"?"✕":list[i].s==="wa"?"!":"✓"); i++; tick(); }, gap);
+  };
+  tick();
+}
+function pipeHtml(list, id){ return `<div class="pipe">${list.map((x,i)=>`<div class="pi" id="${id}-${i}"><div class="b"></div><div class="tx"><b>${x.n}</b><small>${x.t||""}</small></div></div>`).join("")}</div>`; }
+
+const STEPS = {
+/* G01 정책 자격 사전 확인 */
+precheck(){
+  const P = S.policy;
+  const rule = {income: S.product.cat==="MORTGAGE" ? 7e7 : 5e7, assets: 4.5e8};
+  const res = [
+    {k:"무주택", ok:P.homeless, code:"POL-HOME-OWNED", t: P.homeless? "세대원 전원 무주택" : "주택 소유자 있음"},
+    {k:"부부합산 소득", ok:P.hhIncome <= rule.income*(P.married?1.2:1), code:"POL-INCOME-OVER", t:`${kwon(P.hhIncome)} / 기준 ${kwon(rule.income*(P.married?1.2:1))} 이하 (예시)`},
+    {k:"순자산", ok:P.netAssets <= rule.assets, code:"POL-ASSET-OVER", t:`${kwon(P.netAssets)} / 기준 ${kwon(rule.assets)} 이하 (예시)`}
+  ];
+  const all = res.every(r=>r.ok);
+  if (all){ setTimeout(()=>setNext(true)); NEXT.label = "자격 충족 · 다음"; } else stopHere();
+  return `<div class="st-d">조회 동의 전이라 입력값으로만 간단히 확인합니다. 실제 자격은 행정정보로 확정합니다(G04).</div><div class="wrap" style="padding-top:0">
+   <div class="lbl">세대원 전원 무주택인가요?</div>${seg("homeless",["예","아니오"],P.homeless?"예":"아니오","pickPol")}
+   <div class="lbl">혼인 여부</div>${seg("married",["미혼","기혼"],P.married?"기혼":"미혼","pickPol")}
+   <div class="lbl">${P.married?"부부합산":"본인"} 연 소득</div><div class="unit"><input type="number" value="${P.hhIncome/1e4}" onchange="S.policy.hhIncome=this.value*1e4;render()"><span>만원</span></div>
+   <div class="lbl">세대 순자산</div><div class="unit"><input type="number" value="${P.netAssets/1e4}" onchange="S.policy.netAssets=this.value*1e4;render()"><span>만원</span></div>
+   <div class="box">${res.map(r=>`<div class="row" style="padding:6px 0"><span>${r.k}<br><small style="color:#777">${r.t}</small></span><span class="st ${r.ok?"ok":"ng"}">${r.ok?"충족":"미충족"}</span></div>`).join("")}</div>
+   ${all?`<div class="verdict ok"><div class="v">사전 확인 충족</div><p>참고 결과이며, 서류·행정정보 확인 후 확정됩니다.</p></div>`:
+     `<div class="verdict ng"><div class="v">정책 자격 미충족</div><p>${res.filter(r=>!r.ok).map(r=>RC[r.code]).join("<br>")}</p></div><button class="btn" style="width:100%" onclick="convertGeneral()">같은 목적의 일반대출로 전환</button>`}
+  </div>`;
+},
+/* C02 동의 */
+consent(){
+  const p = S.product, R = p.type==="REFI", set = R?"RF":"LN";
+  const items = [
+    {k:"TERMS",t:"여신거래기본약관",req:1,d:[set,1]},
+    {k:"COLLECT",t:"개인(신용)정보 수집·이용",req:1,d:[set,2]},
+    {k:"UID",t:"고유식별정보 처리",req:1,d:[set,2]},
+    {k:"INQ",t:"개인(신용)정보 조회 (신용평가회사·신용정보원)",req:1,d:[set,2]},
+    {k:"PROVIDE",t:"개인(신용)정보 제공 (신용정보원·보증기관·법무사)",req:1,d:[set,2]}
+  ];
+  if (p.type==="POLICY") items.push({k:"ADMIN",t:"행정정보 공동이용 (주민등록·주택 소유·소득)",req:1,d:["LN",19]},{k:"SPOUSE",t:"배우자·세대원 정보 조회 — 배우자 본인 동의 필요",req:S.policy.married?1:0,d:["LN",20]});
+  if (p.type==="INST" && p.sub2==="A") items.push({k:"GUAR",t:"보증기관 개인(신용)정보 제공·보증 신청",req:1,d:["LN",14]});
+  if (p.type==="INST" && p.sub2==="B") items.push({k:"ORG",t:"협약기관 재직정보 조회·신분 변동 통보 수신",req:1,d:["LN",22]});
+  if (R) items.push({k:"MYDATA",t:"마이데이터 개인신용정보 전송요구",req:1,d:["RF",3]},{k:"PAYOFF",t:"기존 금융사 상환 처리 정보 제공",req:1,d:["RF",17]});
+  items.push({k:"SCRAP",t:"공공기관 소득·재직 자동 연동",req:0,d:[set,R?6:4]},{k:"MKT",t:"마케팅 목적 활용",req:0,d:[set,2]});
+  S._consentItems = items;
+  const ok = items.filter(i=>i.req).every(i=>S.consents[i.k]) && (!(p.type==="POLICY" && S.policy.married) || S.policy.spouseSent);
+  setTimeout(()=>setNext(ok));
+  NEXT.fn = () => true;
+  const all = items.every(i=>S.consents[i.k]);
+  return `<div class="st-d">동의가 기록된 뒤에만 조회가 실행됩니다 (main 5.1 동의 게이트). '보기'를 누르면 실제 양식 PDF가 열립니다.</div><div class="wrap" style="padding-top:0">
+   <label class="ck all"><input type="checkbox" ${all?"checked":""} onchange="agreeAll(this.checked)"><span class="t">전체 동의 (선택 항목 포함)</span></label>
+   ${items.map(i=>`<label class="ck"><input type="checkbox" ${S.consents[i.k]?"checked":""} onchange="S.consents['${i.k}']=this.checked;render()"><span class="t"><span class="${i.req?"req":"opt"}">${i.req?"[필수]":"[선택]"}</span>${i.t}</span>${docLink(i.d[0],i.d[1])}</label>`).join("")}
+   ${p.type==="POLICY" && S.policy.married ? `<div class="box"><b>배우자 본인 동의</b><div style="font-size:13px;color:#666;margin:6px 0 10px">배우자 휴대폰으로 동의 요청을 보내고, 배우자가 본인 인증 후 동의해야 진행됩니다 (유효 7일).</div>${S.policy.spouseSent?`<span class="st ok">배우자 동의 완료 (데모)</span>`:`<button class="fbtn" onclick="S.policy.spouseSent=true;toast('배우자 동의가 완료된 것으로 처리했습니다 (데모)');render()">배우자에게 동의 요청 보내기</button>`}</div>`:""}
+  </div>`;
+},
+/* R03 기존 대출 조회 */
+fetch(){
+  NEXT.label = "조회 결과 확인"; setTimeout(()=>setNext(S.fetched));
+  const steps = [{n:"동의 게이트 통과",t:"MYDATA_TRANSFER 동의 확인 → 조회 토큰 발급"},{n:"마이데이터 전송 요구",t:"전송 요구 대상 금융사에 병렬 요청 (타임아웃 10초)"},{n:"CB 대출 현황 교차 확인",t:"마이데이터에 없는 대출이 있는지 확인"},{n:"대출 정보 정규화",t:"RLLM-2로 대출 종류·금리 유형 분류 (숫자는 원본 사용)"}];
+  if (!S.fetched) AFTER = () => anim(steps, "ft", ()=>{ S.fetched = true; render(); });
+  return `<div class="st-d">마이데이터로 다른 금융사의 대출을 가져옵니다.</div><div class="wrap" style="padding-top:0">
+    ${S.fetched ? `<div class="box"><b>조회된 대출 ${S.existing.length}건</b>${S.existing.map(e=>`<div class="row" style="padding:10px 0;border-bottom:1px solid #f1f1f1"><span>${e.lender}<br><small style="color:#777">${e.kind} · 연 ${e.rate}% · 남은 ${e.remain}개월</small></span><b>${kwon(e.bal)}</b></div>`).join("")}</div>`
+      : pipeHtml(steps,"ft")}
+  </div>`;
+},
+/* R04 대상 선택 */
+targets(){
+  const el = e => { const c = []; if (e.delinq) c.push("REFI-DELINQ"); if (e.since < 6) c.push("REFI-TOO-RECENT"); if (e.legal) c.push("REFI-LEGAL-HOLD"); if (e.remain < 6) c.push("REFI-SHORT-REMAIN"); if (e.assetMismatch) c.push("ASSET-MISMATCH"); return c; };
+  S.existing.forEach(e=>e.codes = el(e));
+  const anyOk = S.existing.some((e,i)=>S.targets[i] && !e.codes.length);
+  const allBad = S.existing.every(e=>e.codes.length);
+  if (allBad) stopHere(); else setTimeout(()=>setNext(anyOk));
+  if (!allBad) NEXT.fn = () => { S.existing.forEach((e,i)=>{ if (e.codes.length) S.targets[i] = false; }); };
+  return `<div class="st-d">갈아탈 대출을 고르세요. 대환 가능 조건(REFI-ELIG, 예시 기준)을 바로 확인합니다. ${docLink("RF",4,"대환 대상 대출 확인서")}</div><div class="wrap" style="padding-top:0">
+   ${S.existing.map((e,i)=>`<label class="box" style="display:block;cursor:pointer"><div class="row"><span><input type="checkbox" ${S.targets[i]?"checked":""} ${e.codes.length?"disabled":""} onchange="S.targets[${i}]=this.checked;render()" style="accent-color:var(--blue);width:18px;height:18px;vertical-align:-3px"> <b>${e.lender}</b> ${e.kind}</span><span class="st ${e.codes.length?"ng":"ok"}">${e.codes.length?"대환 불가":"대환 가능"}</span></div>
+     <div class="kv" style="margin-top:8px"><span>잔액 <b>${kwon(e.bal)}</b></span><span>금리 <b>연 ${e.rate}%</b></span><span>실행 후 <b>${e.since}개월</b></span><span>남은 기간 <b>${e.remain}개월</b></span></div>
+     ${e.codes.map(c=>`<div class="rc"><code>${c}</code><span>${RC[c]}</span></div>`).join("")}</label>`).join("")}
+   ${anyOk?`<div class="sum">대환 신청 금액 (잔액 + 예상 중도상환수수료)<div class="big">${kwon(refiAmount())}</div></div>`:""}
+   ${allBad?`<div class="verdict ng"><div class="v">대환 불가</div><p>대환 가능한 대출이 없습니다. 기존 금융사에 <b>금리인하요구권</b>을 쓰는 방법을 안내합니다.</p></div>`:""}
+  </div>`;
+},
+/* C03 고객정보·적합성 */
+profile(){
+  const p = S.product, pr = S.profile, R = p.type==="REFI";
+  if (R && !S._refiTerm){ const rem = Math.max(...refiTargets().map(e=>e.remain), 1); pr.term = p.terms.reduce((a,b)=>Math.abs(b-rem)<Math.abs(a-rem)?b:a, p.terms[0]); S._refiTerm = true; }
+  const newM = R ? 0 : monthly(pr.amount, p.rate[1], pr.term, pr.repay);
+  const excl = R ? refiTargets().reduce((a,e)=>a+e.monthly,0) : 0;
+  const newMR = R ? monthly(refiAmount(), p.rate[1], pr.term, pr.repay) : newM;
+  const burden = (Math.max(0, pr.debtM - excl) + newMR) / Math.max(pr.income/12, 1);
+  const suit = pr.income<=0 && p.cat!=="DEPOSIT" ? "UNSUITABLE" : burden > 0.7 ? "UNSUITABLE" : (pr.delinq1y ? "WARNING" : "SUITABLE");
+  S._suit = {suit, burden};
+  NEXT.fn = () => { if (amtOver()){ toast(`한도금액을 초과하였습니다. (최대 ${kwon(p.max)})`); return false; } if (S._suit.suit==="UNSUITABLE"){ openAdjust(); return false; } S.suitOverride = false; };
+  setTimeout(()=>{ setNext((S._suit.suit!=="UNSUITABLE" || S.suitAck) && !amtOver()); showAmtErr(false); });
+  const colFields = p.cat==="JEONSE" ? numIn("deposit","임차보증금","만원",1e4)+numIn("value","주택 시세","만원",1e4)+numIn("senior","선순위 채권(근저당 등)","만원",1e4)
+    : p.cat==="MORTGAGE" ? numIn("value","주택 시세","만원",1e4)+numIn("price","매매가","만원",1e4)
+    : p.cat==="AUTO" ? numIn("price","차량 가격","만원",1e4) : p.cat==="DEPOSIT" ? numIn("depBal","담보 예금 잔액","만원",1e4) : "";
+  return `<div class="st-d"><span class="law" onclick="lawSheet()">금소법 적합성 원칙</span>에 따른 고객정보확인서입니다. ${docLink(R?"RF":"LN",R?5:3,"양식 보기")}</div><div class="wrap" style="padding-top:0">
+   <div class="lbl">성명</div><input type="text" value="${pr.name}" oninput="S.profile.name=this.value">
+   <div class="lbl">직업</div>${seg("job",["급여소득자","개인사업자","프리랜서","연금소득자"],pr.job,"pickP")}
+   <div class="grid2"><div>${numIn("tenure","재직(사업) 기간","개월")}</div><div>${numIn("income","연 소득(세전)","만원",1e4)}</div></div>
+   <div class="grid2"><div>${numIn("debtM","기존 대출 월 상환액","만원",1e4)}</div><div>${numIn("assets","보유 자산","만원",1e4)}</div></div>
+   <div class="lbl">최근 1년 연체 이력</div>${seg("delinq1y",["없음","있음"],pr.delinq1y?"있음":"없음","pickDel")}
+   ${R?`<div class="sum" style="margin-top:16px">대환 금액은 대상 대출 상환에 필요한 금액으로 자동 설정됩니다<div class="big">${kwon(refiAmount())}</div></div><div class="lbl">희망 대환 기간 <small style="font-weight:400;color:#888">(직접 선택 · 기간에 따라 적합성 다시 판정)</small></div><select onchange="pickP('term',this.value)">${p.terms.map(t=>`<option value="${t}" ${t==pr.term?"selected":""}>${t}개월${t===p.terms.reduce((a,b)=>Math.abs(b-Math.max(...refiTargets().map(e=>e.remain),1))<Math.abs(a-Math.max(...refiTargets().map(e=>e.remain),1))?b:a,p.terms[0])?" (기존 남은 기간과 가장 가까움)":""}</option>`).join("")}</select><div class="box" id="refiTermBox">${refiTermHtml()}</div>`:`<div class="grid2"><div>${numIn("amount",`희망 금액 <small style="font-weight:400;color:#888">(최대 ${kwon(p.max)})</small>`,"만원",1e4)}<div class="err" id="amtErr"></div></div><div><div class="lbl">희망 기간</div><select onchange="pickP('term',this.value)">${p.terms.map(t=>`<option value="${t}" ${t==pr.term?"selected":""}>${t}개월</option>`).join("")}</select></div></div>`}
+   <div class="lbl">상환 방법</div>${seg("repay",p.repay,pr.repay,"pickP")}
+   <div class="lbl">금리 선호</div>${seg("ratePref",["고정금리","변동금리","혼합형","상관없음"],pr.ratePref,"pickP")}
+   ${colFields?`<div class="sec">담보·대상물 정보</div>${colFields}`:""}
+   <div class="box" id="suitBox">${suitHtml()}</div>
+  </div>`;
+},
+/* G04 정책 자격 검증 */
+policycheck(){
+  const P = S.policy, rule = {income: S.product.cat==="MORTGAGE" ? 7e7 : 5e7};
+  const list = [
+    {n:"세대 구성 확인", t:"주민등록 정보 (행정정보 공동이용) · 세대주 확인", s:"ok"},
+    {n:"무주택 확인 (세대원 전원)", t: P.homeless?"주택 소유 0건":"주택 소유 있음 → POL-HOME-OWNED", s:P.homeless?"ok":"ng"},
+    {n:"소득 기준 (부부합산)", t:`국세청 소득 ${kwon(P.hhIncome)}`, s:P.hhIncome<=rule.income*(P.married?1.2:1)?"ok":"ng"},
+    {n:"자산 기준", t:`순자산 ${kwon(P.netAssets)}`, s:P.netAssets<=4.5e8?"ok":"ng"},
+    {n:"중복 이용 확인", t:"정책기관 조회 · 같은 계열 정책대출 없음", s:"ok"}
+  ];
+  const pass = list.every(x=>x.s==="ok");
+  if (!S._pc){ AFTER = () => anim(list, "pc", ()=>{ S._pc = true; render(); }); setTimeout(()=>setNext(false)); }
+  else if (pass) setTimeout(()=>setNext(true)); else stopHere();
+  return `<div class="st-d">고객 진술이 아니라 조회 결과로 판단합니다. 신청일 기준 공고(policy_rule 버전)를 적용합니다.</div><div class="wrap" style="padding-top:0">${pipeHtml(list,"pc")}
+   ${S._pc ? (pass?`<div class="verdict ok"><div class="v">정책 자격 충족</div></div>`:`<div class="verdict ng"><div class="v">정책 자격 미충족</div><p>같은 목적의 일반대출로 바로 전환할 수 있습니다.</p></div><button class="btn" style="width:100%" onclick="convertGeneral()">일반대출로 전환</button>`) : ""}</div>`;
+},
+/* I04-A·I07 보증 */
+guarantee(){
+  const pr = S.profile, base = pr.senior + pr.deposit, ratio = base/pr.value;
+  const ag = [{k:"HUG",fee:0.13,cap:4e8},{k:"HF",fee:0.05,cap:2.22e8},{k:"SGI",fee:0.18,cap:5e8}].map(a=>{
+    const ok = ratio <= 0.9 && pr.deposit <= a.cap*1.25; const amt = Math.min(pr.deposit*0.8, a.cap);
+    const r = estRate(S.product, score(), pr.income); const intr = amt*r/100*2; const fee = amt*a.fee/100*2;
+    return {...a, ok, amt, r, intr, feeAmt:fee, cost:intr+fee};
+  }).sort((a,b)=>a.cost-b.cost);
+  if (!S.inst.agency){ const f = ag.find(a=>a.ok); S.inst.agency = f ? f.k : null; }
+  if (ag.every(a=>!a.ok)) stopHere(); else setTimeout(()=>setNext(!!ag.find(a=>a.ok && a.k===S.inst.agency)));
+  return `<div class="st-d">보증 기준을 먼저 확인하고, 보증료까지 포함한 <b>실질 비용</b>으로 보증기관을 비교합니다 (I08 IV2). 보증료율은 예시입니다.</div><div class="wrap" style="padding-top:0">
+   <div class="box"><div class="row"><span>(선순위 + 보증금) ÷ 시세</span><b style="color:${ratio<=0.9?"var(--ok)":"var(--ng)"}">${(ratio*100).toFixed(0)}%</b></div><div class="bar"><i style="width:${Math.min(100,ratio*100)}%;background:${ratio<=0.9?"var(--ok)":"var(--ng)"}"></i></div><small style="color:#777">기준 90% 이하 (예시)</small></div>
+   ${ag.map((a,i)=>`<div class="reco ${S.inst.agency===a.k?"on":""}" style="animation-delay:${i*80}ms" onclick="${a.ok?`S.inst.agency='${a.k}';render()`:`toast('보증 대상 기준을 충족하지 않습니다')`}">${i===0&&a.ok?`<span class="best">실질 비용 최저</span>`:""}<div class="row"><h4>${a.k} 전세보증</h4><span class="st ${a.ok?"ok":"ng"}">${a.ok?"보증 가능":"보증 불가"}</span></div>
+     <div class="kv"><span>보증 한도 <b>${kwon(a.amt)}</b></span><span>보증료율 <b>연 ${a.fee}%</b></span><span>2년 이자 <b>${kwon(a.intr)}</b></span><span>2년 보증료 <b>${kwon(a.feeAmt)}</b></span></div><div style="margin-top:8px;font-size:14px">실질 비용 <b>${kwon(a.cost)}</b></div></div>`).join("")}
+   ${ag.every(a=>!a.ok)?`<div class="verdict ng"><div class="v">보증 불가</div><p>${RC["COL-DEPOSIT-OVER-VALUE"]}</p></div>`:""}
+   <div class="note">여러 보증기관에 동시에 신청하지 않고, 선택한 한 곳에만 신청합니다 (신용조회 기록 최소화). ${docLink("LN",14,"보증신청·채권양도 동의서")}</div></div>`;
+},
+/* I04-B 소속 확인 */
+affiliation(){
+  const I = S.inst;
+  if (I.checked===false) stopHere(); else setTimeout(()=>setNext(I.checked===true));
+  return `<div class="st-d">협약 금리의 근거라서 고객 진술만으로 확정하지 않습니다. 협약기관 API → 건강보험 → 재직증명서 순서로 확인합니다.</div><div class="wrap" style="padding-top:0">
+   <div class="lbl">협약기관</div><select onchange="S.inst.org=this.value;S.inst.checked=null;render()"><option value="">기관 선택</option>${["(주)가상전자","가상공사","가상대학교병원"].map(o=>`<option ${I.org===o?"selected":""}>${o}</option>`).join("")}</select>
+   <div class="lbl">사번(직원번호)</div><input type="text" value="${I.sabun}" placeholder="예: A123456" oninput="S.inst.sabun=this.value">
+   <div class="lbl">고용 형태</div>${seg("empType",["정규직","계약직"],I.empType,"pickInst")}
+   <button class="fbtn" style="margin-top:16px;width:100%;padding:12px" onclick="checkOrg()">협약기관 재직 확인</button>
+   <div id="orgRes">${I.checked===true?`<div class="verdict ok"><div class="v">재직 확인 완료</div><p>${I.org} · ${I.empType} · 협약 금리 적용 대상</p></div>`:I.checked===false?`<div class="verdict ng"><div class="v">협약 대상 아님</div><p>${RC["ORG-EMP-TYPE"]}</p></div><button class="btn" style="width:100%" onclick="convertGeneral()">일반 신용대출로 전환</button>`:""}</div>
+   <div class="note">${docLink("LN",22,"재직정보 조회·제공 동의서")} · ${docLink("LN",24,"협약대출 특약서")}</div></div>`;
+},
+/* C04 증빙 */
+docs(){
+  const req = requiredDocs(S.product), sc = scen();
+  if (S.scn && S.scn!=="NONE" && !S._scnDocs){ req.forEach(d=>{ S.docs[d.k] = {name:d.sample + ` (가상 고객 ${sc.name})`, size:180000, virtual:true, ok:true}; }); S._scnDocs = true; }
+  const done = req.every(d=>S.docs[d.k] && S.docs[d.k].ok);
+  setTimeout(()=>setNext(true));
+  NEXT.label = done ? "서류 검증 후 심사" : "이대로 심사 요청";
+  NEXT.fn = () => { runEvidence(req); return false; };
+  return `<div class="st-d">공공기관 자동 연동을 먼저 시도하고, 나머지는 직접 파일을 골라 올립니다 (PDF·JPG·PNG, 10MB 이하). ${docLink(S.product.type==="REFI"?"RF":"LN",S.product.type==="REFI"?6:4,"제출 안내서")}</div><div class="wrap" style="padding-top:0">
+   <button class="fbtn" style="width:100%;padding:13px;font-size:14px" onclick="autoLink()">🔗 공공기관 자동 연동 (건강보험·국세청)</button>
+   ${req.map((d,i)=>{ const f = S.docs[d.k]; return `<div class="doc" style="animation-delay:${i*60}ms"><div class="ico">${f&&f.auto?"연동":"PDF"}</div><div class="i"><b>${d.t} ${d.req?'<span class="req">필수</span>':'<span class="opt">선택</span>'}</b><small>${f? (f.auto?"공공기관 연동 완료 · 서류 제출 생략":`${f.name} · ${(f.size/1024).toFixed(0)}KB`) : d.hint}</small>${f?`<span class="st ${f.ok?"ok":"ng"}" style="margin-top:6px">${f.ok?"형식 확인":RC["DOC-INVALID"]}</span>`:""}</div>
+     <label class="fbtn">${f?"다시 선택":"파일 선택"}<input type="file" accept=".pdf,.jpg,.jpeg,.png" hidden onchange="pickFile('${d.k}',this)"></label></div>`; }).join("")}
+   ${S.scn && S.scn!=="NONE" ? `<div class="note">🎬 체험 고객 <b>${sc.name}</b>의 서류가 자동 첨부되었습니다. 파일 선택으로 직접 바꿔 볼 수 있습니다.</div>`:""}
+   <div id="evd"></div></div>`;
+},
+/* C05 심사 */
+review(){
+  S.review = S.review || evaluate();
+  const R = S.review;
+  if (!S._reviewed){ AFTER = () => anim(R.stages, "rv", ()=>{ S._reviewed = true; setNext(true); }, 750); setTimeout(()=>setNext(false)); }
+  NEXT.label = "결과 보기";
+  return `<div class="st-d">네 업무가 같은 심사 파이프라인을 씁니다 (main 6.2의 1~7단계, 수기 심사 분기는 생략). 기준값은 예시입니다.</div><div class="wrap" style="padding-top:0">${pipeHtml(R.stages,"rv")}</div>`;
+},
+/* C06 결과 + 추천 */
+result(){
+  const R = S.review, p = S.product;
+  if (R.res==="REJECTED" || R.res==="DOCS_REQUIRED") return verdictBlock(R);
+  const amt = Math.min(S.profile.amount, R.limit);
+  if (!S.reco){
+    const vars = [{n:"비대면 전용형",d:-0.15,rt:"변동"},{n:"변동금리형",d:0,rt:"변동"},{n:"고정금리형",d:0.3,rt:"고정"}].map(v=>{
+      const r = +(R.rate + v.d).toFixed(2), ti = totalInterest(amt, r, S.profile.term, S.profile.repay), m = monthly(amt, r, S.profile.term, S.profile.repay);
+      return {...v, r, ti, m, pref: (S.profile.ratePref.startsWith(v.rt)||S.profile.ratePref==="상관없음")?1:0.2};
+    });
+    const mn = Math.min(...vars.map(v=>v.ti)), mx = Math.max(...vars.map(v=>v.ti));
+    vars.forEach(v=>{ v.score = 0.4*(1-(v.ti-mn)/(mx-mn+1)) + 0.2 + 0.15*(1-Math.min(v.m/(S.profile.income/12)/0.7,1)) + 0.1*v.pref + 0.15; });
+    vars.sort((a,b)=>b.score-a.score); S.reco = vars;
+  }
+  setTimeout(()=>setNext(true)); NEXT.label = "이 상품으로 진행";
+  NEXT.fn = () => { const v = S.reco[S.sel]; S.chosen = v; S.profile.amount = amt; };
+  AFTER = () => { document.querySelectorAll(".vc").forEach((c,i)=>setTimeout(()=>c.classList.add("pass"), 120*i)); };
+  const V = ["V1 스키마","V2 상품 실재","V3 수치 일치","V4 근거","V5 금지 표현","V6 필수 주의","V7 순위 보존","V8 재계산","V9 적합성"];
+  const extra = p.type==="POLICY"?["GV1 정책 금리","GV2 공고 버전","GV3 의무 고지"]:p.type==="INST"?["IV1 보증료","IV2 실질 비용","IV4 협약 금리"]:[];
+  return `<div class="wrap" style="padding-top:8px">
+   <div class="verdict ${R.res==="APPROVED"?"ok":"wa"}"><div class="v">${R.res==="APPROVED"?"승인":"조건부 승인"}</div><p>승인 한도 <b>${kwon(R.limit)}</b> · 예상 금리 연 ${R.rate.toFixed(2)}%${R.cond.length?"<br>"+R.cond.map(c=>RC[c]).join("<br>")+" → 한도 감액":""}</p></div>
+   <div class="sec">고객님께 권장하는 상품 <small style="font-weight:400;color:#888">총 이자 기준 · 수익성 미반영</small></div>
+   ${S.reco.map((v,i)=>`<div class="reco ${S.sel===i?"on":""}" style="animation-delay:${i*90}ms" onclick="S.sel=${i};document.querySelectorAll('.reco').forEach((e,j)=>e.classList.toggle('on',j===${i}))">${i===0?`<span class="best">조건에 가장 유리</span>`:""}<h4>${p.name.split(" (")[0]} · ${v.n}</h4>
+     <div class="kv"><span>금리 <b>연 ${v.r.toFixed(2)}% (${v.rt})</b></span><span>월 상환 <b>${kwon(v.m)}</b></span><span>총 이자 <b>${kwon(v.ti)}</b></span><span>추천 점수 <b>${(v.score*100).toFixed(0)}</b></span></div>
+     <div style="font-size:13px;color:#444;margin-top:8px;line-height:1.5">${i===0?`후보 중 총 이자가 가장 적습니다(약 ${kwon(v.ti)}).`:`총 이자는 1위보다 약 ${kwon(v.ti-S.reco[0].ti)} 많습니다.`} ${v.rt==="변동"?"<br>⚠ 변동금리는 시장 금리가 오르면 월 상환액이 늘 수 있습니다.":"<br>금리가 고정되어 월 상환액이 바뀌지 않습니다."}${p.type==="POLICY"?"<br>⚠ 정책 의무: 전입·실거주, 추가 주택 취득 금지 (LN-21)":""}</div>
+     <div class="vchips">${[...V,...extra].map(x=>`<span class="vc">${x}</span>`).join("")}</div></div>`).join("")}
+   <div class="note">추천 사유 문장은 LLM-8이 만들고 검증 레이어(V1~V9)를 통과한 경우에만 보여 줍니다. 실패하면 고정 템플릿 문장을 보여 줍니다.</div></div>`;
+},
+/* R08·R09 대환 비교 */
+compare(){
+  const R = S.review, p = S.product;
+  if (R.res==="REJECTED" || R.res==="DOCS_REQUIRED") return verdictBlock(R);
+  const t = refiTargets(), newRate = R.rate, n = S.profile.term, rem = Math.max(...t.map(e=>e.remain));
+  const bal = t.reduce((a,e)=>a+e.bal,0), cost = t.reduce((a,e)=>a+prepayFee(e),0) + (bal>5e7?35000:0);
+  const oldInt = t.reduce((a,e)=>a + (e.bullet? e.bal*e.rate/1200*e.remain : totalInterest(e.bal,e.rate,e.remain,"원리금균등분할")),0);
+  const meth = S.profile.repay;
+  const principal = refiAmount();                              // 잔액 + 중도상환수수료 (조건·금리·완료 화면과 같은 금액)
+  const newInt = totalInterest(principal, newRate, n, meth), oldM = t.reduce((a,e)=>a+e.monthly,0), newM = monthly(principal, newRate, n, meth);
+  const net = oldInt - newInt - cost; let be = 0, acc = 0; for (let m=1;m<=n;m++){ acc += (oldM - newM); if (acc >= cost){ be = m; break; } }
+  const verdict = net > 0 ? "BENEFICIAL" : (oldM-newM > 0 ? "TRADE_OFF" : "NOT_BENEFICIAL");
+  S.cmp = {net, verdict, n, newRate, bal, cost, meth};
+  if (verdict==="BENEFICIAL" || S.override){ setTimeout(()=>setNext(true)); NEXT.label = "대환 진행"; } else stopHere();
+  return `<div class="wrap" style="padding-top:8px">
+   <div class="verdict ${verdict==="BENEFICIAL"?"ok":verdict==="TRADE_OFF"?"wa":"ng"}"><div class="v">${{BENEFICIAL:"갈아타면 이득",TRADE_OFF:"월 부담만 감소",NOT_BENEFICIAL:"갈아타면 손해"}[verdict]}</div><p>순 절감액 <b>${kwon(net)}</b>${be?` · ${be}개월째부터 이득`:""}</p></div>
+   <table class="t cmp"><tr><th>항목</th><th>기존</th><th>대환 후</th></tr>
+    <tr><td>기간</td><td>남은 ${rem}개월</td><td>${n}개월 (고객 선택)</td></tr>
+    <tr><td>금리</td><td>연 ${(t.reduce((a,e)=>a+e.rate*e.bal,0)/bal).toFixed(2)}%</td><td class="g">연 ${newRate.toFixed(2)}%</td></tr>
+    <tr><td>월 납입액</td><td>${won(oldM)}</td><td class="${newM<oldM?"g":"b"}">${won(newM)}</td></tr>
+    <tr><td>남은 총 이자</td><td>${won(oldInt)}</td><td class="${newInt<oldInt?"g":"b"}">${won(newInt)}</td></tr>
+    <tr><td>대환 비용 (중도상환수수료·인지세 예시)</td><td>-</td><td>${won(cost)}</td></tr>
+    <tr><td><b>순 절감액</b></td><td></td><td class="${net>0?"g":"b"}"><b>${won(net)}</b></td></tr></table>
+   <div class="vchips" style="margin-top:12px">${["RV1 절감액 재계산","RV2 판정-문장 일치","RV3 비용 고지","RV4 기간 함정","RV5 불리 대환 미권장","RV6 데이터 최신성"].map(x=>`<span class="vc pass">${x}</span>`).join("")}</div>
+   ${verdict!=="BENEFICIAL"?`<label class="ck" style="margin-top:10px"><input type="checkbox" ${S.override?"checked":""} onchange="S.override=this.checked;render()"><span class="t">불리하다는 고지를 확인했으며 그래도 진행합니다 (refi_override 기록)</span></label>`:""}
+   <div class="note">${docLink("RF",10,"대환대출 비교 안내서 (RF-10)")}</div></div>`;
+},
+/* C07 조건 */
+terms(){
+  const p = S.product, pr = S.profile, R = p.type==="REFI", lim = R ? refiAmount() : Math.min(S.review.limit, p.max);
+  if (!R) pr.amount = Math.min(pr.amount, lim); else pr.amount = Math.round(refiAmount());
+  S.account = S.account || "OO은행 1002-***-123456";
+  setTimeout(()=>setNext(true));
+  return `<div class="st-d">승인 범위 안에서 조건을 고르면 월 상환액과 총 이자가 바로 다시 계산됩니다.</div><div class="wrap" style="padding-top:0">
+   <div class="lbl">대출 금액 ${R?"(대환 대상 상환 금액으로 고정)":`(최대 ${kwon(lim)})`}</div>
+   ${R?`<div class="sum"><div class="big">${kwon(pr.amount)}</div></div>`:`<input type="range" min="${p.min}" max="${lim}" step="1000000" value="${pr.amount}" style="width:100%" oninput="S.profile.amount=+this.value;liveTerms()"><div class="sum"><div class="big" id="tAmt">${kwon(pr.amount)}</div></div>`}
+   <div class="lbl">기간</div><select onchange="S.profile.term=+this.value;liveTerms()">${p.terms.map(t=>`<option value="${t}" ${t==pr.term?"selected":""}>${t}개월</option>`).join("")}</select>
+   <div class="lbl">상환 방법</div>${seg("repay",p.repay,pr.repay,"pickP")}
+   <div class="lbl">매월 납입일</div><select onchange="S.payDay=this.value">${[5,10,15,20,25].map(d=>`<option ${S.payDay==d?"selected":""}>${d}</option>`).join("")}</select>
+   <div class="lbl">자동이체 출금 계좌</div><input type="text" value="${S.account}" oninput="S.account=this.value">
+   ${p.type==="INST"&&p.sub2==="B"?`<label class="ck"><input type="checkbox" ${S.payroll?"checked":""} onchange="S.payroll=this.checked"><span class="t"><span class="opt">[선택]</span>급여공제로 상환 (공제 불가 시 자동이체 전환)</span>${docLink("LN",23)}</label>`:""}
+   <label class="ck"><input type="checkbox" checked disabled><span class="t"><span class="req">[필수]</span>자동이체 출금 동의</span>${docLink(R?"RF":"LN",R?11:8)}</label>
+   <div class="box" id="tLive">${termsLive()}</div></div>`;
+},
+/* C08 금리 확정 */
+pricing(){
+  const p = S.product, pr = S.profile, r0 = S.chosen ? S.chosen.r : (S.cmp ? S.cmp.newRate : S.review.rate);
+  S.prefs = S.prefs || {pay:false, auto:true, card:false};
+  const pref = (S.prefs.pay?0.2:0) + (S.prefs.auto?0.1:0) + (S.prefs.card?0.1:0);
+  const fin = +Math.max(p.rate[0]-0.3, r0 - pref).toFixed(2);
+  S.finalRate = fin; setTimeout(()=>setNext(true)); NEXT.label = "금리 확정";
+  const n = pr.term, P = pr.amount, rows = []; let bal = P;
+  for (let i=1;i<=Math.min(n,12);i++){ const it = bal*fin/1200; let pp = pr.repay==="만기일시상환" ? (i===n?bal:0) : pr.repay==="원금균등분할" ? P/n : monthly(P,fin,n,pr.repay)-it; bal -= pp; rows.push([i, pp, it, pp+it, Math.max(bal,0)]); }
+  const guar = p.type==="INST" && p.sub2==="A" ? P*(({HUG:0.13,HF:0.05,SGI:0.18})[S.inst.agency]||0.13)/100*n/12 : 0;   // 고른 보증기관의 보증료율(예시)
+  const base = p.type==="POLICY" ? "정책 금리표" : p.type==="INST"&&p.sub2==="B" ? "협약 금리표" : `기준금리 ${baseRate().toFixed(2)}% + 가산금리 ${(r0-baseRate()).toFixed(2)}%`;
+  return `<div class="st-d">최종 금리 = ${p.type==="POLICY"?"정책 금리표 − 정책 우대":"기준금리 + 가산금리 − 우대금리"} (상품 상·하한, 법정 최고 금리 이내).</div><div class="wrap" style="padding-top:0">
+   <div class="box"><div class="row"><span>${base}</span><b>연 ${r0.toFixed(2)}%</b></div>
+    ${[["pay","급여 이체",0.2],["auto","자동이체 3건 이상",0.1],["card","카드 사용 월 30만원 이상",0.1]].map(([k,t,v])=>`<label class="ck"><input type="checkbox" ${S.prefs[k]?"checked":""} onchange="S.prefs['${k}']=this.checked;render()"><span class="t">우대: ${t}</span><span>−${v.toFixed(1)}%p</span></label>`).join("")}
+    <div class="row" style="margin-top:10px"><b>최종 금리</b><b style="font-size:24px;color:var(--blue)">연 ${fin.toFixed(2)}%</b></div></div>
+   <div class="kv" style="font-size:14px"><span>월 상환액 <b>${won(monthly(P,fin,n,pr.repay))}</b></span><span>총 이자 <b>${won(totalInterest(P,fin,n,pr.repay))}</b></span>${guar?`<span>보증료(예시) <b>${won(guar)}</b></span><span>실질 비용 <b>${won(totalInterest(P,fin,n,pr.repay)+guar)}</b></span>`:""}</div>
+   <div class="sec">상환 스케줄 (앞 12회) ${docLink(p.type==="REFI"?"RF":"LN",p.type==="REFI"?12:9,"스케줄표 양식")}</div>
+   <table class="t"><tr><th>회차</th><th>원금</th><th>이자</th><th>납입액</th><th>잔액</th></tr>${rows.map(r=>`<tr><td>${r[0]}</td><td>${fmt(r[1])}</td><td>${fmt(r[2])}</td><td>${fmt(r[3])}</td><td>${fmt(r[4])}</td></tr>`).join("")}</table>
+   <div class="note">약속형 우대 조건을 지키지 못하면 다음 금리 변경일에 해당 우대가 빠집니다.</div></div>`;
+},
+/* C09 설명의무 */
+explain(){
+  const p = S.product, R = p.type==="REFI", pr = S.profile;
+  const Q = [["변동금리는 시장 금리가 오르면 월 상환액이 늘어날 수 있다.","O"],["계약서류를 받은 날(또는 실행일)부터 14일 안에는 청약철회를 할 수 있다.","O"],[R?"대환 시 기존 대출의 중도상환수수료는 은행이 대신 내 준다.":"계약일로부터 3년 안에 중도상환해도 수수료는 전혀 없다.","X"]];
+  if (p.type==="POLICY") Q.push(["정책자금 대출 중 추가로 주택을 사면 대출금이 회수될 수 있다.","O"]);
+  const ok = S.scrolled && Q.every((q,i)=>S.quiz[i]===q[1]);
+  setTimeout(()=>setNext(ok)); NEXT.label = "설명을 이해했습니다";
+  return `<div class="st-d">금소법 설명의무: 설명서를 끝까지 읽고 이해 확인 문제를 풀어야 진행됩니다.</div><div class="wrap" style="padding-top:0">
+   <div class="sum"><b>핵심설명서</b><div class="kv" style="margin-top:8px"><span>대출 금액 <b>${kwon(pr.amount)}</b></span><span>기간 <b>${pr.term}개월</b></span><span>최종 금리 <b>연 ${S.finalRate.toFixed(2)}%</b></span><span>월 상환 <b>${won(monthly(pr.amount,S.finalRate,pr.term,pr.repay))}</b></span><span>연체 이자 <b>연 ${(S.finalRate+3).toFixed(2)}%</b></span><span>중도상환수수료 <b>3년 이내 부과</b></span></div></div>
+   <div class="scroll" id="expbox" onscroll="if(this.scrollTop+this.clientHeight>=this.scrollHeight-6&&!S.scrolled){S.scrolled=true;render()}">
+    <b>1. 상품 개요</b><br>${p.name}은(는) ${p.target}를 대상으로 하는 ${CAT_NM[p.cat]} 대출입니다.<br><br>
+    <b>2. 금리</b><br>${p.type==="POLICY"?"정책 금리표에 따르며 공고 변경 시 다음 금리 변경일부터 적용될 수 있습니다.":"기준금리 + 가산금리 − 우대금리로 정합니다. 변동금리는 기준금리 변동 주기마다 다시 정해집니다."}<br><br>
+    <b>3. 상환과 수수료</b><br>중도상환수수료 = 상환 원금 × 수수료율 × 남은 기간 ÷ 대출 기간. 계약일로부터 3년이 지나면 부과하지 않습니다.${R?" 기존 대출의 중도상환수수료는 고객이 부담합니다.":""}<br><br>
+    <b>4. 연체 시 불이익</b><br>지연배상금(약정 금리 + 연 3%p)이 붙고, 연체가 이어지면 기한의 이익이 상실될 수 있습니다.${needsCollateral(p)?" 담보물이 법정 절차로 처분될 수 있습니다.":""}<br><br>
+    ${p.type==="POLICY"?"<b>5. 정책 의무</b><br>실행 후 정해진 기간 안에 전입·실거주해야 하며, 추가 주택을 취득하면 대출금이 회수될 수 있습니다.<br><br>":""}
+    ${p.type==="INST"&&p.sub2==="B"?"<b>5. 협약 특약</b><br>퇴직·휴직·협약 해지 시 일반 금리로 전환되거나 상환 방법을 협의합니다.<br><br>":""}
+    ${p.type==="INST"&&p.sub2==="A"?"<b>5. 보증</b><br>보증료가 별도로 들며, 보증 사고 시 보증기관이 고객에게 구상권을 행사할 수 있습니다.<br><br>":""}
+    <b>고객의 권리</b><br>청약철회권(14일), 금리인하요구권, 위법계약해지권, 자료열람요구권이 있습니다.<br><br><i style="color:#888">— 끝까지 읽었습니다 —</i></div>
+   <div style="font-size:12px;margin-top:6px">${S.scrolled?'<span class="st ok">끝까지 읽음</span>':'<span class="st no">아래로 끝까지 스크롤하세요</span>'} &nbsp; ${docLink(R?"RF":"LN",R?13:10,"상품설명서 PDF")} · ${docLink(R?"RF":"LN",R?14:11,"권리 안내서")}${p.type==="POLICY"?" · "+docLink("LN",21,"의무사항 확인서"):""}</div>
+   <div class="sec">이해 확인</div>
+   ${Q.map((q,i)=>`<div class="q">${i+1}. ${q[0]}<div class="seg"><button class="${S.quiz[i]==="O"?"on":""}" onclick="quiz(${i},'O','${q[1]}')">O</button><button class="${S.quiz[i]==="X"?"on":""}" onclick="quiz(${i},'X','${q[1]}')">X</button>${S.quiz[i]?(S.quiz[i]===q[1]?' <span class="st ok">정답</span>':' <span class="st ng">다시 확인</span>'):""}</div></div>`).join("")}
+  </div>`;
+},
+/* C10 약정 */
+contract(){
+  const p = S.product, R = p.type==="REFI";
+  S.cc = S.cc || [false,false,false,false];
+  const items = ["대출 금액·금리·기간·상환 방법을 확인했습니다.","연체 시 지연배상금과 기한의 이익 상실에 대해 들었습니다.","중도상환수수료와 청약철회권에 대해 들었습니다.","약관과 상품설명서를 받았습니다."];
+  if (R) items.push("대출금은 기존 대출 상환에만 쓰이며, 상환이 실패하면 대환대출이 취소됩니다.");
+  while (S.cc.length < items.length) S.cc.push(false);
+  setTimeout(()=>setNext(S.signed)); NEXT.label = "약정 완료";
+  return `<div class="st-d">약정 직전에 기준금리 변동을 다시 확인합니다. 전자서명은 공통 플랫폼 기능을 호출합니다.</div><div class="wrap" style="padding-top:0">
+   <div class="sum"><div class="kv"><span>계약 상품 <b>${p.name}</b></span><span>금액 <b>${kwon(S.profile.amount)}</b></span><span>금리 <b>연 ${S.finalRate.toFixed(2)}%</b></span><span>기간 <b>${S.profile.term}개월</b></span></div></div>
+   ${items.map((t,i)=>`<label class="ck"><input type="checkbox" ${S.cc[i]?"checked":""} onchange="S.cc[${i}]=this.checked;render()"><span class="t">${t}</span></label>`).join("")}
+   <div class="row" style="margin-top:8px">${docLink(R?"RF":"LN",R?15:12,"거래약정서 PDF")}${p.type==="INST"&&p.sub2==="B"?docLink("LN",24,"협약대출 특약서"):""}</div>
+   <button class="btn" style="width:100%;margin-top:14px" ${S.cc.every(x=>x)&&!S.signed?"":"disabled"} onclick="sign(this)">${S.signed?"✓ 전자서명 완료":"전자서명하기"}</button></div>`;
+},
+/* C11 담보·보증 */
+collateral(){
+  const p = S.product, c = p.cat, R = p.type==="REFI";
+  const L = c==="MORTGAGE" ? (R?[{n:"새 담보 서류 접수·담보 재평가",t:"RF-16"},{n:"법무사 일정 확정",t:"기존 말소와 새 설정을 같은 날 처리"},{n:"말소·설정 등기 동시 접수 준비",t:"상환 후 즉시 접수"}]
+      :[{n:"근저당권 설정계약",t:"LN-13 · 채권최고액 기록"},{n:"법무사 배정",t:"은행 지정 법무사"},{n:"전자등기 접수",t:"잔금일 = 설정 접수일"},{n:"접수번호 확인",t:"설정 접수 확인 후 실행"}])
+    : c==="JEONSE" ? [{n:"보증 신청",t:"선택한 보증기관 한 곳 (LN-14)"},{n:"보증 심사 승인",t:"보증 한도·보증료율 수신"},{n:"보증서 발급",t:"GUARANTEE_ISSUED"},{n:"임대인 채권양도 통지·확인",t:"확인 전 실행 불가"}]
+    : c==="AUTO" ? [{n:"저당권 설정계약",t:"LN-15"},{n:"자동차 저당 등록",t:"자동차등록원부 기재"}]
+    : [{n:"질권설정 승낙",t:"LN-16"},{n:"담보 예금 지급 정지 표시",t:"계정계 질권 코드"}];
+  if (!S._col){ AFTER = () => anim(L, "cl", ()=>{ S._col = true; setNext(true); }); setTimeout(()=>setNext(false)); }
+  return `<div class="st-d">담보·보증 설정이 끝나야 실행할 수 있습니다.</div><div class="wrap" style="padding-top:0">${pipeHtml(L,"cl")}<div class="note">${R?docLink("RF",16,"담보 말소·이전·설정 동의서"):docLink("LN",{MORTGAGE:13,JEONSE:14,AUTO:15,DEPOSIT:16}[c],"설정 서류 PDF")}</div></div>`;
+},
+/* C12 실행 */
+execute(){
+  const p = S.product, R = p.type==="REFI";
+  const pay = {CREDIT:"본인 계좌",JEONSE:"임대인 계좌 (예금주 = 등기부 소유자 확인)",MORTGAGE:"매도인 계좌",AUTO:"판매사 계좌",DEPOSIT:"본인 계좌"}[p.cat];
+  const L = [{n:"계약 상태 확인",t:"CONTRACTED"+(needsCollateral(p)?" + COLLATERAL_SET":"")},{n:"신용 재조회",t:"약정 후 신규 연체·대출 없음"},{n:"지급처 확인",t:R?"기존 금융사 상환 계좌":pay},{n:"FDS 통과",t:"이상 거래 없음"},{n:"실행 가능 시간",t:"계정계·대환 인프라 운영 시간 내"}];
+  const SAGA = R ? [{n:"① 실행일 상환 금액 확정",t:"대환 인프라 상환 조회 → 차액 확인"},{n:"② 대환대출 실행 (지급 보류)",t:"상환 전용 가상 계정에 보관"},{n:"③ 상환 자금 송금 + 상환 요청",t:"대출별 멱등 거래 ID"},{n:"④ 완제 확인 수신",t:"실패 시 송금 반환 → 실행 취소 (보상 거래)"}] : [{n:"대출 계좌 개설·실행",t:"계정계 실행 전문"},{n:"지급 이체",t:pay}];
+  const all = [...L, ...SAGA];
+  if (!S._ex){ AFTER = () => anim(all, "ex", ()=>{ S._ex = true; setNext(true); }, 600); setTimeout(()=>setNext(false)); }
+  NEXT.label = R ? "완제 확인 보기" : "완료";
+  return `<div class="st-d">${R?"새 대출 실행과 기존 대출 상환을 하나의 사가(Saga)로 묶어 처리합니다. 하나라도 실패하면 보상 거래로 되돌립니다.":"실행 직전 체크리스트를 모두 통과해야 실행됩니다."}</div><div class="wrap" style="padding-top:0">${pipeHtml(all,"ex")}<div class="note">${docLink(R?"RF":"LN",17,R?"상환자금 지급 위임장":"대출금 지급 의뢰서")}</div></div>`;
+},
+/* R16 완제 */
+payoff(){
+  setTimeout(()=>setNext(true));
+  return `<div class="st-d">기존 금융사의 완제 확인을 받아야 대환이 끝납니다.</div><div class="wrap" style="padding-top:0">
+   ${refiTargets().map(e=>`<div class="box"><div class="row"><b>${e.lender} ${e.kind}</b><span class="st ok">완제</span></div><div class="kv" style="margin-top:8px"><span>상환 원금 <b>${kwon(e.bal)}</b></span><span>중도상환수수료 <b>${won(prepayFee(e))}</b></span></div></div>`).join("")}
+   ${needsCollateral(S.product)?`<div class="box"><div class="row"><b>기존 담보 말소 · 새 담보 설정</b><span class="st ok">완료</span></div></div>`:""}
+   <div class="note">기존 대출에 연결된 자동이체는 기존 금융사에서 해지해 주세요. ${docLink("RF",18,"완제 확인서")}</div></div>`;
+},
+/* C13 완료 */
+done(){
+  const p = S.product, R = p.type==="REFI", pr = S.profile;
+  if (!S.added){ LOANS.unshift({no:(R?"RA":"LA")+"-2026-"+String(Math.floor(Math.random()*9e5+1e5)),acct:newAcct(),name:p.name,type:p.type,amount:pr.amount,balance:pr.amount,rate:S.finalRate,term:pr.term,repay:pr.repay,start:today,executed:today,status:"ACTIVE"}); S.added = true; }
+  NEXT.label = "내 대출 관리로"; NEXT.fn = () => { S.tab = "manage"; goHome(); return false; };
+  const set = R?"RF":"LN";
+  const docs = R ? [[15,"대환대출 거래약정서"],[13,"상품설명서"],[1,"여신거래기본약관"],[12,"상환 스케줄표"],[14,"권리 안내서"],[18,"완제 확인서"],[19,"실행 완료 통지서"]]
+                 : [[12,"대출거래약정서"],[10,"상품설명서"],[1,"여신거래기본약관"],[9,"상환 스케줄표"],[11,"권리 안내서"],[18,"실행 완료 통지서"]];
+  return `<div class="wrap" style="text-align:center"><div class="okcircle"><svg viewBox="0 0 50 50"><path d="M13 26l8 8 16-17"/></svg></div>
+   <div style="font-size:22px;font-weight:800">${R?"대환이 완료되었습니다":"대출이 실행되었습니다"}</div>
+   <div class="sum" style="text-align:left;margin-top:18px"><div style="font-size:14px;color:#555;margin-bottom:8px">대출 계좌번호 <b style="color:var(--ink)">${LOANS[0].acct}</b></div><div class="kv"><span>금액 <b>${kwon(pr.amount)}</b></span><span>금리 <b>연 ${S.finalRate.toFixed(2)}%</b></span><span>월 상환 <b>${won(monthly(pr.amount,S.finalRate,pr.term,pr.repay))}</b></span><span>청약철회 기한 <b>${ymd(addDays(today,14))}</b></span>${R&&S.cmp?`<span>예상 순 절감 <b>${kwon(S.cmp.net)}</b></span>`:""}</div></div>
+   <div class="sec" style="text-align:left">계약서류 보관함</div>
+   <div style="text-align:left">${docs.map(d=>`<div class="doc"><div class="ico">PDF</div><div class="i"><b>${d[1]}</b><small>${set}-${String(d[0]).padStart(2,"0")}</small></div>${docLink(set,d[0],"열기")}</div>`).join("")}</div>
+   ${R?`<div class="note" style="text-align:left">⚠ 대환대출을 청약철회해도 이미 갚은 기존 대출은 되살아나지 않습니다.</div>`:""}</div>`;
+}
+};
+
+/* ---------- 단계 보조 함수 ---------- */
+function agreeAll(v){ S._consentItems.forEach(i=>S.consents[i.k]=v); render(); }
+function pickPol(k,v){ if (k==="homeless") S.policy.homeless = v==="예"; if (k==="married") S.policy.married = v==="기혼"; render(); }
+function pickDel(k,v){ S.profile.delinq1y = v==="있음"; render(); }
+function pickInst(k,v){ S.inst[k] = v; S.inst.checked = null; render(); }
+function convertGeneral(){
+  const p = S.product, g = PRODUCTS.find(x=>x.type==="GENERAL" && x.cat===p.cat);
+  toast(`일반대출(${g.name})로 전환합니다. 받은 동의·정보는 재사용합니다.`);
+  const keep = {consents:S.consents, profile:S.profile}; S.pid = g.id; resetFlow(g); Object.assign(S, keep); S.screen = "flow"; render();
+}
+function checkOrg(){
+  if (!S.inst.org){ toast("협약기관을 선택하세요"); return; }
+  document.getElementById("orgRes").innerHTML = pipeHtml([{n:"협약기관 재직 확인 API",t:"사번·생년월일로 조회"},{n:"고용 형태·재직 기간 검증",t:"협약 조건과 비교"}],"og");
+  anim([{s:"ok"},{s:S.inst.empType==="정규직"?"ok":"ng"}],"og",()=>{ S.inst.checked = S.inst.empType==="정규직"; render(); });
+}
+function suitHtml(){
+  const s = S._suit || {suit:"SUITABLE", burden:0};
+  const c = s.suit==="SUITABLE"?"ok":s.suit==="WARNING"?"wa":"ng";
+  let h = `<div class="row"><b>적합성 1차 판정 (SUIT-RULE)</b><span class="st ${c}">${{SUITABLE:"적합",WARNING:"주의",UNSUITABLE:"부적합"}[s.suit]}</span></div>
+   <div style="font-size:13px;color:#555;margin-top:6px">상환 부담률 = (기존 월 상환 + 신규 예상 월 상환) ÷ 월 소득 = <b>${(s.burden*100).toFixed(0)}%</b> (기준 70% 이하, 예시)</div>
+   <div class="bar"><i style="width:${Math.min(100,s.burden/0.7*100)}%;background:var(--${c==="ng"?"ng":c==="wa"?"warn":"ok"})"></i></div>`;
+  if (s.suit==="WARNING") h += `<div style="margin-top:8px;font-size:13px;color:var(--warn)">최근 1년 연체 이력이 있어 심사에서 불리할 수 있습니다.</div>`;
+  if (s.suit==="UNSUITABLE") h += `<div style="margin-top:10px;font-size:13px;color:var(--ng);line-height:1.55"><span class="law" onclick="lawSheet()">금소법 적합성 원칙</span>에 따라 현재 조건으로는 상품을 권유할 수 없습니다.</div>
+   <label class="ck" style="border:0;padding-bottom:2px"><input type="checkbox" ${S.suitAck?"checked":""} onchange="ackSuit(this.checked)"><span class="t">대출 업무 진행이 불가할 수 있는 점을 인지하고 있으며, 신용 조회 등 관련 심사 절차 진행에 동의합니다.</span></label>`;
+  h += `<div class="caution">※ 본 결과는 입력한 정보에 따른 결과이므로 심사 결과는 달라질 수 있습니다.</div>`;
+  return h;
+}
+function refiTermHtml(){
+  const p = S.product, pr = S.profile, t = refiTargets(), amt = refiAmount();
+  const rem = Math.max(...t.map(e=>e.remain), 1), oldM = t.reduce((a,e)=>a+e.monthly,0);
+  const newM = monthly(amt, p.rate[1], pr.term, pr.repay), newTi = totalInterest(amt, p.rate[1], pr.term, pr.repay);
+  return `<div class="kv"><span>선택 기간 <b>${pr.term}개월</b></span><span>기존 남은 기간 <b>${rem}개월</b></span>
+    <span>예상 월 상환액 <b>${won(newM)}</b></span><span>기존 대상 월 상환액 <b>${won(oldM)}</b></span>
+    <span>예상 총 이자 <b>${won(newTi)}</b></span><span>월 부담 변화 <b style="color:${newM<=oldM?"var(--ok)":"var(--ng)"}">${newM<=oldM?"−":"+"}${won(Math.abs(newM-oldM))}</b></span></div>
+    <div style="font-size:12px;color:#777;margin-top:8px;line-height:1.5">적합성 판정용 계산은 상품 고시 최고 금리(연 ${p.rate[1].toFixed(2)}%)로 보수적으로 합니다. 실제 금리는 심사 후 정해집니다.${pr.term>rem?"<br>⚠ 기존 남은 기간보다 길게 잡으면 월 부담은 줄어도 총 이자가 늘 수 있습니다 (R09 유불리 비교에서 다시 확인).":""}</div>`;
+}
+function showAmtErr(withToast){
+  const e = document.getElementById("amtErr"); if (!e) return;
+  const over = amtOver(), inp = e.parentElement.querySelector("input");
+  e.textContent = over ? `한도금액을 초과하였습니다. 이 상품의 최대 한도는 ${kwon(S.product.max)}입니다.` : "";
+  e.classList.toggle("on", over); if (inp) inp.classList.toggle("bad", over);
+  if (over && withToast && !S._amtOverShown) toast("한도금액을 초과하였습니다.");
+  S._amtOverShown = over;
+}
+function updateProfileNext(){ if (S.flow && S.flow[S.step]==="profile"){ showAmtErr(true); setNext((S._suit.suit!=="UNSUITABLE" || S.suitAck) && !amtOver()); } }
+function ackSuit(v){ S.suitAck = v; updateProfileNext(); if (v) openAdjust(); }
+function lawSheet(){
+  openSheet(`<h3>금소법 적합성 원칙이란?</h3>
+   <p style="font-size:13px;color:#888;margin:0 0 10px">「금융소비자 보호에 관한 법률」 제17조·제18조 요약 · 정확한 해석은 준법감시 확인 필요</p>
+   <div class="box" style="font-size:14px;line-height:1.65">
+    <b>1. 고객 정보 파악</b><br>은행은 대출을 권유하기 전에 면담·질문으로 고객의 <b>재산 상황, 소득, 부채, 신용, 대출 목적</b> 등을 파악해야 합니다.<br><br>
+    <b>2. 부적합 상품 권유 금지</b><br>파악한 정보에 비추어 고객에게 맞지 않는 상품(예: 상환 부담이 지나치게 큰 대출)은 <b>권유할 수 없습니다.</b><br><br>
+    <b>3. 확인과 보관</b><br>파악한 내용은 고객의 서명 등으로 확인받고, 기록을 보관하며 고객에게 제공합니다.<br><br>
+    <b>4. 고객이 직접 신청하는 경우 (적정성 원칙, 제18조)</b><br>적정성 원칙 대상 상품을 고객이 권유 없이 스스로 신청할 때 상품이 적정하지 않으면, 은행은 그 사실을 알리고 고객의 확인을 받아야 합니다. 이 서비스는 대상이 아닌 대출에도 같은 고지·확인 절차를 적용하며(기획안), 이 화면의 동의 체크가 그 확인 절차입니다.
+   </div>
+   <div class="caution">이 화면의 판정 기준(상환 부담률 70%)은 기획용 예시값입니다.</div>
+   <button class="btn" style="width:100%;margin-top:12px" onclick="closeSheet()">확인</button>`);
+}
+function suitPlan(){
+  const p = S.product, pr = S.profile, R = p.type==="REFI", rate = p.rate[1], r = rate/1200;
+  const excl = R ? refiTargets().reduce((a,e)=>a+e.monthly,0) : 0;
+  const budget = 0.7*pr.income/12 - Math.max(0, pr.debtM - excl);
+  const amt = R ? refiAmount() : pr.amount, n = pr.term, m = pr.repay;
+  let maxAmt = null, minTerm = null, exactTerm = null;
+  if (budget > 0 && !R){
+    let a = m==="만기일시상환" ? budget/r : m==="원금균등분할" ? budget/(1/n + r) : budget*(1-Math.pow(1+r,-n))/r;
+    a = Math.floor(Math.min(a, p.max)/1e6)*1e6;
+    if (a >= p.min) maxAmt = a;
+  }
+  if (budget > 0 && m!=="만기일시상환"){
+    for (let t=1; t<=600; t++){ if (monthly(amt, rate, t, m) <= budget){ exactTerm = t; break; } }
+    minTerm = p.terms.slice().sort((x,y)=>x-y).find(t => monthly(amt, rate, t, m) <= budget) || null;
+  }
+  return {budget, amt, rate, maxAmt, minTerm, exactTerm, m, n, R};
+}
+function openAdjust(){
+  const P = suitPlan(), p = S.product, s = S._suit;
+  const opts = [];
+  opts.push(P.maxAmt ? {k:"A", ok:true, t:`<b>기간 ${P.n}개월 유지 → 금액을 ${kwon(P.maxAmt)} 이하로 조정</b><br><small>월 상환 약 ${won(monthly(P.maxAmt,P.rate,P.n,P.m))} · 현재 ${kwon(P.amt)}에서 ${kwon(P.amt-P.maxAmt)} 줄이기</small>`}
+    : {k:"A", ok:false, t:`<b>금액 조정</b><br><small>${P.R?"대환 금액은 상환 필요 금액으로 고정되어 조정할 수 없습니다.":P.budget<=0?"기존 대출 월 상환액만으로 기준을 넘어 금액을 줄여도 기준 안에 들어올 수 없습니다.":`기간 ${P.n}개월에서는 상품 최소 금액(${kwon(p.min)})으로도 기준을 넘습니다.`}</small>`});
+  opts.push(P.minTerm ? {k:"B", ok:true, t:`<b>금액 ${kwon(P.amt)} 유지 → 기간을 ${P.minTerm}개월로 조정</b><br><small>월 상환 약 ${won(monthly(P.amt,P.rate,P.minTerm,P.m))} · 상품이 허용하는 기간 중 가장 짧은 적합 기간 (계산상 최소 ${P.exactTerm}개월)</small>`}
+    : {k:"B", ok:false, t:`<b>기간 조정</b><br><small>${P.m==="만기일시상환"?"만기일시상환은 기간을 바꿔도 월 이자가 같아 기준 안에 들어올 수 없습니다.":P.budget<=0?"기존 대출 월 상환액만으로 기준을 넘어 기간을 늘려도 기준 안에 들어올 수 없습니다.":P.exactTerm?`계산상 ${P.exactTerm}개월이 필요하지만, 상품 최대 기간(${Math.max(...p.terms)}개월)을 넘습니다.`:"기간을 늘려도 기준 안에 들어올 수 없습니다."}</small>`});
+  opts.push({k:"C", ok:true, t:`<b>조정 없이 현재 조건으로 심사 진행</b><br><small>적합성 부적합 상태로 진행하며, 적정성 원칙에 따른 고지 확인 기록(suitability_override)을 남깁니다. 심사에서 거절될 수 있습니다.</small>`});
+  S._adj = (opts.find(o=>o.ok && o.k!=="C") || opts[2]).k;
+  const html = () => `<h3>적합 기준 안으로 조정하기</h3>
+   <p style="font-size:13px;color:#555;line-height:1.6;margin:4px 0 6px">현재 상환 부담률 <b style="color:var(--ng)">${(s.burden*100).toFixed(0)}%</b> → 기준 70% 이하가 되려면 신규 대출의 월 상환액이 <b>${P.budget>0?won(P.budget):"0원"}</b> 이하여야 합니다. <small style="color:#888">(상품 고시 최고 금리 연 ${P.rate.toFixed(2)}% 기준)</small></p>
+   ${opts.map(o=>`<label class="opt-card ${S._adj===o.k?"on":""} ${o.ok?"":"dis"}" ${o.ok?`onclick="S._adj='${o.k}';document.getElementById('sheetIn').innerHTML=window._adjHtml()"`:""}><input type="radio" name="adj" ${S._adj===o.k?"checked":""} ${o.ok?"":"disabled"}><span>${o.t}</span></label>`).join("")}
+   <div class="caution">※ 본 결과는 입력한 정보에 따른 결과이므로 심사 결과는 달라질 수 있습니다.</div>
+   <div class="sheet-btns"><button class="btn ghost" style="flex:1" onclick="closeSheet()">이전</button><button class="btn" onclick="applyAdjust()">다음</button></div>`;
+  window._adjHtml = html; S._plan = P;
+  openSheet(html());
+}
+function applyAdjust(){
+  const P = S._plan;
+  if (S._adj==="A"){ S.profile.amount = P.maxAmt; S.suitOverride = false; toast(`금액을 ${kwon(P.maxAmt)}으로 조정했습니다`); }
+  else if (S._adj==="B"){ S.profile.term = P.minTerm; S.suitOverride = false; toast(`기간을 ${P.minTerm}개월로 조정했습니다`); }
+  else { S.suitOverride = true; toast("현재 조건으로 심사를 진행합니다 (고지 확인 기록)"); }
+  closeSheet(); S.step = Math.min(S.step+1, S.flow.length-1); render();
+}
+function liveProfile(){
+  const p = S.product, pr = S.profile, R = p.type==="REFI";
+  const excl = R ? refiTargets().reduce((a,e)=>a+e.monthly,0) : 0;
+  const newM = monthly(R?refiAmount():pr.amount, p.rate[1], pr.term, pr.repay);
+  const burden = (Math.max(0,pr.debtM-excl) + newM) / Math.max(pr.income/12,1);
+  S._suit = {suit: pr.income<=0 && p.cat!=="DEPOSIT" ? "UNSUITABLE" : burden>0.7 ? "UNSUITABLE" : pr.delinq1y ? "WARNING" : "SUITABLE", burden};
+  if (S._suit.suit!=="UNSUITABLE") S.suitAck = false;
+  const b = document.getElementById("suitBox"); if (b) b.innerHTML = suitHtml();
+  const rb = document.getElementById("refiTermBox"); if (rb) rb.innerHTML = refiTermHtml();
+  updateProfileNext();
+}
+function termsLive(){
+  const pr = S.profile, r = S.chosen ? S.chosen.r : (S.cmp ? S.cmp.newRate : S.review.rate);
+  const m = monthly(pr.amount, r, pr.term, pr.repay), burden = (pr.debtM + m)/Math.max(pr.income/12,1);
+  return `<div class="kv"><span>월 상환액 <b>${won(m)}</b></span><span>총 이자 <b>${won(totalInterest(pr.amount,r,pr.term,pr.repay))}</b></span><span>적용 금리(예상) <b>연 ${r.toFixed(2)}%</b></span><span>상환 부담률 <b style="color:${burden>0.7?"var(--ng)":"inherit"}">${(burden*100).toFixed(0)}%</b></span></div>${burden>0.7?`<div style="color:var(--ng);font-size:13px;margin-top:8px">상환 부담이 적합성 기준을 넘습니다. 금액이나 기간을 조정하세요.</div>`:""}`;
+}
+function liveTerms(){ const a = document.getElementById("tAmt"); if (a) a.textContent = kwon(S.profile.amount); const l = document.getElementById("tLive"); if (l) l.innerHTML = termsLive(); }
+function quiz(i, v, ans){ S.quiz[i] = v; if (v!==ans) toast("설명서의 해당 부분을 다시 읽어 보세요"); render(); }
+function sign(btn){ btn.disabled = true; btn.textContent = "본인 인증 중…"; setTimeout(()=>{ S.signed = true; toast("전자서명이 완료되었습니다 (데모)"); render(); }, 1200); }
+
+function requiredDocs(p, job){
+  const R = p.type==="REFI", d = [];
+  const biz = (job || (S.profile && S.profile.job)) === "개인사업자";
+  if (p.cat!=="DEPOSIT"){
+    d.push({k:"income",t:biz?"소득금액증명원":"근로소득 원천징수영수증",req:1,auto:1,hint:"발급 1개월 이내, 최신 귀속연도",sample:biz?"공통_소득증빙_소득금액증명원.pdf":"공통_소득증빙_근로소득 원천징수영수증.pdf"});
+    if (!(p.type==="INST" && p.sub2==="B")) d.push({k:"emp",t:biz?"사업자등록증명":"재직증명서",req:1,auto:1,hint:"명의·직인 확인",sample:biz?"공통_사업증빙_사업자등록증명.pdf":"공통_재직증빙_재직증명서.pdf"});
+    d.push({k:"hi",t:"건강보험 자격득실확인서",req:0,auto:1,hint:"자동 연동 시 생략",sample:"공통_재직증빙_건강보험 자격득실확인서.pdf"});
+  }
+  if (p.cat==="JEONSE") d.push({k:"lease",t:R?"임대차계약서 (현재 주택)":"임대차계약서 (확정일자 포함)",req:1,hint:"임대인 = 등기부 소유자, 확정일자",sample:R?"대환_담보_주택 임대차계약서(현재 주택).pdf":"대출_담보_주택 임대차계약서(신규 주택).pdf"},{k:"reg",t:"등기사항전부증명서",req:R?0:1,hint:"선순위 권리 확인",sample:"대출_담보_등기사항전부증명서(신규 주택).pdf"});
+  if (p.cat==="MORTGAGE") d.push(...(R?[{k:"reg",t:"등기사항전부증명서 (보유 주택)",req:1,hint:"가압류 등 법적 제한 확인",sample:"대환_담보_등기사항전부증명서(보유 주택).pdf"}]:[{k:"sale",t:"부동산 매매계약서",req:1,hint:"매매가·잔금일",sample:"대출_담보_부동산 매매계약서.pdf"},{k:"reg",t:"등기사항전부증명서",req:1,hint:"소유자·근저당",sample:"대출_담보_등기사항전부증명서(구입 주택).pdf"}]));
+  if (p.cat==="AUTO") d.push(R?{k:"car",t:"자동차등록원부",req:1,hint:"차량번호·저당 확인",sample:"대환_담보_자동차등록원부(기존 차량).pdf"}:{k:"car",t:"자동차 매매계약서·견적서",req:1,hint:"차량 가격, 정정 여부",sample:"대출_담보_자동차 매매계약서.pdf"});
+  if (p.type==="POLICY") d.push({k:"family",t:"가족관계증명서",req:0,auto:1,hint:"행정정보로 대체 가능",sample:"(행정정보 연동)"});
+  if (R) d.push({k:"bal",t:"기존 대출 잔액증명서",req:0,hint:"마이데이터로 대체 가능",sample:"대환_기존대출_대출 잔액증명서.pdf"});
+  return d;
+}
+function pickFile(k, input){
+  const f = input.files[0]; if (!f) return;
+  const ok = /\.(pdf|jpe?g|png)$/i.test(f.name) && f.size <= 10*1024*1024;
+  S.docs[k] = {name:f.name, size:f.size, ok};
+  toast(ok ? `${f.name} 첨부됨` : "허용되지 않는 형식이거나 10MB를 넘습니다");
+  render();
+}
+function autoLink(){
+  if (!S.consents.SCRAP){ openSheet(`<h3>자동 연동 동의가 필요합니다</h3><p style="font-size:14px;color:#555;line-height:1.6">공공기관 소득·재직 자동 연동은 선택 동의 항목입니다. 동의하면 원천징수영수증·재직증명서·건강보험 서류를 따로 내지 않아도 됩니다.</p><button class="btn" style="width:100%" onclick="S.consents.SCRAP=true;closeSheet();autoLink()">동의하고 연동</button>`); return; }
+  const req = requiredDocs(S.product).filter(d=>d.auto);
+  toast("건강보험·국세청에서 정보를 가져오는 중…");
+  setTimeout(()=>{ req.forEach(d=>S.docs[d.k] = {name:"공공기관 연동", size:0, ok:true, auto:true}); S.autolink = true; toast(`${req.length}건 연동 완료`); render(); }, 900);
+}
+function runEvidence(req){
+  const sc = scen(), defects = [];
+  req.forEach(d=>{ const f = S.docs[d.k]; if (d.req && !f) defects.push("DOC-MISSING"); if (f && !f.ok) defects.push("DOC-INVALID"); });
+  (sc.defects||[]).forEach(c=>defects.push(c));
+  if (S.product.type==="REFI") refiTargets().forEach(e=>{ if (e.docExpired) defects.push("DOC-EXPIRED"); });
+  S.defects = [...new Set(defects)];
+  const list = [{n:"파일 검사",t:"형식·크기·악성 코드"},{n:"OCR",t:"텍스트 추출"},{n:"문서 유형 판별",t:"LLM 분류"},{n:"필드 추출 (LLM-3)",t:"발급일·명의·금액 추출, 신뢰도 0.85 미만은 고객 확인"},{n:"양식 검증",t:"발급일·필수 칸·서명",s:S.defects.some(c=>/DOC-|FIELD|SIGN|CONSENT|MISSING/.test(c))?"wa":"ok"},{n:"명의·일치 검증",t:"명의자·상호·임대인·차량번호",s:S.defects.some(c=>/MISMATCH|ALTERED/.test(c))?"wa":"ok"},{n:"교차 검증",t:"서류 값 ↔ 조회 값 (±10%)"}];
+  const box = document.getElementById("evd");
+  box.innerHTML = `<div class="sec">증빙 처리 파이프라인 (main 5.4)</div>` + pipeHtml(list,"ev");
+  setNext(false); box.scrollIntoView({behavior:"smooth"});
+  anim(list, "ev", ()=>{
+    box.innerHTML += S.defects.length ? `<div class="box"><b>발견된 결함 ${S.defects.length}건</b>${S.defects.map(c=>`<div class="rc"><code>${c}</code><span>${RC[c]}</span></div>`).join("")}</div>` : `<div class="verdict ok"><div class="v">서류 결함 없음</div></div>`;
+    S.review = null; S._reviewed = false;
+    const b = document.getElementById("nextBtn"); b.disabled = false; b.textContent = "심사 시작";
+    b.onclick = () => { S.step++; render(); };
+  }, 420);
+}
+function verdictBlock(R){
+  const ng = R.res==="REJECTED", p = S.product, set = p.type==="REFI"?"RF":"LN";
+  NEXT.label = ng ? "처음으로" : "서류 다시 제출";
+  NEXT.fn = () => { if (ng){ goHome(); return false; } S._scnDocs = true; S.defects = S.defects.filter(c=>!DOC_FIXABLE(c)); S.docs = {}; jumpTo("docs"); return false; };
+  setTimeout(()=>setNext(true));
+  const fix = R.docD.filter(DOC_FIXABLE);
+  return `<div class="wrap" style="padding-top:8px">
+   <div class="verdict ${ng?"ng":"wa"}"><div class="v">${ng?"승인되지 않았습니다":"서류 보완이 필요합니다"}</div><p>${ng?"보완해도 결과가 바뀌지 않는 사유가 있습니다.":"아래 서류를 14일 안에 다시 내면 영향받는 단계부터 재심사합니다."}</p></div>
+   ${R.hard.length?`<div class="sec">거절 사유</div>${R.hard.map(c=>`<div class="rc"><code>${c}</code><span>${RC[c]}</span></div>`).join("")}<div class="note">근거 신용정보 제공 기관: NICE평가정보(가상) / 한국신용정보원. 자동화 평가 결과에 대해 설명을 요구하거나 정보 정정 후 재평가를 요청할 수 있습니다. ${docLink(set,p.type==="REFI"?8:6,"거절사유 통지서")}</div>`:""}
+   ${fix.length?`<div class="sec">${ng?"함께 발견된 서류 결함 (참고)":"보완할 서류"}</div>${fix.map(c=>`<div class="rc"><code>${c}</code><span>${RC[c]}</span></div>`).join("")}`:""}
+   ${ng?`<div class="box"><b>다른 대출 상품 보기</b><div style="font-size:13px;color:#666;margin:6px 0 10px">제휴 금융사 상품 목록을 볼 수 있습니다. 예상 한도를 받으려면 선택 동의가 필요합니다.</div><button class="fbtn" onclick="openSheet(partnerSheet())">제휴사 대출 안내</button></div>`:""}</div>`;
+}
+function partnerSheet(){
+  return `<h3>제휴사 대출 안내</h3><p style="font-size:13px;color:#666">동의 없이: 상품 목록만 표시 / 동의 시: 고른 회사에만 정보 전송 (예상 금리 낮은 순, 수수료 미반영) ${docLink("LN",7,"제3자 제공 동의서")}</p>
+   ${[["가람저축은행(가상)","연 11.9% ~"],["다솜캐피탈(가상)","연 13.5% ~"],["서민금융 상담(정책)","새희망홀씨·햇살론 등 상담"]].map(x=>`<div class="doc"><div class="i"><b>${x[0]}</b><small>${x[1]}</small></div><button class="fbtn" onclick="toast('데모: 제휴사 화면으로 이동')">보기</button></div>`).join("")}<button class="btn" style="width:100%;margin-top:10px" onclick="closeSheet()">닫기</button>`;
+}
+
+/* ---------- 대출관리 (M01~M12) ---------- */
+const monthsBetween = (a,b) => (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
+function renderManage(){
+  return `<div class="screen"><div class="st-d" style="padding-top:16px">실행된 대출을 조회·변경·상환합니다 (대출관리 기획서 M01~M12). 대출·대환 공통.</div>
+   ${LOANS.map((l,i)=>{ const el = monthsBetween(l.start,today), next = addDays(today, 10);
+     return `<div class="acc" style="animation-delay:${i*80}ms"><div class="row"><span class="n">${l.name}</span><span class="st ${l.status==="ACTIVE"?"ok":l.status==="WITHDRAWN"?"no":"wa"}">${{ACTIVE:"정상",WITHDRAWN:"청약철회",PAID_OFF:"완제"}[l.status]}</span></div>
+     <small style="color:#888">${l.no} · ${TYPE_NM[l.type]} · 실행 ${ymd(l.executed)} (${el}개월 경과)</small>
+     <div class="acctno">대출 계좌번호 <b>${l.acct}</b></div>
+     <div class="bal">${won(l.balance)}</div>
+     <div class="kv"><span>금리 <b>연 ${l.rate.toFixed(2)}%</b></span><span>다음 납입 <b>${ymd(next)}</b></span><span>월 납입 <b>${won(monthly(l.amount,l.rate,l.term,l.repay))}</b></span><span>만기 <b>${ymd(addDays(l.start,l.term*30.4))}</b></span></div>
+     ${l.status==="ACTIVE"?`<div class="acts"><button onclick="mSchedule(${i})">상환 스케줄</button><button onclick="mPrepay(${i})">중도상환</button><button onclick="mRateCut(${i})">금리인하요구</button><button onclick="mWithdraw(${i})">청약철회</button><button onclick="mExtend(${i})">기간연장</button><button onclick="mCert(${i})">증명서 발급</button></div>`:""}</div>`; }).join("")}
+   <div class="foot">대출을 신청해서 실행까지 마치면 이 목록에 추가됩니다. 새로 실행한 대출은 14일 안에 청약철회를 체험할 수 있습니다.</div></div>`;
+}
+/* M01 상환 스케줄: 현재 잔액에서 잔액이 0원이 될 때까지 남은 회차를 모두 계산 (표는 6회차까지 보이고 나머지는 스크롤) */
+function fullSchedule(l){
+  const paid = Math.min(Math.max(monthsBetween(l.start, today), 0), l.term - 1);
+  const remain = Math.max(l.term - paid, 1), r = l.rate/1200, rows = [];
+  let bal = l.balance;
+  const pay = l.repay==="원리금균등분할" ? monthly(bal, l.rate, remain, l.repay) : 0;
+  for (let k=1; k<=remain && bal > 0.5; k++){
+    const it = bal*r; let pp;
+    if (l.repay==="만기일시상환") pp = k===remain ? bal : 0;
+    else if (l.repay==="원금균등분할") pp = l.balance/remain;
+    else pp = pay - it;
+    if (k===remain || pp > bal) pp = bal;                      // 마지막 회차에서 잔액을 0원으로 정리
+    bal = Math.max(bal - pp, 0);
+    const due = new Date(l.start); due.setMonth(due.getMonth() + paid + k);
+    rows.push({seq: paid + k, due, pp, it, total: pp + it, bal});
+  }
+  return {paid, remain, rows};
+}
+function mSchedule(i){
+  const l = LOANS[i], sc = fullSchedule(l), rows = sc.rows;
+  const sumP = rows.reduce((a,x)=>a+x.pp,0), sumI = rows.reduce((a,x)=>a+x.it,0);
+  openSheet(`<h3>M01 상환 스케줄</h3>
+   <p style="font-size:13px;color:#666;margin:2px 0 10px">${l.name} · 대출 계좌번호 ${l.acct} · ${l.repay} · 연 ${l.rate.toFixed(2)}%</p>
+   <div class="kv" style="font-size:13px"><span>납입 완료 <b>${sc.paid}회</b></span><span>남은 회차 <b>${rows.length}회</b></span><span>남은 원금 <b>${won(sumP)}</b></span><span>남은 이자(예상) <b>${won(sumI)}</b></span></div>
+   <div class="schedwrap"><table class="t sched"><thead><tr><th>회차</th><th>납입일</th><th>원금</th><th>이자</th><th>납입액</th><th>잔액</th></tr></thead>
+   <tbody>${rows.map(x=>`<tr><td>${x.seq}</td><td>${ymd(x.due).slice(2)}</td><td>${fmt(x.pp)}</td><td>${fmt(x.it)}</td><td>${fmt(x.total)}</td><td>${fmt(x.bal)}</td></tr>`).join("")}</tbody>
+   <tfoot><tr><td>합계</td><td></td><td>${fmt(sumP)}</td><td>${fmt(sumI)}</td><td>${fmt(sumP+sumI)}</td><td>0</td></tr></tfoot></table></div>
+   <div class="note" style="padding:6px 0">${rows.length>6?`↓ 7회차부터는 표 안을 아래로 스크롤해서 확인하세요 (마지막 회차 잔액 0원).`:"마지막 회차에 잔액이 0원이 됩니다."} 변동금리는 금리 변경 시 다시 계산됩니다 (M04).</div>
+   <button class="btn" style="width:100%;margin-top:6px" onclick="closeSheet()">닫기</button>`);
+  // 표 높이를 '머리글 + 6회차 + 합계'에 정확히 맞춰, 7회차부터는 스크롤로 보이게 함
+  const w = document.querySelector(".schedwrap"), th = w.querySelector("thead"), tr = w.querySelector("tbody tr"), tf = w.querySelector("tfoot");
+  if (tr) w.style.maxHeight = (th.offsetHeight + tr.offsetHeight*Math.min(6, rows.length) + tf.offsetHeight + 2) + "px";
+}
+function mPrepay(i){ const l = LOANS[i];
+  openSheet(`<h3>M05 중도상환</h3><p style="font-size:13px;color:#666">수수료 = 상환 원금 × 1.2%(예시) × 남은 기간 ÷ 대출 기간 · 계약 3년 경과 시 면제 ${docLink("LN",25,"신청서")}</p>
+   <div class="lbl">상환 원금</div><div class="unit"><input type="number" id="ppA" value="${Math.round(l.balance/1e4)}" oninput="ppQuote(${i})"><span>만원</span></div><div id="ppQ" class="box"></div>
+   <button class="btn" style="width:100%" onclick="ppDo(${i})">상환 실행</button>`); ppQuote(i); }
+function ppQuote(i){ const l = LOANS[i], a = Math.min(+document.getElementById("ppA").value*1e4, l.balance), el = monthsBetween(l.start,today), rem = Math.max(l.term-el,0);
+  const fee = el>=36 ? 0 : a*0.012*rem/l.term, it = l.balance*l.rate/100*15/365;
+  document.getElementById("ppQ").innerHTML = `<div class="kv"><span>상환 원금 <b>${won(a)}</b></span><span>경과 이자(15일, 예시) <b>${won(it)}</b></span><span>중도상환수수료 <b>${won(fee)}</b>${el>=36?" (면제)":""}</span><span>상환 총액 <b>${won(a+it+fee)}</b></span></div><div class="vchips"><span class="vc pass">독립 재계산 일치 (V8)</span></div>`; }
+function ppDo(i){ const l = LOANS[i], a = Math.min(+document.getElementById("ppA").value*1e4, l.balance); l.balance -= a; if (l.balance<=0){ l.balance = 0; l.status = "PAID_OFF"; toast("완제되었습니다. 담보 말소·자동이체 해지를 진행합니다 (M11)"); } else toast("일부 상환이 반영되어 스케줄을 다시 만들었습니다"); closeSheet(); render(); }
+function mRateCut(i){ const l = LOANS[i];
+  openSheet(`<h3>M06 금리인하요구</h3><p style="font-size:13px;color:#666">신청일로부터 10영업일 이내에 결과를 알려드립니다. ${docLink("LN",26,"신청서")}</p>
+   ${["취업·이직","승진·소득 증가","재산 증가·부채 감소","신용평점 상승"].map((t,k)=>`<label class="ck"><input type="checkbox" class="rcR"><span class="t">${t}</span></label>`).join("")}
+   <div class="doc"><div class="ico">PDF</div><div class="i"><b>증빙 서류</b><small id="rcF">원천징수영수증, 재직증명서 등</small></div><label class="fbtn">파일 선택<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" onchange="document.getElementById('rcF').textContent=this.files[0]?this.files[0].name:''"></label></div>
+   <div id="rcRes"></div><button class="btn" style="width:100%" onclick="rcDo(${i})">신청</button>`); }
+function rcDo(i){ const l = LOANS[i], any = [...document.querySelectorAll(".rcR")].some(c=>c.checked);
+  if (!any){ toast("사유를 하나 이상 선택하세요"); return; }
+  const list = [{n:"증빙 처리 (LLM-3 추출)",t:"결함 코드 확인"},{n:"신용정보 재조회",t:"동의 확인 후 조회"},{n:"신용평가 단계 재실행",t:"새 등급 산출"}];
+  document.getElementById("rcRes").innerHTML = pipeHtml(list,"rc");
+  anim(list,"rc",()=>{ const okk = l.rate > 4.5; if (okk){ l.rate = +(l.rate-0.3).toFixed(2); }
+    document.getElementById("rcRes").innerHTML += okk?`<div class="verdict ok"><div class="v">수용</div><p>다음 이자 계산 기간부터 연 ${l.rate.toFixed(2)}% 적용</p></div>`:`<div class="verdict wa"><div class="v">불수용</div><p>새 등급의 가산금리가 현재보다 낮지 않습니다.</p></div>`; render(); }, 600); }
+function mWithdraw(i){ const l = LOANS[i], dl = addDays(l.executed,14), ok = today <= dl;
+  openSheet(`<h3>M07 청약철회</h3><p style="font-size:13px;color:#666">계약서류 수령일·실행일 중 늦은 날 + 14일 = <b>${ymd(dl)}</b> ${docLink("LN",27,"신청서")}</p>
+   ${ok?`<div class="box"><div class="kv"><span>대출 원금 <b>${won(l.amount)}</b></span><span>약정 이자(예시) <b>${won(l.amount*l.rate/100*3/365)}</b></span><span>부대비용 <b>${won(l.amount>5e7?35000:0)}</b></span><span>중도상환수수료 <b>0원</b></span></div></div>${l.type==="REFI"?`<div class="verdict wa"><p>대환대출을 철회해도 기존 대출은 되살아나지 않습니다. 대출금 전액을 직접 돌려주어야 합니다.</p></div>`:""}<button class="btn" style="width:100%" onclick="LOANS[${i}].status='WITHDRAWN';closeSheet();toast('청약철회가 접수되었습니다');render()">철회 신청</button>`
+       :`<div class="verdict ng"><div class="v">철회 기한 경과</div><p>중도상환(M05)을 이용할 수 있습니다.</p></div><button class="btn" style="width:100%" onclick="closeSheet()">닫기</button>`}`); }
+function mExtend(i){ const l = LOANS[i];
+  openSheet(`<h3>M08 기간연장</h3><p style="font-size:13px;color:#666">연장 시점에 다시 심사합니다 (결격·신용·DSR·담보). ${docLink("LN",28,"신청서")}</p><div class="lbl">연장 기간</div><select id="exM"><option value="12">12개월</option><option value="24">24개월</option></select><div id="exR"></div><button class="btn" style="width:100%;margin-top:12px" onclick="exDo(${i})">연장 신청</button>`); }
+function exDo(i){ const l = LOANS[i], m = +document.getElementById("exM").value, list = [{n:"결격 확인",t:"연체 없음"},{n:"신용 재평가",t:"등급 유지"},{n:"DSR 재계산",t:"기준 이내"},{n:"변경 약정·새 스케줄",t:"교부"}];
+  document.getElementById("exR").innerHTML = pipeHtml(list,"exx"); anim(list,"exx",()=>{ l.term += m; toast(`만기가 ${m}개월 연장되었습니다`); setTimeout(()=>{ closeSheet(); render(); }, 700); }, 550); }
+function mCert(i){ const l = LOANS[i];
+  openSheet(`<h3>M10 증명서 발급</h3>${["대출 잔액증명서","이자 납입증명서","완제 확인서"].map((t,k)=>`<div class="doc"><div class="ico">PDF</div><div class="i"><b>${t}</b><small>발급번호 CT-${l.no}-${k+1} · 해시 기록</small></div><button class="fbtn" ${k===2&&l.status!=="PAID_OFF"?"disabled":""} onclick="toast('${t} 발급 (데모)')">발급</button></div>`).join("")}<button class="btn" style="width:100%;margin-top:10px" onclick="closeSheet()">닫기</button>`); }
+
+/* 화면 보기 방식: single = 한 화면에서 메인 ↔ 상세·신청 전환(기본), split = 좌우 분할 */
+function setView(v){
+  S.view = v === "split" ? "split" : "single";
+  document.body.classList.toggle("single", S.view === "single");
+  const a = document.getElementById("vwSingle"), b = document.getElementById("vwSplit");
+  if (a) a.classList.toggle("on", S.view === "single"); if (b) b.classList.toggle("on", S.view === "split");
+  try { localStorage.setItem("loanProtoView", S.view); } catch(e) {}
+  window.scrollTo(0, 0);
+}
+let savedView = "single"; try { savedView = localStorage.getItem("loanProtoView") || "single"; } catch(e) {}
+setView(savedView);
+S.scn = "NONE"; S.payDay = 25;
+render();
+</script>
+</body>
+</html>
