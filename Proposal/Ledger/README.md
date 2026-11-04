@@ -22,6 +22,7 @@
 | 가계부 기획안 HTML | [06_plan_html.jpg](screenshots/06_plan_html.jpg) |
 | TIL·티스토리용 HTML 미리보기 | [07_tistory_html.jpg](screenshots/07_tistory_html.jpg) |
 | 노션 TIL 게시 화면 | [08_notion_page.jpg](screenshots/08_notion_page.jpg) |
+| 티스토리 공개 글 화면 | [09_tistory_public.jpg](screenshots/09_tistory_public.jpg) |
 
 ## 실행
 
