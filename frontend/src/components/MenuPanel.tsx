@@ -1,18 +1,19 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
-// Sub-items are placeholders: every item links to its feature page until detail pages exist.
-const menu = [
+type Category = { label: string; to: string; items: { label: string; to: string }[] }
+
+const menu: Category[] = [
   { label: '계좌', to: '/account', items: [] },
   {
     label: '카드',
     to: '/card',
     items: [
-      '내 카드 목록·상세',
-      '이용내역 조회',
-      '청구·결제 예정 금액',
-      '카드 분실·정지·재개',
-      '한도 조회·변경',
+      { label: '내 카드 목록·상세', to: '/card' },
+      { label: '이용내역 조회', to: '/card/transactions' },
+      { label: '청구·결제 예정 금액', to: '/card/billing' },
+      { label: '카드 분실·정지·재개', to: '/card/security' },
+      { label: '한도 조회', to: '/card/limit' },
     ],
   },
 ]
@@ -64,9 +65,9 @@ export default function MenuPanel({ onClose }: { onClose: () => void }) {
         </ul>
         <ul className="flex-1 pl-5">
           {active.items.map((item) => (
-            <li key={item} className="border-b border-gray-200 last:border-b-0">
-              <Link to={active.to} onClick={onClose} className="block py-4 text-sm font-bold text-gray-900">
-                {item}
+            <li key={item.label} className="border-b border-gray-200 last:border-b-0">
+              <Link to={item.to} onClick={onClose} className="block py-4 text-sm font-bold text-gray-900">
+                {item.label}
               </Link>
             </li>
           ))}

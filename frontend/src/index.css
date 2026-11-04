@@ -10,6 +10,10 @@
   --color-sky: #5ea6e4;
   --color-pill-active: #ededff;
   --color-pill-active-border: #9a9aee;
+  --color-status-suspended: #b45309;
+  --color-status-lost: #b91c1c;
+  --color-status-terminated: #6b7280;
+  --color-warning: #b91c1c;
   --font-sans: 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', system-ui, sans-serif;
 }
 
