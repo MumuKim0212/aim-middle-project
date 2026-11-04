@@ -8,6 +8,19 @@
 - [4가지 모드 체험 HTML](가계부_4가지_모드_체험.html): 말투·화면 전환과 간단한 가계부 기능
 - [디자인 3종 비교 HTML](가계부_디자인_3종_비교.html): 지옥문, 일반 은행형, 귀여운 저금통형 이미지 비교
 - `assets/`: 두 HTML에서 공통으로 사용하는 이미지
+- `screenshots/`: 네 가지 말투 모드, 디자인 비교, 기획안과 TIL HTML의 실제 브라우저 캡처
+
+## 화면 캡처
+
+| 화면 | 캡처 |
+|---|---|
+| 싸가지 모드 | [01_roast.jpg](screenshots/01_roast.jpg) |
+| 기본 모드 | [02_basic.jpg](screenshots/02_basic.jpg) |
+| 착한 모드 | [03_kind.jpg](screenshots/03_kind.jpg) |
+| 숫자만 모드 | [04_numbers.jpg](screenshots/04_numbers.jpg) |
+| 디자인 3종 비교 | [05_design_comparison.jpg](screenshots/05_design_comparison.jpg) |
+| 가계부 기획안 HTML | [06_plan_html.jpg](screenshots/06_plan_html.jpg) |
+| TIL·티스토리용 HTML 미리보기 | [07_tistory_html.jpg](screenshots/07_tistory_html.jpg) |
 
 ## 실행
 
