@@ -21,6 +21,7 @@
 | 디자인 3종 비교 | [05_design_comparison.jpg](screenshots/05_design_comparison.jpg) |
 | 가계부 기획안 HTML | [06_plan_html.jpg](screenshots/06_plan_html.jpg) |
 | TIL·티스토리용 HTML 미리보기 | [07_tistory_html.jpg](screenshots/07_tistory_html.jpg) |
+| 노션 TIL 게시 화면 | [08_notion_page.jpg](screenshots/08_notion_page.jpg) |
 
 ## 실행
 
