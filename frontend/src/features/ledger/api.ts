@@ -15,6 +15,8 @@ export type Summary = {
     ratio: number | null
     over: boolean
   }[]
+  /** 예시 금액도 DB 에서 계산해서 내려온다(질문 칩·입력칸 예시·시뮬레이션 버튼) */
+  examples: { category: string; typical: number; large: number }
   account: { id: string; bankName: string; masked: string } | null
   balance: {
     current: number
@@ -50,14 +52,16 @@ export const checkPayment = (amount: number, category: string, record: boolean):
     body: JSON.stringify({ amount, category, record }),
   }).then((r) => json<Check>(r))
 
-export const fetchMode = (): Promise<Mode> =>
-  fetch('/api/ledger/settings').then((r) => json<{ mode: Mode }>(r)).then((d) => d.mode)
+export type Settings = { mode: Mode; roastLevel: number }
 
-export const saveMode = (mode: Mode): Promise<unknown> =>
+export const fetchSettings = (): Promise<Settings> => fetch('/api/ledger/settings').then((r) => json<Settings>(r))
+
+/** 바꿀 것만 보낸다. roastLevel 은 싸가지 모드의 욕설 강도(1 순한맛 / 2 보통 / 3 매운맛). */
+export const saveSettings = (patch: Partial<Settings>): Promise<unknown> =>
   fetch('/api/ledger/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify(patch),
   }).then((r) => json<unknown>(r))
 
 // ───────── 소비 내역 ─────────
@@ -116,3 +120,78 @@ export const saveBudget = (total: number, categories: Record<string, number>) =>
   send('/api/ledger/budget', 'PUT', { total, categories })
 
 export const savePlanned = (id: string, amount: number) => send(`/api/ledger/planned-outflows/${id}`, 'PUT', { amount })
+
+// ───────── 물어보기(대화) ─────────
+export type Intent = 'purchase' | 'balance' | 'budget' | 'last' | 'prev2' | 'chat'
+export type History = { month: string; spent: number; delta: number; topName: string; topAmount: number }
+/** 서버가 해석·계산한 질문 한 건. 답변 문장은 모드(말투)에 따라 화면에서 만든다. */
+export type Entry = {
+  id?: string
+  text: string
+  intent: Intent
+  amount: number | null
+  category: string
+  check?: Check | null
+  history?: History | null
+  /** LLM 이 쓴 답변(서버 검증 통과분). 없으면 화면이 템플릿 문장을 쓴다. */
+  answer?: { text: string; mode: Mode | null; source: string } | null
+}
+
+export const fetchChat = (): Promise<Entry[]> =>
+  fetch('/api/ledger/chat').then((r) => json<{ entries: Entry[] }>(r)).then((d) => d.entries)
+
+export type StreamHandlers = {
+  onMeta?: (entry: Entry) => void
+  /** 답변 글자 조각이 도착할 때마다 */
+  onDelta: (text: string) => void
+  /** 저장까지 끝난 최종 대화 한 건. answer 가 없으면 화면이 템플릿 문장을 쓴다. */
+  onDone: (entry: Entry) => void
+}
+
+/**
+ * 질문을 보내고 답변을 SSE 로 받는다(meta → delta* → done).
+ * mode·roastLevel 은 화면에 보이는 값이다. 서버가 그 말투와 욕설 강도로 답한다.
+ */
+export async function streamChat(text: string, mode: Mode, roastLevel: number, h: StreamHandlers): Promise<void> {
+  const res = await fetch('/api/ledger/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, mode, roastLevel }),
+  })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let finished = false
+
+  const dispatch = (block: string) => {
+    let event = ''
+    let data = ''
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data += line.slice(5).trim()
+    }
+    if (!event || !data) return
+    const payload = JSON.parse(data)
+    if (event === 'meta') h.onMeta?.(payload as Entry)
+    else if (event === 'delta') h.onDelta((payload as { t: string }).t)
+    else if (event === 'done') {
+      finished = true
+      h.onDone(payload as Entry)
+    } else if (event === 'error') throw new Error((payload as { code?: string }).code ?? 'STREAM_ERROR')
+  }
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let i: number
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, i)
+      buf = buf.slice(i + 2)
+      dispatch(block)
+    }
+  }
+  if (!finished) throw new Error('STREAM_ENDED')
+}

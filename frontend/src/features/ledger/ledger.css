@@ -93,7 +93,7 @@
 
 /* 물어보기 */
 .lg-chatlog { display: grid; gap: 10px; margin-top: 11px; }
-.lg-pair { display: grid; gap: 10px; }
+.lg-pair { display: grid; gap: 10px; scroll-margin-bottom: 140px; }
 .lg-msg { max-width: 91%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--ink); font-size: 11px; line-height: 1.55; }
 .lg-msg.user { justify-self: end; border-color: var(--accent); background: var(--accent); color: #fff; }
 .lg-msg small { display: block; margin-bottom: 3px; color: var(--accent); font-size: 9px; font-weight: 850; }
@@ -140,3 +140,36 @@
 .lg[data-mode='numbers'] .lg-report > div { border-radius: 0; box-shadow: 3px 3px 0 #abc8bc; }
 .lg[data-mode='roast'] .lg-field :is(input, select) { border-radius: 2px; }
 .lg[data-mode='kind'] .lg-field :is(input, select) { border-radius: 16px; }
+
+/* 답변 생성 중 */
+.lg-msg.thinking { color: var(--muted); }
+.lg-chat input:disabled { opacity: 0.6; }
+.lg-chat button:disabled, .lg-quick button:disabled { opacity: 0.5; cursor: default; }
+
+/* 입력칸 예시(placeholder)는 실제 입력값과 헷갈리지 않게 연하게 */
+.lg input::placeholder { color: var(--muted); opacity: 0.4; }
+.lg-chat input::placeholder { opacity: 0.45; }
+
+/* 내용이 짧아도 채팅바는 화면 맨 아래에 붙는다 */
+.lg { display: flex; flex-direction: column; }
+.lg > * { flex: none; }
+.lg > .lg-chatbar { margin-top: auto; }
+
+/* 욕설 강도(싸가지 모드에서만 보인다) */
+.lg-level { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.lg-level > span { margin-right: 2px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.lg-level button { padding: 6px 11px; border: 1px solid var(--border); border-radius: 20px; background: var(--panel); color: var(--muted); font-size: 11px; font-weight: 800; }
+.lg-level button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+
+/* 답변을 기다리는 동안: 돌아가는 스피너 + 반짝이는 문구 / 글자가 찍히는 동안 깜빡이는 커서 */
+.lg-thinking { display: inline-flex; align-items: center; }
+.lg-spinner { width: 15px; height: 15px; margin-right: 8px; border: 2px solid var(--border); border-top-color: var(--accent); border-right-color: var(--accent); border-radius: 50%; animation: lg-spin 0.8s linear infinite; }
+.lg-shimmer { background: linear-gradient(90deg, var(--muted) 25%, var(--ink) 50%, var(--muted) 75%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: lg-shimmer 1.5s linear infinite; }
+.lg-caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 2px; background: var(--accent); vertical-align: -2px; animation: lg-blink 0.9s steps(2, start) infinite; }
+@keyframes lg-spin { to { transform: rotate(360deg); } }
+@keyframes lg-shimmer { from { background-position: 250% 0; } to { background-position: -250% 0; } }
+@keyframes lg-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) {
+  .lg-spinner, .lg-shimmer, .lg-caret { animation: none; }
+  .lg-shimmer { color: var(--muted); background: none; }
+}

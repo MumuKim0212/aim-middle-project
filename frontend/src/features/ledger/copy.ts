@@ -1,7 +1,9 @@
 // 모드별 문구. 가계부_4가지_모드_체험.html 의 문구를 그대로 옮겼다.
 // 판정(가능/보류, 위험 단계)은 서버가 계산하고, 여기서는 말투만 입힌다.
 import { won } from '../../format'
-import type { Check, Level, Mode, Summary } from './api'
+import type { Check, Entry, Level, Mode, Summary } from './api'
+
+export type { Entry, History, Intent } from './api'
 
 export const MODES: Mode[] = ['roast', 'basic', 'kind', 'numbers']
 export const MODE_LABEL: Record<Mode, string> = { roast: '싸가지', basic: '기본', kind: '착한', numbers: '숫자만' }
@@ -34,12 +36,14 @@ export const REWARD_TITLE: Record<Mode, string> = {
   kind: '오늘 참으면 칭찬 스탬프 +1',
   numbers: '예산 절감 시뮬레이션',
 }
-export const REWARD_BODY: Record<Mode, string> = {
-  roast: '배달 한 번 참으면 이번 주 식비 방어 성공. 버텨 봐.',
-  basic: '배달을 한 번 줄이면 이번 주 식비에 여유가 생깁니다.',
-  kind: '오늘 배달을 아끼면 칭찬 스탬프 +1! 잘할 수 있어.',
-  numbers: '배달 20,000원 미사용 시 예상 잔액 차이 +20,000원.',
-}
+/** typical: 평소 배달 한 번 금액(DB 에서 계산). 금액을 화면에 박아 두지 않는다. */
+export const rewardBody = (mode: Mode, typical: number): string =>
+  ({
+    roast: '배달 한 번 참으면 이번 주 식비 방어 성공. 버텨 봐.',
+    basic: '배달을 한 번 줄이면 이번 주 식비에 여유가 생깁니다.',
+    kind: '오늘 배달을 아끼면 칭찬 스탬프 +1! 잘할 수 있어.',
+    numbers: `배달 ${won(typical)} 미사용 시 예상 잔액 차이 +${won(typical)}.`,
+  })[mode]
 
 export type Metrics = {
   budget: number
@@ -93,17 +97,6 @@ export function riskText(mode: Mode, level: Level, m: Metrics): string {
 
 // ───────────── 물어보기 ─────────────
 
-export type Intent = 'purchase' | 'balance' | 'budget' | 'last' | 'prev2'
-export type History = { month: string; spent: number; delta: number; topName: string; topAmount: number }
-export type Entry = {
-  text: string
-  intent: Intent
-  amount: number | null
-  category: string
-  check?: Check
-  history?: History
-}
-
 export function answerFor(mode: Mode, e: Entry, s: Summary): string {
   const m = metrics(s)
 
@@ -115,6 +108,15 @@ export function answerFor(mode: Mode, e: Entry, s: Summary): string {
       basic: `${month} 지출은 ${won(spent)}입니다. 전월 대비 ${more ? `${won(delta)} 증가` : `${won(-delta)} 감소`}했고, 최대 지출 항목은 ${topName}입니다.`,
       kind: `${month}에는 ${won(spent)} 썼어. ${delta < 0 ? '전월보다 아꼈네, 잘했어!' : '전월보다 늘었지만 같이 살펴보자.'} 가장 큰 항목은 ${topName}이야.`,
       numbers: `${month} 지출 ${won(spent)} / 전월 대비 ${more ? '+' : ''}${won(delta)} / 최대 항목 ${topName} ${won(topAmount)}`,
+    }[mode]
+  }
+
+  if (e.intent === 'chat') {
+    return {
+      roast: '뭐라는 거야. 돈 얘기나 해. 잔액, 예산, 지난달 지출 같은 거 물어보라고.',
+      basic: '가계부에 대해 물어봐 주세요. 예: 잔액, 남은 예산, 지난달 지출, 결제 가능 여부',
+      kind: '무슨 말인지 잘 모르겠어. 잔액이나 예산, 결제해도 되는지 물어봐 줄래?',
+      numbers: '입력 해석 불가. 예: 잔액 / 예산 / 지난달 / 금액 결제',
     }[mode]
   }
 

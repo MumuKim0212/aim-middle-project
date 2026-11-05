@@ -53,7 +53,7 @@ export default function HistoryTab({ summary, reload }: Props) {
         {data && <Report data={data} onChanged={refresh} />}
       </div>
 
-      <AddForm onAdded={async (m) => { setMonth(m); await refresh() }} />
+      <AddForm summary={summary} onAdded={async (m) => { setMonth(m); await refresh() }} />
       <SettingsForm summary={summary} onSaved={refresh} />
     </section>
   )
@@ -111,7 +111,7 @@ function Report({ data, onChanged }: { data: TxList; onChanged: () => Promise<vo
   )
 }
 
-function AddForm({ onAdded }: { onAdded: (month: string) => Promise<void> }) {
+function AddForm({ summary, onAdded }: { summary: Summary; onAdded: (month: string) => Promise<void> }) {
   const [date, setDate] = useState(todayText())
   const [category, setCategory] = useState('배달')
   const [merchant, setMerchant] = useState('')
@@ -156,7 +156,7 @@ function AddForm({ onAdded }: { onAdded: (month: string) => Promise<void> }) {
           <input value={merchant} maxLength={30} placeholder="예: 점심 배달" required onChange={(e) => setMerchant(e.target.value)} />
         </label>
         <label className="lg-field wide">금액
-          <input type="number" min={1} step={1} value={amount} placeholder="예: 12000" required onChange={(e) => setAmount(e.target.value)} />
+          <input type="number" min={1} step={1} value={amount} placeholder={`예: ${summary.examples.typical}`} required onChange={(e) => setAmount(e.target.value)} />
         </label>
       </div>
       <button className="lg-action" type="submit">지출 기록 추가</button>

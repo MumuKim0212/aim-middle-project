@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { won } from '../../format'
-import { checkPayment, fetchMode, fetchSummary, saveMode, type Mode, type Summary } from './api'
+import { checkPayment, fetchChat, fetchSettings, fetchSummary, saveSettings, streamChat, type Mode, type Summary } from './api'
 import HistoryTab from './HistoryTab'
 import {
-  ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_BODY, REWARD_TITLE, WARNING_TITLE,
-  answerFor, metrics, paymentFeedback, riskText, warningLevelLabel, type Entry,
+  ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_TITLE, WARNING_TITLE,
+  answerFor, metrics, paymentFeedback, rewardBody, riskText, warningLevelLabel, type Entry,
 } from './copy'
-import { classify, findCategory, parseAmount } from './nlu'
 import './ledger.css'
 
 type Tab = 'summary' | 'chat' | 'history'
@@ -15,18 +14,27 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'chat', label: '물어보기' },
   { key: 'history', label: '소비 내역' },
 ]
-const PLACEHOLDER = '오늘 배달 2만 원 시켜도 돼?'
+/** 예시 질문. 금액은 DB 에서 계산한 평소 배달 금액을 쓴다. */
+const sampleText = (s: Summary) => `오늘 ${s.examples.category} ${won(s.examples.typical)} 시켜도 돼?`
 const HERO_IMAGE: Partial<Record<Mode, string>> = {
   roast: '/ledger/hell-gate.webp',
   basic: '/ledger/bank-glass.webp',
   kind: '/ledger/cute-pig.webp',
 }
 const FLOW_CATEGORIES = ['배달', '쇼핑', '생활', '장보기']
+const ROAST_LEVELS = [
+  { v: 1, label: '순한맛' },
+  { v: 2, label: '보통' },
+  { v: 3, label: '매운맛' },
+]
 
-function shiftMonth(delta: number): string {
-  const d = new Date()
-  const t = new Date(d.getFullYear(), d.getMonth() + delta, 1)
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`
+/** 답변을 만들어 보여 주는 중인 질문. target 은 서버에서 받은 글자, shown 은 화면에 풀어 놓은 만큼이다. */
+type Live = { question: string; target: string; shown: string; final: Entry | null }
+
+/** 서버(LLM)가 쓴 답변이 있으면 그 문장을, 없으면 템플릿 문장을 쓴다. */
+function answerOf(mode: Mode, e: Entry, s: Summary): { label: string; text: string } {
+  if (e.answer?.text) return { label: ANSWER_LABEL[e.answer.mode ?? mode], text: e.answer.text }
+  return { label: ANSWER_LABEL[mode], text: answerFor(mode, e, s) }
 }
 
 export default function LedgerPage() {
@@ -36,68 +44,95 @@ export default function LedgerPage() {
   const [entries, setEntries] = useState<Entry[]>([])
   const [tab, setTab] = useState<Tab>('summary')
   const [question, setQuestion] = useState('')
+  const [roastLevel, setRoastLevel] = useState(2) // 싸가지 모드 욕설 강도
+  const [live, setLive] = useState<Live | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const lastCategory = useRef('배달')
 
   useEffect(() => {
-    Promise.all([fetchSummary(), fetchMode(), checkPayment(20000, '배달', false)])
-      .then(([s, md, chk]) => {
+    fetchSummary()
+      .then(async (s) => {
+        const ex = s.examples
+        const [st, chk, chat] = await Promise.all([fetchSettings(), checkPayment(ex.typical, ex.category, false), fetchChat()])
         setSummary(s)
-        setModeState(md)
-        setInitial({ text: PLACEHOLDER, intent: 'purchase', amount: 20000, category: '배달', check: chk })
+        setModeState(st.mode)
+        setRoastLevel(st.roastLevel)
+        setEntries(chat) // 저장된 대화를 이어서 보여준다
+        setInitial({ text: sampleText(s), intent: 'purchase', amount: ex.typical, category: ex.category, check: chk })
       })
       .catch((e: Error) => setError(e.message))
   }, [])
 
+  // 물어보기 탭에서 새 답변이 생기면 맨 아래(채팅바 위)로 스크롤한다
+  const liveActive = live !== null
+  const shownLen = live?.shown.length ?? 0
+  useEffect(() => {
+    if (tab !== 'chat') return
+    document.querySelector('.lg-pair:last-child')?.scrollIntoView({ behavior: liveActive ? 'auto' : 'smooth', block: 'end' })
+  }, [tab, entries.length, liveActive, shownLen])
+
+  // 받은 글자를 일정한 속도로 풀어서 보여 준다. Gemini 는 문장 덩어리로 보내서 그대로 찍으면 뚝뚝 끊긴다.
+  useEffect(() => {
+    if (!liveActive) return
+    const id = window.setInterval(() => {
+      setLive((l) => {
+        if (!l || l.shown.length >= l.target.length) return l
+        const step = Math.max(1, Math.ceil((l.target.length - l.shown.length) / 14)) // 밀린 만큼 조금씩 빠르게 따라잡는다
+        return { ...l, shown: l.target.slice(0, l.shown.length + step) }
+      })
+    }, 30)
+    return () => window.clearInterval(id)
+  }, [liveActive])
+
+  // 끝까지 보여 줬으면 확정된 대화로 옮긴다(답변이 없으면 바로 옮겨서 템플릿 문장을 보여 준다)
+  useEffect(() => {
+    if (!live?.final) return
+    if (live.final.answer && live.shown.length < live.target.length) return
+    const entry = live.final
+    setEntries((p) => [...p, entry].slice(-24))
+    setLive(null)
+  }, [live])
+
   /** 지출·예산이 바뀐 뒤 요약(남은 예산, 예상 잔액, 경고)을 다시 불러온다 */
   const reloadSummary = async () => {
-    const [s, chk] = await Promise.all([fetchSummary(), checkPayment(20000, '배달', false)])
+    const s = await fetchSummary()
+    const chk = await checkPayment(s.examples.typical, s.examples.category, false)
     setSummary(s)
-    setInitial((i) => (i ? { ...i, check: chk } : i)) // 첫 답변도 새 수치로 다시 판정
+    setInitial({ text: sampleText(s), intent: 'purchase', amount: s.examples.typical, category: s.examples.category, check: chk }) // 첫 답변도 새 수치로 다시 판정
   }
 
   const changeMode = (md: Mode) => {
     setModeState(md)
-    saveMode(md).catch(() => undefined) // 저장 실패해도 화면 전환은 유지
+    saveSettings({ mode: md }).catch(() => undefined) // 저장 실패해도 화면 전환은 유지
   }
 
-  async function history(kind: 'last' | 'prev2'): Promise<Entry['history']> {
-    const back = kind === 'last' ? 1 : 2
-    const [cur, before] = await Promise.all([fetchSummary(shiftMonth(-back)), fetchSummary(shiftMonth(-back - 1))])
-    const top = [...cur.categories].sort((a, b) => b.spent - a.spent)[0]
-    return {
-      month: cur.month,
-      spent: cur.budget.spent,
-      delta: cur.budget.spent - before.budget.spent,
-      topName: top && top.spent > 0 ? top.category : '없음',
-      topAmount: top?.spent ?? 0,
-    }
+  const changeLevel = (v: number) => {
+    setRoastLevel(v)
+    saveSettings({ roastLevel: v }).catch(() => undefined)
   }
 
-  async function ask(raw: string) {
-    const text = raw.trim() || PLACEHOLDER
-    const found = findCategory(text)
-    if (found) lastCategory.current = found
-    const category = found ?? lastCategory.current
-    const intent = classify(text)
-    const amount = parseAmount(text)
-    const entry: Entry = { text, intent, amount, category }
-    try {
-      if (intent === 'purchase' && amount !== null) entry.check = await checkPayment(amount, category, false)
-      if (intent === 'last' || intent === 'prev2') entry.history = await history(intent)
-    } catch (e) {
-      setError((e as Error).message)
-      return
-    }
-    setEntries((p) => [...p, entry].slice(-24))
+  /** 질문은 서버가 해석·계산하고, 답변은 스트림으로 받아 대화로 저장된다. */
+  async function ask(raw: string, opts?: { stay?: boolean }) {
+    const text = raw.trim() || (summary ? sampleText(summary) : '')
+    if (!text || live) return // 앞 질문의 답변을 만드는 중이면 기다린다
+    if (tab === 'summary' && !opts?.stay) setTab('chat') // 요약에서 물어보면 대화가 보이는 물어보기 탭으로 간다
+    setLive({ question: text, target: '', shown: '', final: null })
     setQuestion('')
+    try {
+      await streamChat(text, mode, roastLevel, {
+        onDelta: (t) => setLive((l) => (l ? { ...l, target: l.target + t } : l)),
+        onDone: (entry) => setLive((l) => (l ? { ...l, final: entry } : l)),
+      })
+    } catch (e) {
+      setLive(null)
+      setError((e as Error).message)
+    }
   }
 
   if (error) {
     return (
       <div className="state">
         <p>데이터를 불러오지 못했어요.</p>
-        <small>{error} · 백엔드(8000)가 켜져 있는지 확인하세요.</small>
+        <small>{error} · 백엔드가 켜져 있는지 확인하세요.</small>
       </div>
     )
   }
@@ -126,6 +161,16 @@ export default function LedgerPage() {
             </button>
           ))}
         </div>
+        {mode === 'roast' && (
+          <div className="lg-level" role="group" aria-label="욕설 강도">
+            <span>욕설 강도</span>
+            {ROAST_LEVELS.map((l) => (
+              <button key={l.v} type="button" aria-pressed={roastLevel === l.v} onClick={() => changeLevel(l.v)}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {tab === 'summary' && (
@@ -133,8 +178,8 @@ export default function LedgerPage() {
           <Hero mode={mode} ratio={m.ratio} />
           <SummaryTab
             mode={mode} summary={summary} level={level}
-            answer={answerFor(mode, current, summary)}
-            onPay={(entry) => setEntries((p) => [...p, entry].slice(-24))}
+            answer={live ? { label: ANSWER_LABEL[mode], text: live.shown, busy: true, typing: live.shown !== '' } : { ...answerOf(mode, current, summary), busy: false, typing: false }}
+            onAsked={ask}
             goHistory={() => setTab('history')}
           />
         </>
@@ -148,16 +193,28 @@ export default function LedgerPage() {
               아래 입력창에서 금액과 항목을 말해 봐. “지난달엔?”, “그럼 1만 원은?”처럼 이어서 물어볼 수도 있어.
             </p>
             <div className="lg-chatlog">
-              {entries.length === 0 && <div className="lg-empty">아래 질문창에 물어보거나 예시 버튼을 눌러 봐.</div>}
-              {entries.slice(-12).map((e, i) => (
-                <div key={i} className="lg-pair">
-                  <div className="lg-msg user">{e.text}</div>
-                  <div className="lg-msg assistant">
+              {entries.length === 0 && !live && <div className="lg-empty">아래 질문창에 물어보거나 예시 버튼을 눌러 봐.</div>}
+              {entries.slice(-12).map((e, i) => {
+                const a = answerOf(mode, e, summary)
+                return (
+                  <div key={i} className="lg-pair">
+                    <div className="lg-msg user">{e.text}</div>
+                    <div className="lg-msg assistant">
+                      <small>{a.label}</small>
+                      {a.text}
+                    </div>
+                  </div>
+                )
+              })}
+              {live && (
+                <div className="lg-pair">
+                  <div className="lg-msg user">{live.question}</div>
+                  <div className="lg-msg assistant" aria-live="polite">
                     <small>{ANSWER_LABEL[mode]}</small>
-                    {answerFor(mode, e, summary)}
+                    {live.shown === '' ? <Thinking /> : <>{live.shown}<i className="lg-caret" aria-hidden /></>}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </section>
@@ -176,20 +233,30 @@ export default function LedgerPage() {
           }}
         >
           <div className="lg-quick">
-            <button type="button" onClick={() => void ask('오늘 배달 2만 원 시켜도 돼?')}>배달 2만 원?</button>
-            <button type="button" onClick={() => void ask('20만 원 결제해도 돼?')}>20만 원 결제?</button>
+            <button type="button" disabled={!!live} onClick={() => void ask(sampleText(summary))}>{summary.examples.category} {won(summary.examples.typical)}?</button>
+            <button type="button" disabled={!!live} onClick={() => void ask(`${won(summary.examples.large)} 결제해도 돼?`)}>{won(summary.examples.large)} 결제?</button>
           </div>
           <div className="lg-chat">
             <label htmlFor="lg-question" aria-label="소비 질문">▤</label>
             <input
-              id="lg-question" value={question} placeholder={PLACEHOLDER} autoComplete="off"
+              id="lg-question" value={question} placeholder={sampleText(summary)} autoComplete="off" disabled={!!live}
               onChange={(e) => setQuestion(e.target.value)}
             />
-            <button type="submit" aria-label="질문하기">↗</button>
+            <button type="submit" aria-label="질문하기" disabled={!!live}>↗</button>
           </div>
         </form>
       )}
     </div>
+  )
+}
+
+/** 답변을 기다리는 동안: 도는 스피너 + 반짝이는 문구 */
+function Thinking() {
+  return (
+    <span className="lg-thinking" role="status">
+      <i className="lg-spinner" aria-hidden />
+      <span className="lg-shimmer">생각 중…</span>
+    </span>
   )
 }
 
@@ -227,13 +294,13 @@ function Hero({ mode, ratio }: { mode: Mode; ratio: number }) {
 }
 
 function SummaryTab({
-  mode, summary, level, answer, onPay, goHistory,
+  mode, summary, level, answer, onAsked, goHistory,
 }: {
   mode: Mode
   summary: Summary
   level: Summary['risk']['level']
-  answer: string
-  onPay: (e: Entry) => void
+  answer: { label: string; text: string; busy: boolean; typing: boolean }
+  onAsked: (text: string, opts?: { stay?: boolean }) => Promise<void>
   goHistory: () => void
 }) {
   const m = metrics(summary)
@@ -248,7 +315,7 @@ function SummaryTab({
     try {
       const c = await checkPayment(value, cat, true) // 결제 시도 기록을 남긴다
       setFeedback(paymentFeedback(c))
-      onPay({ text: `${cat} ${won(value)} 결제해도 돼?`, intent: 'purchase', amount: value, category: cat, check: c })
+      await onAsked(`${cat} ${won(value)} 결제해도 돼?`, { stay: true }) // 같은 질문을 대화에도 남기되, 폼의 결과를 보고 있으니 탭은 옮기지 않는다
     } catch (e) {
       setFeedback({ blocked: true, text: `확인하지 못했어요. (${(e as Error).message})` })
     }
@@ -257,8 +324,8 @@ function SummaryTab({
   return (
     <section className="lg-content">
       <div className="lg-answer" role="status" aria-live="polite">
-        <small>{ANSWER_LABEL[mode]}</small>
-        <span>{answer}</span>
+        <small>{answer.label}</small>
+        {answer.busy && !answer.typing ? <Thinking /> : <span>{answer.text}{answer.busy && <i className="lg-caret" aria-hidden />}</span>}
       </div>
 
       <section className="lg-account">
@@ -292,14 +359,14 @@ function SummaryTab({
 
       <section className="lg-reward">
         <b>{REWARD_TITLE[mode]}</b>
-        <span>{REWARD_BODY[mode]}</span>
+        <span>{rewardBody(mode, summary.examples.typical)}</span>
       </section>
 
       <form className="lg-panel" onSubmit={(e) => { e.preventDefault(); void pay(Number(amount.replace(/[^\d]/g, '')), category) }}>
         <h2>결제 전 확인</h2>
         <div className="lg-fields">
           <label className="lg-field">금액
-            <input type="number" min={1} placeholder="예: 20000" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <input type="number" min={1} placeholder={`예: ${summary.examples.typical}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
           </label>
           <label className="lg-field">분류
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -311,8 +378,8 @@ function SummaryTab({
         {feedback && <p className={feedback.blocked ? 'lg-feedback blocked' : 'lg-feedback'} role="status" aria-live="polite">{feedback.text}</p>}
       </form>
 
-      <button type="button" className="lg-demopay" onClick={() => void pay(200000, '기타')}>
-        20만 원 결제 시뮬레이션 →
+      <button type="button" className="lg-demopay" onClick={() => void pay(summary.examples.large, '기타')}>
+        {won(summary.examples.large)} 결제 시뮬레이션 →
       </button>
 
       <div className="lg-head">
