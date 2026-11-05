@@ -1,6 +1,6 @@
 # 3. 청구·결제 예정 금액
 
-[← 카드 기획서 개요](README.md) · 경로: `/card/billing`
+[← 카드 기획서 개요](README.md) · 경로: `/cards/billing`
 
 ## 목적
 
@@ -64,13 +64,13 @@
 ## 데이터
 
 - Card의 `paymentDay`, `paymentAccount`, Transaction의 `kind`·`amount`·`installmentMonths`·`occurredAt`으로 계산한다.
-- 결제 계좌 잔액은 일반 계좌 기능(김연준)의 목업 계좌 데이터에서 가져온다. 계좌 목업이 준비되기 전에는 이 기능의 임시 잔액 값을 쓴다.
+- 결제 계좌 잔액은 계좌 파트의 `get_account(user, account_id)`(같은 프로세스의 함수 호출)로 가져온다. 시드 잔액은 [공통.md 7.2](../common/공통.md)를 따른다.
 
 ## API 명세
 
 공통 규칙은 [00-api-common.md](00-api-common.md), 청구액 계산은 [공통 계산 기준 6절](00-api-common.md#6-금액-계산-기준-공통)을 따른다. 예시는 [목업 기준표](00-api-common.md#10-목업-데이터-기준표) 값이다.
 
-### `GET /api/v1/card-billing/upcoming` — 결제 예정 조회
+### `GET /api/card-billing/upcoming` — 결제 예정 조회
 
 쿼리 없음. 서버가 오늘(KST)을 기준으로 계산한다.
 
@@ -81,7 +81,7 @@
 3. 결제일과 결제 계좌가 같은 카드끼리 묶어 한 덩어리(`payments[]`의 한 항목)로 만든다. 청구액은 합산한다.
 4. 묶음의 결제 계좌 잔액을 계좌 서비스에서 가져와 비교한다.
 
-응답 `200` (member_001, 오늘 2026-11-04)
+응답 `200` (user1, 오늘 2026-11-04)
 
 ```json
 {
@@ -94,9 +94,9 @@
     {
       "paymentDate": "2026-11-25",
       "isCurrentMonth": true,
-      "paymentAccount": { "accountId": "acc_001", "bankName": "AIM Bank", "accountMasked": "****1234" },
+      "paymentAccount": { "accountId": 1, "bankName": "AIM Bank", "accountMasked": "****1234" },
       "amount": 45000,
-      "balance": 2000000,
+      "balance": 1500000,
       "balanceStatus": "ok",
       "shortfall": 0,
       "cards": [
@@ -113,11 +113,11 @@
     {
       "paymentDate": "2026-11-25",
       "isCurrentMonth": true,
-      "paymentAccount": { "accountId": "acc_002", "bankName": "AIM Bank", "accountMasked": "****5678" },
+      "paymentAccount": { "accountId": 2, "bankName": "AIM Bank", "accountMasked": "****5678" },
       "amount": 900000,
-      "balance": 50000,
+      "balance": 500000,
       "balanceStatus": "insufficient",
-      "shortfall": 850000,
+      "shortfall": 400000,
       "cards": [
         {
           "cardId": "card_002", "cardName": "AIM 신용카드", "status": "active", "cardNumberLast4": "2222",
@@ -160,7 +160,8 @@
 
 | HTTP | code | 언제 |
 |:----:|------|------|
-| 401 | `AUTH_REQUIRED` | 토큰 없음·만료 |
+| 401 | `LOGIN_REQUIRED` / `SESSION_EXPIRED` | 로그인하지 않았거나 세션 만료 (`details` 없음) |
+| 403 | `PIN_SETUP_REQUIRED` | 간편비밀번호를 아직 설정하지 않은 사용자 |
 | 500 | `INTERNAL_ERROR` | 계산 중 서버 오류 |
 
 계좌 서비스에서 잔액을 못 가져와도 오류로 돌려주지 않는다. 해당 묶음만 `balanceStatus: "unavailable"`로 내려준다.
@@ -183,7 +184,7 @@
 
 ## 프론트 구현 메모
 
-- 라우트: `/card/billing`
+- 라우트: `/cards/billing`
 - 컴포넌트: `BillingPage`, `BillingSummary`, `PaymentGroup`(묶음), `BalanceAlert`, `BillingCardAccordion`, `BillingItemRow`
 - D-day 표시: `daysUntilPayment`가 `0`이면 "오늘 결제", 아니면 `D-{n}`. 프론트에서 날짜 계산을 다시 하지 않고 응답 값을 쓴다.
 - 카드별 영역은 접힌 상태로 시작하고, 접힌 헤더에 카드 이름·끝 4자리·청구액을 보여준다.
@@ -193,28 +194,28 @@
 
 | ID | 구분 | 조건 | 동작 | 기대 결과 |
 |----|------|------|------|-----------|
-| T01 | API | member_001, 오늘 2026-11-04 | `GET /card-billing/upcoming` | `thisMonthTotal: 945000`, `nextPaymentDate: "2026-11-25"`, `daysUntilPayment: 21`, `payments` 2개 |
-| T02 | API | 위와 같음 | `payments` 순서 확인 | 같은 날짜이므로 계좌 순서: `acc_001`(45,000) → `acc_002`(900,000) |
-| T03 | API | 위와 같음 | `acc_002` 묶음 | `balance: 50000`, `balanceStatus: "insufficient"`, `shortfall: 850000` |
-| T04 | API | 위와 같음 | `acc_001` 묶음 | `balanceStatus: "ok"`, `shortfall: 0` |
+| T01 | API | user1, 오늘 2026-11-04 | `GET /card-billing/upcoming` | `thisMonthTotal: 945000`, `nextPaymentDate: "2026-11-25"`, `daysUntilPayment: 21`, `payments` 2개 |
+| T02 | API | 위와 같음 | `payments` 순서 확인 | 같은 날짜이므로 계좌 순서: 계좌 1(45,000) → 계좌 2(900,000) |
+| T03 | API | 위와 같음 | 계좌 2 묶음 | `balance: 500000`, `balanceStatus: "insufficient"`, `shortfall: 400000` |
+| T04 | API | 위와 같음 | 계좌 1 묶음 | `balance: 1500000`, `balanceStatus: "ok"`, `shortfall: 0` |
 | T05 | API | 위와 같음 | `card_002` 항목 | 5개, 할부 `{ round: 1, months: 2 }`와 `{ round: 3, months: 3 }`, 취소 항목 `amount: 12000`, 합계 900,000 |
 | T06 | API | 위와 같음 | `usagePeriod` | `2026-10-01` ~ `2026-10-31` |
 | T07 | API | 위와 같음 | `card_003`(일시정지, 거래 없음) | 어느 묶음에도 없음 |
-| T08 | API | 위와 같음 | `card_004`(분실) | `acc_001` 묶음에 포함, 45,000 |
+| T08 | API | 위와 같음 | `card_004`(분실) | 계좌 1 묶음에 포함, 45,000 |
 | T09 | API | 시계 2026-11-25 (결제일 당일) | 조회 | 11-25 묶음이 그대로 있고 `daysUntilPayment: 0` |
 | T10 | API | 시계 2026-11-26 | 조회 | `card_002`는 `2026-12-25`, 금액 308,000 (`isCurrentMonth: false`), `card_004`는 청구 없음, `thisMonthTotal: 0`, `nextPaymentDate: "2026-12-25"`, `daysUntilPayment: 29` |
-| T11 | API | 시계 2026-11-26 | `acc_002` 묶음 | `balanceStatus: "insufficient"`, `shortfall: 258000` |
+| T11 | API | 시계 2026-11-26 | 계좌 2 묶음 | 잔액 500,000원 ≥ 청구액 308,000원이므로 `balanceStatus: "ok"`, `shortfall: 0` |
 | T12 | API | 시계 2027-02-01 | 조회 | `hasCreditCard: true`, `payments: []`, `nextPaymentDate: null`, `daysUntilPayment: null` |
-| T13 | API | member_003 | 조회 | `hasCreditCard: false`, `payments: []` |
+| T13 | API | user3 (S-07 완료 후) | 조회 | `hasCreditCard: false`, `payments: []` |
 | T14 | API | 잔액 서비스 실패를 흉내 냄 | 조회 | `200`, 해당 묶음 `balance: null`, `balanceStatus: "unavailable"`, `shortfall: null` |
-| T15 | API | 토큰 없음 | 조회 | `401 AUTH_REQUIRED` |
+| T15 | API | 로그인 안 함 (세션 없음) | 조회 | `401 LOGIN_REQUIRED` |
 | T16 | 계산 | 단위 테스트 | 1,000,000원 3개월 할부 회차 금액 | 333,333 / 333,333 / 333,334 |
 | T17 | 계산 | 단위 테스트 | 승인 없이 취소만 있는 주기 (취소 12,000원) | `B(P) = 0` (음수 아님, 이월 없음) |
 | T18 | 계산 | 단위 테스트 | 8월 10일 승인 3개월 할부, 결제일 25 | 회차 결제일 9-25, 10-25, 11-25 |
 | T19 | 계산 | 단위 테스트 | 결제일 25, 오늘 2026-11-25 / 2026-11-26 | 카드의 다음 결제일이 각각 2026-11-25 / 2026-12-25 |
-| T20 | UI | member_001 | 화면 진입 | 요약 945,000원, "D-21", 잔액 부족 경고(부족 850,000원) |
-| T21 | UI | member_001 | `card_002` 영역 펼침 | 취소는 `-12,000원`, 할부는 `1/2회차`, `3/3회차` |
-| T22 | UI | member_003 | 화면 진입 | 신용카드 없음 안내 문구 |
+| T20 | UI | user1 | 화면 진입 | 요약 945,000원, "D-21", 잔액 부족 경고(부족 400,000원) |
+| T21 | UI | user1 | `card_002` 영역 펼침 | 취소는 `-12,000원`, 할부는 `1/2회차`, `3/3회차` |
+| T22 | UI | user3 (S-07 완료 후) | 화면 진입 | 신용카드 없음 안내 문구 |
 | T23 | UI | 시계 2026-11-26 | 화면 진입 | 요약 "이번 달 결제 예정 금액이 없습니다", "다음 결제 예정"에 12-25 / 308,000원 |
 | T24 | UI | 시계 2026-11-25 | 화면 진입 | "오늘 결제" 표시 |
 | T25 | 계산 | 단위 테스트 (결제일 25) | 10월 30일 600,000원 일시불 승인 → 11월 2일 취소, 다른 이용 없음 | 취소 일자가 원 승인의 결제일(11-25) 이전이므로 11-25 주기에서 차감: `B(11-25) = 0`, `B(12-25) = 0` |
