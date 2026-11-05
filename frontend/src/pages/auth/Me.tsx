@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { callJson } from '../../lib/http'
 
@@ -17,6 +17,7 @@ export default function Me() {
   const nav = useNavigate()
   const { logout } = useAuth()
   const [data, setData] = useState<MeData | null>(null)
+  const flash = (useLocation().state as { flash?: string } | null)?.flash
   const [msg, setMsg] = useState<string | null>(null)
 
   const load = () => { callJson<MeData>('GET', '/api/me').then(setData).catch(() => undefined) }
@@ -47,8 +48,9 @@ export default function Me() {
         <div><dt>마지막 로그인</dt><dd>{fmtDate(u.lastLoginAt)}</dd></div>
         <div><dt>간편 로그인</dt><dd>{data.deviceRegistered ? `이 기기 등록됨 (${data.deviceName ?? ''})` : '이 기기는 등록되지 않았어요'}</dd></div>
       </dl>
-      {msg && <p className="auth-notice" role="status">{msg}</p>}
+      {(msg || flash) && <p className="auth-notice" role="status">{msg ?? flash}</p>}
       <div className="auth-stack">
+        <Link to="/me/password" className="auth-btn">비밀번호 변경</Link>
         <Link to="/me/pin" className="auth-btn">간편비밀번호 변경</Link>
         {data.deviceRegistered && <button type="button" className="auth-btn" onClick={() => void revoke()}>이 기기 등록 해제</button>}
         <button type="button" className="auth-btn danger" onClick={() => void doLogout()}>로그아웃</button>

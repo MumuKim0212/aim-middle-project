@@ -316,6 +316,47 @@ def pin_verify(body: PinIn, request: Request, user: m.User = Depends(current_use
     return {"verified": True, "validForSeconds": PIN_VERIFIED_SECONDS}
 
 
+# ───────────── 비밀번호 변경 (AUTH-07) ─────────────
+
+
+class PasswordChangeIn(BaseModel):
+    currentPassword: str
+    newPassword: str
+    newPasswordConfirm: str
+    revokeOtherDevices: bool = False  # 기본 "아니오"(단일 기기 전제)
+
+
+@router.post("/password/change")
+def password_change(body: PasswordChangeIn, request: Request, user: m.User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """현재 비밀번호를 확인한 뒤 새 비밀번호로 바꾼다. 현재 비밀번호를 틀리면 로그인 실패와 같이 센다(5회 → 10분 잠금)."""
+    now = _now()
+    if user.locked_until and user.locked_until > now:
+        hhmm = user.locked_until.astimezone(KST).strftime("%H:%M")
+        raise api_error(423, "login_locked", f"비밀번호를 5회 이상 잘못 입력해 잠겼습니다. ({hhmm} 이후 가능)")
+    if not security.check_secret(body.currentPassword, user.password_hash):
+        user.failed_login_count += 1
+        if user.failed_login_count >= LOGIN_FAIL_LIMIT:
+            user.locked_until = now + timedelta(minutes=LOGIN_LOCK_MINUTES)
+        db.commit()
+        raise api_error(401, "current_password_invalid", "현재 비밀번호가 올바르지 않습니다.", field="currentPassword")
+    if msg := v.check_password(body.newPassword, user.login_id):
+        raise _fail("newPassword", msg)
+    if body.newPassword != body.newPasswordConfirm:
+        raise _fail("newPasswordConfirm", v.MSG_PW_MISMATCH)
+    if security.check_secret(body.newPassword, user.password_hash):
+        raise _fail("newPassword", "현재 비밀번호와 같은 비밀번호는 사용할 수 없습니다.")
+    user.password_hash = security.hash_secret(body.newPassword)
+    user.failed_login_count, user.locked_until = 0, None
+    if body.revokeOtherDevices:  # 이 브라우저의 등록만 남기고 나머지 기기 등록을 해제
+        mine = _device_from_cookie(request, db)
+        for d in db.scalars(select(m.Device).where(m.Device.user_id == user.id, m.Device.revoked_at.is_(None))):
+            if mine is None or d.id != mine.id:
+                d.revoked_at = now
+    db.commit()
+    return {"ok": True}
+
+
 # ───────────── 로그아웃 · 세션 · 내 정보 ─────────────
 
 

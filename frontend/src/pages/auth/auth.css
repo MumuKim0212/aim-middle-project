@@ -57,3 +57,10 @@
 .drawer-logout { border: 0; background: transparent; padding: 0; color: #5d6b85; font-size: 13px; text-decoration: underline; }
 .auth-strip { flex-wrap: wrap; }
 .auth-strip .btns a, .auth-strip .btns button { white-space: nowrap; }
+
+.auth-check { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 13px; }
+.auth-check input { width: 18px; height: 18px; }
+.auth-help { margin-bottom: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.auth-help h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: -0.03em; }
+.auth-help p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.auth-help .auth-btn { padding: 12px; font-size: 14px; }

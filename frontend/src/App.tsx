@@ -4,8 +4,10 @@ import Layout from './components/Layout'
 import LedgerPage from './features/ledger/LedgerPage'
 import Login from './pages/auth/Login'
 import Me from './pages/auth/Me'
+import PasswordChange from './pages/auth/PasswordChange'
 import PinSetup from './pages/auth/PinSetup'
 import PinVerify from './pages/auth/PinVerify'
+import Reset from './pages/auth/Reset'
 import Signup from './pages/auth/Signup'
 import Home from './pages/Home'
 import Placeholder from './pages/Placeholder'
@@ -36,6 +38,7 @@ export default function App() {
         <Route element={<RequireAuth />}>
           <Route path="me" element={<Me />} />
           <Route path="me/pin" element={<PinSetup />} />
+          <Route path="me/password" element={<PasswordChange />} />
           <Route path="auth/pin/verify" element={<PinVerify />} />
           <Route path="accounts" element={<Placeholder title="계좌" owner="김연준" />} />
           <Route path="accounts/open" element={<Placeholder title="계좌개설" owner="김연준" />} />
@@ -45,7 +48,7 @@ export default function App() {
           <Route path="ledger/:tab" element={<LedgerPage />} />
         </Route>
 
-        <Route path="auth/reset" element={<Placeholder title="로그인 · 비밀번호 재설정" />} />
+        <Route path="auth/reset" element={<Reset />} />
         <Route path="*" element={<Placeholder title="페이지를 찾을 수 없어요" />} />
       </Route>
     </Routes>
