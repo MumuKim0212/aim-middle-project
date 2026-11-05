@@ -13,7 +13,7 @@
 | `docs/README.md` | 기획·설계 문서 목차 (공통, 기술스택, 오류코드, 인증, 계좌, 카드) |
 | `docs/db/db-design.md` | 통합 DB 테이블 설계 (기획 문서 기준) |
 | `docs/db/erd.md` | ERD (Mermaid, GitHub에서 바로 렌더링) |
-| `docker-compose.yml` | 개발용 PostgreSQL 16 (호스트 포트 5433) |
+| `docker-compose.yml` | 개발용 PostgreSQL 17 + pgvector (호스트 포트 5432) |
 
 ## 지금 되는 것
 
@@ -45,7 +45,7 @@
        npm install
        npm run dev
 
-DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank` 입니다. 데이터를 초기화하려면 `docker compose down -v` 후 다시 올립니다.
+DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank` 입니다. 데이터를 초기화하려면 `docker compose down -v` 후 다시 올립니다.
 
 ## 팀 합의가 필요한 것
 
