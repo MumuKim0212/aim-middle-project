@@ -25,7 +25,7 @@ export function PublicOnly() {
   if (state.authenticated) {
     const next = safeNext(params.get('next'))
     if (state.pinSetupRequired) return <Navigate to={next ? `/auth/pin/setup?next=${encodeURIComponent(next)}` : '/auth/pin/setup'} replace />
-    return <Navigate to={next ?? '/'} replace />
+    return <Navigate to={next ?? '/home'} replace />
   }
   return <Outlet />
 }

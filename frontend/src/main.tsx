@@ -5,6 +5,7 @@ import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import './styles.css'
 import './pages/auth/auth.css'
+import './pages/dashboard.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

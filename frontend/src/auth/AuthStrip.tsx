@@ -15,6 +15,7 @@ export default function AuthStrip() {
         <div className="auth-strip">
           <span><strong>{state.user.name}님</strong> 환영해요</span>
           <span className="btns">
+            <Link to="/home">내 금융</Link>
             <Link to="/me" className="ghost">내 정보</Link>
             <button type="button" onClick={async () => { await logout(); nav('/', { replace: true, state: { flash: '로그아웃되었습니다.' } }) }}>로그아웃</button>
           </span>

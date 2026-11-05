@@ -57,7 +57,7 @@ export default function Layout() {
             </div>
             <div className="drawer-body">
               <nav className="drawer-categories" aria-label="메뉴 카테고리">
-                <Link to="/" className="drawer-home-link" onClick={() => setMenuOpen(false)}>홈</Link>
+                <Link to={auth.authenticated ? '/home' : '/'} className="drawer-home-link" onClick={() => setMenuOpen(false)}>홈</Link>
                 {MENU_SECTIONS.map((section) => <button key={section.id} type="button" className={section.id === selectedMenu ? 'active' : ''} aria-current={section.id === selectedMenu ? 'true' : undefined} onClick={() => setSelectedMenu(section.id)}>{section.label}</button>)}
               </nav>
               <nav className="drawer-submenu" aria-label={`${activeSection.label} 세부 메뉴`}>

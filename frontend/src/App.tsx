@@ -9,6 +9,7 @@ import PinSetup from './pages/auth/PinSetup'
 import PinVerify from './pages/auth/PinVerify'
 import Reset from './pages/auth/Reset'
 import Signup from './pages/auth/Signup'
+import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import Placeholder from './pages/Placeholder'
 
@@ -36,6 +37,7 @@ export default function App() {
         </Route>
 
         <Route element={<RequireAuth />}>
+          <Route path="home" element={<Dashboard />} />
           <Route path="me" element={<Me />} />
           <Route path="me/pin" element={<PinSetup />} />
           <Route path="me/password" element={<PasswordChange />} />

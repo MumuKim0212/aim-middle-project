@@ -15,9 +15,9 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 |:--:|:--:|:--:|:--:|
 | <img src="docs/screenshots/ledger-1-summary-roast.jpg" width="170"> | <img src="docs/screenshots/ledger-2-summary-kind.jpg" width="170"> | <img src="docs/screenshots/ledger-3-chat.jpg" width="170"> | <img src="docs/screenshots/ledger-4-history.jpg" width="170"> |
 
-| 분석(추이) | 기록 추가 | 사용법 |
-|:--:|:--:|:--:|
-| <img src="docs/screenshots/ledger-5-analysis.jpg" width="170"> | <img src="docs/screenshots/ledger-6-add-record.jpg" width="170"> | <img src="docs/screenshots/ledger-7-guide.jpg" width="170"> |
+| 분석(추이) | 기록 추가 | 사용법 | 로그인 후 홈 |
+|:--:|:--:|:--:|:--:|
+| <img src="docs/screenshots/ledger-5-analysis.jpg" width="170"> | <img src="docs/screenshots/ledger-6-add-record.jpg" width="170"> | <img src="docs/screenshots/ledger-7-guide.jpg" width="170"> | <img src="docs/screenshots/home-dashboard.jpg" width="170"> |
 
 ## 이 브랜치에 있는 것
 
@@ -71,7 +71,8 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 
 | 경로 | 화면 | 로그인 |
 |---|---|---|
-| `/` | 시작(홈) | 불필요 |
+| `/` | 시작 화면(소개·로그인 안내) | 불필요 |
+| `/home` | 로그인 후 홈(계좌·대출·가계부·카드 요약) | 필요 |
 | `/signup/1~5`, `/login`, `/auth/reset` | 가입 · 로그인 · 비밀번호 재설정 안내 | 불필요 |
 | `/auth/pin/setup`, `/auth/pin/verify` | 간편비밀번호 설정 · 2차 인증 | 필요 |
 | `/me`, `/me/password`, `/me/pin` | 내 정보 · 비밀번호 변경 · 간편비밀번호 변경 | 필요 |

@@ -36,7 +36,7 @@ function useAfterLogin() {
   const { refresh } = useAuth()
   return async () => {
     await refresh()
-    nav(safeNext(params.get('next')) ?? '/', { replace: true })
+    nav(safeNext(params.get('next')) ?? '/home', { replace: true })
   }
 }
 
@@ -94,7 +94,7 @@ function PasswordLogin({ notice }: { notice: string | null }) {
       if (r.canRegisterDevice && !r.pinSetupRequired) return setAskDevice(true)
       await refresh()
       if (r.pinSetupRequired) return nav(next ? `/auth/pin/setup?next=${encodeURIComponent(next)}` : '/auth/pin/setup', { replace: true })
-      nav(next ?? '/', { replace: true })
+      nav(next ?? '/home', { replace: true })
     } catch (x) {
       setErr(x instanceof ApiFail ? x.message : '로그인하지 못했어요. 잠시 후 다시 해 주세요.')
     } finally {
@@ -105,7 +105,7 @@ function PasswordLogin({ notice }: { notice: string | null }) {
   async function answer(yes: boolean) {
     if (yes) await callJson('POST', '/api/auth/device/register').catch(() => undefined)
     await refresh()
-    nav(next ?? '/', { replace: true })
+    nav(next ?? '/home', { replace: true })
   }
 
   return (

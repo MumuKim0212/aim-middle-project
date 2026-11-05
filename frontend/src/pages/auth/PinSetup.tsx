@@ -34,7 +34,7 @@ export default function PinSetup() {
     try {
       await callJson('POST', '/api/auth/pin/setup', { pin: first, pinConfirm: pin, currentPin: change ? cur : undefined })
       await refresh()
-      nav(safeNext(params.get('next')) ?? (change ? '/me' : '/'), { replace: true })
+      nav(safeNext(params.get('next')) ?? (change ? '/me' : '/home'), { replace: true })
     } catch (x) {
       const b = x instanceof ApiFail ? x.body : {}
       if (b.code === 'pin_invalid' || b.code === 'current_secret_invalid') redo(b.message ?? '현재 간편비밀번호가 맞지 않아요.', 'current')
