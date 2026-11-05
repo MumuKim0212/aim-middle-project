@@ -232,7 +232,7 @@ export default function LedgerPage() {
             answer={live ? { label: ANSWER_LABEL[mode], text: live.shown, busy: true, typing: live.shown !== '' } : { ...answerOf(mode, current, summary), busy: false, typing: false }}
             onAsked={ask}
             reload={reloadSummary}
-            goHistory={() => setTab('history')}
+            goHistory={() => navigate('/ledger/history?s=settings')}
           />
         </>
       )}

@@ -100,10 +100,12 @@ def _ensure_demo_sync(db: Session) -> None:
     n = 0
     for back in (3, 4, 5):
         first = _month_ago(today, back)
-        for merchant, amount, day in raw:
+        for k, (merchant, amount, day) in enumerate(raw):
             n += 1
+            # 달마다 금액을 조금씩 달리해서 '고정지출'로 잡히지 않게 한다(고정지출은 넷플릭스·통신요금·헬스장 가데이터가 맡는다)
+            varied = int(amount * (1 + 0.25 * ((back + k) % 3))) // 100 * 100
             db.add(m.CardTransaction(id=f"ctx_s{n:02d}", card_id="card_002", kind="approval", merchant=merchant,
-                                     amount=amount, occurred_at=datetime(first.year, first.month, day, 13)))
+                                     amount=varied, occurred_at=datetime(first.year, first.month, day, 13)))
     outflows = [("월세 이체", "transfer_out", 500_000, 2), ("친구 정산", "transfer_out", 35_000, 3), ("ATM 출금", "withdraw", 100_000, 4)]
     primary = db.get(m.Account, "acc_001")
     for i, (who, kind, amount, day) in enumerate(outflows, 1):

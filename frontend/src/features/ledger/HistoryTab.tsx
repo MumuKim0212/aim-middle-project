@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { won } from '../../format'
 import {
   ApiError, addIncome, addTransaction, deleteIncome, deleteTransaction, fetchIncome, fetchOutflows, editTransaction, exportUrl, fetchRecurring, fetchTransactions, fetchTrend,
@@ -13,6 +14,13 @@ const todayText = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const num = (v: string) => Number(v.replace(/[^\d]/g, '')) || 0
+
+type Section = 'list' | 'analysis' | 'settings'
+const SECTIONS: { key: Section; label: string }[] = [
+  { key: 'list', label: '내역' },
+  { key: 'analysis', label: '분석' },
+  { key: 'settings', label: '예산 설정' },
+]
 
 type Props = {
   mode: Mode
@@ -42,29 +50,75 @@ export default function HistoryTab({ mode, summary, reload }: Props) {
     await reload()
   }
 
+  // 소비 내역이 너무 길어지지 않게 네 구역으로 나눈다(주소의 ?s= 로도 바로 열 수 있다)
+  const [params, setParams] = useSearchParams()
+  const section: Section = SECTIONS.some((x) => x.key === params.get('s')) ? (params.get('s') as Section) : 'list'
+  const [adding, setAdding] = useState(false) // ＋ 버튼으로 여는 기록 추가 창
+  const [toast, setToast] = useState('')
+  useEffect(() => {
+    if (!adding) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setAdding(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [adding])
+  const go = (k: Section) => setParams(k === 'list' ? {} : { s: k }, { replace: true })
+
   return (
     <section className="lg-content">
-      <div className="lg-panel">
-        <div className="lg-monthhead">
-          <h2>월별 소비 내역</h2>
-          <label className="lg-field">조회 월
-            <input type="month" value={month} max={todayText().slice(0, 7)} onChange={(e) => e.target.value && setMonth(e.target.value)} />
-          </label>
-        </div>
-        {error && <div className="lg-empty">내역을 불러오지 못했어. ({error})</div>}
-        {!error && !data && <div className="lg-empty">불러오는 중…</div>}
-        {data && (
-          <a className="lg-export" href={exportUrl(month)} download>CSV로 내려받기 ↓</a>
-        )}
-        {data && <Report data={data} mode={mode} dailyLimit={Math.round(summary.budget.total / 30)} onChanged={refresh} />}
-      </div>
+      <nav className="lg-subtabs" aria-label="소비 내역 구역">
+        {SECTIONS.map((x) => (
+          <button key={x.key} type="button" className={section === x.key ? 'on' : ''} aria-current={section === x.key ? 'true' : undefined} onClick={() => go(x.key)}>{x.label}</button>
+        ))}
+      </nav>
 
-      <TrendPanel summary={summary} />
-      <RecurringPanel onChanged={refresh} />
-      <OutflowPanel month={month} version={summary.budget.spent} />
-      <IncomePanel month={month} version={summary.income} onChanged={refresh} />
-      <AddForm summary={summary} onAdded={async (m) => { setMonth(m); await refresh() }} />
-      <SettingsForm summary={summary} onSaved={refresh} />
+      {section === 'list' && (
+        <>
+          <div className="lg-panel">
+            <div className="lg-monthhead">
+              <h2>월별 소비 내역</h2>
+              <label className="lg-field">조회 월
+                <input type="month" value={month} max={todayText().slice(0, 7)} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+              </label>
+            </div>
+            {error && <div className="lg-empty">내역을 불러오지 못했어. ({error})</div>}
+            {!error && !data && <div className="lg-empty">불러오는 중…</div>}
+            {data && (
+              <a className="lg-export" href={exportUrl(month)} download>CSV로 내려받기 ↓</a>
+            )}
+            {data && <Report data={data} mode={mode} dailyLimit={Math.round(summary.budget.total / 30)} onChanged={refresh} />}
+          </div>
+          <OutflowPanel month={month} version={summary.budget.spent} />
+          <IncomePanel month={month} version={summary.income} onChanged={refresh} />
+          <div className="lg-fabwrap">
+            <button type="button" className="lg-fab" aria-label="지출·수입 기록 추가" onClick={() => setAdding(true)}>＋</button>
+          </div>
+        </>
+      )}
+
+      {section === 'analysis' && (
+        <>
+          <TrendPanel summary={summary} />
+          <RecurringPanel onChanged={refresh} />
+        </>
+      )}
+
+      {section === 'settings' && <SettingsForm summary={summary} onSaved={refresh} />}
+
+      {adding && (
+        <div className="lg-sheet" role="dialog" aria-modal="true" aria-label="기록 추가" onClick={() => setAdding(false)}>
+          <div className="body" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="close" aria-label="닫기" onClick={() => setAdding(false)}>✕</button>
+            <AddForm summary={summary} onAdded={async (m) => {
+              setMonth(m)
+              await refresh()
+              setAdding(false)
+              setToast('기록했어. 내역과 요약을 다시 계산했어.')
+              window.setTimeout(() => setToast(''), 3000)
+            }} />
+          </div>
+        </div>
+      )}
+      {toast && <div className="lg-toast" role="status">{toast}</div>}
     </section>
   )
 }
@@ -75,7 +129,10 @@ function Report({ data, mode, dailyLimit, onChanged }: { data: TxList; mode: Mod
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null) // 수정 중인 거래 id
   const [day, setDay] = useState<string | null>(null) // 달력에서 고른 날짜. 없으면 한 달 전체
-  const shown = day ? items.filter((x) => x.date === day) : items
+  const [showAll, setShowAll] = useState(false)
+  const filtered = day ? items.filter((x) => x.date === day) : items
+  const LIMIT = 6
+  const shown = showAll || day ? filtered : filtered.slice(0, LIMIT)
 
   async function remove(id: string) {
     setBusy(id)
@@ -132,6 +189,9 @@ function Report({ data, mode, dailyLimit, onChanged }: { data: TxList; mode: Mod
               </span>
             </div>
           ),
+        )}
+        {!day && filtered.length > LIMIT && (
+          <button type="button" className="lg-more" onClick={() => setShowAll((v) => !v)}>{showAll ? '접기 ▲' : `내역 ${filtered.length - LIMIT}건 더 보기 ▼`}</button>
         )}
       </div>
     </>
@@ -279,8 +339,8 @@ function OutflowPanel({ month, version }: { month: string; version: number }) {
   useEffect(() => { fetchOutflows(month).then(setData).catch(() => setData({ total: 0, items: [] })) }, [month, version])
   if (!data || data.items.length === 0) return null
   return (
-    <div className="lg-panel">
-      <h2>계좌 출금·이체</h2>
+    <details className="lg-panel lg-collapse">
+      <summary><h2>계좌 출금·이체</h2><span>{won(data.total)} · {data.items.length}건</span></summary>
       <p>계좌에서 직접 나간 돈이야. 카드값·대출 상환은 빼고 보여 주고, 예산 계산에는 넣지 않아.</p>
       <div className="lg-list">
         {data.items.map((x) => (
@@ -291,7 +351,7 @@ function OutflowPanel({ month, version }: { month: string; version: number }) {
           </div>
         ))}
       </div>
-    </div>
+    </details>
   )
 }
 
@@ -313,8 +373,8 @@ function RecurringPanel({ onChanged }: { onChanged: () => Promise<void> }) {
   }
   if (!items) return null
   return (
-    <div className="lg-panel">
-      <h2>고정지출 후보</h2>
+    <details className="lg-panel lg-collapse" open={items.length > 0 && items.length <= 3}>
+      <summary><h2>고정지출 후보</h2><span>{items.length}건</span></summary>
       {items.length === 0 && <p>여러 달 반복된 결제가 아직 없어. 거래가 쌓이면 구독·통신비 같은 걸 찾아 줄게.</p>}
       <div className="lg-list">
         {items.map((r) => (
@@ -331,7 +391,7 @@ function RecurringPanel({ onChanged }: { onChanged: () => Promise<void> }) {
           </div>
         ))}
       </div>
-    </div>
+    </details>
   )
 }
 
@@ -353,8 +413,8 @@ function IncomePanel({ month, version, onChanged }: { month: string; version: nu
   }
   if (!items) return null
   return (
-    <div className="lg-panel">
-      <h2>수입 내역</h2>
+    <details className="lg-panel lg-collapse">
+      <summary><h2>수입 내역</h2><span>{items.length ? `${won(items.reduce((a, x) => a + x.amount, 0))} · ${items.length}건` : '없음'}</span></summary>
       {items.length === 0 && <p>이 달에 들어온 돈이 없어. 아래 기록 칸에서 "수입"으로 넣거나, 물어보기에서 "월급 300만원 들어왔어"라고 해 봐.</p>}
       <div className="lg-list">
         {items.map((x) => (
@@ -367,7 +427,7 @@ function IncomePanel({ month, version, onChanged }: { month: string; version: nu
         ))}
       </div>
       {msg && <p className="lg-feedback" role="status">{msg}</p>}
-    </div>
+    </details>
   )
 }
 
