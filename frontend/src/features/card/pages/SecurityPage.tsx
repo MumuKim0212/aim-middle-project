@@ -1,21 +1,27 @@
 import { useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { getCard, reportLost, resumeCard, suspendCard } from '../api/cardApi'
-import type { ApiError } from '../api/errors'
-import AccountPinDialog from '../components/AccountPinDialog'
+import { toApiError, type ApiError } from '../api/errors'
 import {
   ConfirmDialog, ErrorBox, Loading, Modal, PageHeader, Section, StatusBadge, TypeBadge, btnOutline, btnPrimary,
 } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
+import { usePinVerify } from '../hooks/usePinVerify'
 import { formatDateTime } from '../lib/format'
 
-type Flow = { kind: 'suspend' | 'resume' | 'lost'; stage: 'reason' | 'confirm' | 'pin' }
+type Flow = { kind: 'suspend' | 'resume' | 'lost'; stage: 'reason' | 'confirm' | 'run' }
 
+const ASK = {
+  suspend: '카드 일시정지를 진행하려면 간편비밀번호를 입력해 주세요.',
+  resume: '정지를 해제하려면 간편비밀번호를 입력해 주세요.',
+  lost: '분실 신고를 접수하려면 간편비밀번호를 입력해 주세요.',
+}
 const DONE = { suspend: '일시정지 되었습니다', resume: '정지가 해제되었습니다', lost: '분실 신고가 접수되었습니다' }
 
 export default function SecurityPage() {
   const { cardId = '' } = useParams()
   const { data: card, error, loading, reload } = useAsync(() => getCard(cardId), [cardId])
+  const pin = usePinVerify()
   const [flow, setFlow] = useState<Flow | null>(null)
   const [reason, setReason] = useState<'lost' | 'stolen'>('lost')
   const [notice, setNotice] = useState<string | null>(null)
@@ -42,10 +48,21 @@ export default function SecurityPage() {
     }
   }
 
-  const submit = async (pin: string) => {
-    if (flow?.kind === 'suspend') await suspendCard(card.id, pin)
-    else if (flow?.kind === 'resume') await resumeCard(card.id, pin)
-    else await reportLost(card.id, { reason, accountPin: pin })
+  const perform = async (kind: Flow['kind']) => {
+    setFlow({ kind, stage: 'run' })
+    try {
+      const res = await pin.runVerified({ description: ASK[kind] }, async () => {
+        if (kind === 'suspend') await suspendCard(card.id)
+        else if (kind === 'resume') await resumeCard(card.id)
+        else await reportLost(card.id, { reason })
+      })
+      if (!res.ok) return setFlow(null)
+      setNotice(DONE[kind])
+      setFlow(null)
+      reload()
+    } catch (e) {
+      handleError(toApiError(e))
+    }
   }
 
   return (
@@ -119,20 +136,7 @@ export default function SecurityPage() {
               : '신고하면 되돌릴 수 없고 이 카드는 다시 쓸 수 없습니다.'
           }
           onClose={() => setFlow(null)}
-          onConfirm={() => setFlow({ ...flow, stage: 'pin' })}
-        />
-      )}
-      {flow && flow.stage === 'pin' && (
-        <AccountPinDialog
-          accountId={card.paymentAccount.accountId}
-          account={card.paymentAccount}
-          title="계좌 암호 입력"
-          description="결제 계좌의 암호를 입력해 주세요."
-          confirmLabel="확인"
-          onSubmit={submit}
-          onSuccess={() => { setNotice(DONE[flow.kind]); setFlow(null); reload() }}
-          onError={handleError}
-          onClose={() => setFlow(null)}
+          onConfirm={() => void perform(flow.kind)}
         />
       )}
     </main>

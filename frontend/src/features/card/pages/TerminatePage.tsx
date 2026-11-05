@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { checkTermination, getCard, terminateCard } from '../api/cardApi'
-import type { ApiError } from '../api/errors'
+import { toApiError, type ApiError } from '../api/errors'
 import type { TerminateReason } from '../api/types'
-import AccountPinDialog from '../components/AccountPinDialog'
 import { ErrorBox, InfoRow, Loading, PageHeader, Section, btnOutline, btnPrimary } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
+import { usePinVerify } from '../hooks/usePinVerify'
 import { formatDate, formatDateTime, formatWon } from '../lib/format'
 
 const REASONS: [TerminateReason, string][] = [
@@ -17,10 +17,10 @@ export default function TerminatePage() {
   const { cardId = '' } = useParams()
   const card = useAsync(() => getCard(cardId), [cardId])
   const check = useAsync(() => checkTermination(cardId), [cardId])
+  const pin = usePinVerify()
   const [reason, setReason] = useState<TerminateReason | null>(null)
   const [reasonTouched, setReasonTouched] = useState(false)
   const [ack, setAck] = useState(false)
-  const [pinOpen, setPinOpen] = useState(false)
   const [done, setDone] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -58,12 +58,23 @@ export default function TerminatePage() {
   const selected = reasonTouched ? reason : c.status === 'lost' ? 'lost_cleanup' : null
 
   const handleError = (err: ApiError) => {
-    setPinOpen(false)
     if (err.code === 'CARD_TERMINATE_BLOCKED_UNPAID') check.reload()
     else if (err.code === 'CARD_STATE_INVALID') setNotice('해지할 수 없는 카드입니다')
     else if (err.code === 'ACCOUNT_SERVICE_UNAVAILABLE') setNotice('계좌 정보를 확인할 수 없어 해지하지 못했습니다. 잠시 후 다시 시도해 주세요')
     else if (err.status === 0) { setNotice('해지 결과를 확인하는 중입니다'); card.reload(); check.reload() }
     else setNotice('해지하지 못했습니다. 잠시 후 다시 시도해 주세요')
+  }
+
+  const terminate = async () => {
+    setNotice(null)
+    try {
+      const res = await pin.runVerified({ description: '카드를 해지하려면 간편비밀번호를 입력해 주세요.' }, () =>
+        terminateCard(c.id, { reason: selected, acknowledged: true }),
+      )
+      if (res.ok) setDone(res.value.terminatedAt)
+    } catch (e) {
+      handleError(toApiError(e))
+    }
   }
 
   return (
@@ -109,29 +120,13 @@ export default function TerminatePage() {
               해지하면 되돌릴 수 없고, 이 카드는 다시 쓸 수 없습니다
             </label>
             {notice && <p role="status" className="mt-3 text-sm text-warning">{notice}</p>}
-            <button type="button" disabled={!ack} onClick={() => { setNotice(null); setPinOpen(true) }} className={`${btnPrimary} mt-4 w-full`}>
+            <button type="button" disabled={!ack} onClick={() => void terminate()} className={`${btnPrimary} mt-4 w-full`}>
               해지하기
             </button>
           </Section>
         </>
       )}
 
-      {pinOpen && (
-        <AccountPinDialog
-          accountId={c.paymentAccount.accountId}
-          account={c.paymentAccount}
-          title="계좌 암호 입력"
-          description="카드를 해지하려면 결제 계좌의 암호를 입력해 주세요."
-          confirmLabel="해지하기"
-          onSubmit={async (pin) => {
-            const res = await terminateCard(c.id, { reason: selected, acknowledged: true, accountPin: pin })
-            setDone(res.terminatedAt)
-          }}
-          onSuccess={() => setPinOpen(false)}
-          onError={handleError}
-          onClose={() => setPinOpen(false)}
-        />
-      )}
     </main>
   )
 }

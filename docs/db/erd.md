@@ -1,6 +1,6 @@
 # ERD (Mermaid)
 
-기획 문서의 DB 설계를 ERD로 그린 것이다. 기준 문서는 [회원,인증.md 8장](../auth/회원,인증.md), [계좌.md 7장](../account/계좌.md), [카드 backend-spec 2장](../dev/card/backend-spec.md), [공통.md 6·7장](../common/공통.md)이고, 가계부·대출은 [db-design.md](db-design.md)를 따른다. 회원·계좌·카드는 기획 문서가 [db-design.md](db-design.md)보다 새로우므로 **다르면 이 ERD와 기획 문서가 기준이다** (db-design.md 정렬은 공통.md 11장).
+기획 문서의 DB 설계를 ERD로 그린 것이다. 기준 문서는 [회원,인증.md 8장](../auth/회원,인증.md), [계좌.md 7장](../account/계좌.md), [카드 backend-spec 2장](../dev/card/backend-spec.md), [공통.md 6·7장](../common/공통.md)이고, 가계부·대출은 [db-design.md](db-design.md)를 따른다. [db-design.md](db-design.md)도 같은 기준으로 정렬했다. 다르면 기획 문서가 정본이다.
 실선(`--`)은 FK, 점선(`..`)은 **도메인 간 논리 참조**(FK 없음)다.
 GitHub·VS Code(Mermaid 미리보기)·Notion 코드블록(Mermaid)에서 바로 렌더링된다. 컬럼은 키와 핵심 컬럼만 적었다. 전체 컬럼은 각 기획 문서의 표가 정본이고, 구현은 `backend/app/models.py`다.
 

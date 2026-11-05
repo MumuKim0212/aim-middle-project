@@ -1,6 +1,6 @@
-"""카드 API (/api/v1). 기획서: docs/card, 개발 명세: docs/dev/card/backend-spec.md.
+"""카드 API (/api). 기획서: docs/card, 개발 명세: docs/dev/card/backend-spec.md.
 
-오류 응답은 {code, message, details} 형태, 쓰기 순서는 인증 → 입력 검증 → 404 → 409/422 → 계좌 암호 → 실행.
+오류 응답은 {code, message, details} 형태, 쓰기 순서는 인증 → 입력 검증 → 404 → 409/422 → 본인 재확인(간편비밀번호) → 실행.
 """
 import base64
 import hashlib
@@ -12,7 +12,6 @@ import re
 import time
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
-from math import ceil
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -26,15 +25,13 @@ from .card_cycles import (
     KST, add_months, billed, cycle_lines, cycle_totals, date_of, first_due_date, is_simple_pin,
     kst_date, next_payment_date, usage_rate, used_amount,
 )
-from .db import SessionLocal, get_db
-from .seed import DEMO_MEMBER_ID
+from .auth.deps import current_user, require_pin_verified
+from .db import get_db
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api")
 
 MAX_CARDS = 3
 PIN_RE = re.compile(r"^[0-9]{4}$")
-# shortcut: 계좌 도메인에 암호 저장소가 없어 데모 값 하나로 검증한다, 계좌 담당(김연준)이 verifyAccountPin 을 만들면 교체
-DEMO_ACCOUNT_PIN = "1234"
 CURSOR_SECRET = os.getenv("CARD_CURSOR_SECRET", "dev-only-cursor-secret").encode()
 
 ACTIONS = {
@@ -87,14 +84,6 @@ def iso(dt: datetime | None) -> str | None:
     return dt.astimezone(KST).isoformat(timespec="seconds") if dt else None
 
 
-def card_member(db: Session = Depends(get_db)) -> m.Member:
-    """TODO: 로그인(토큰) 담당 확정 후 main.current_member 와 함께 교체. 지금은 데모 회원 고정."""
-    member = db.get(m.Member, DEMO_MEMBER_ID)
-    if not member:
-        raise ApiError(401, "AUTH_REQUIRED", "로그인이 필요합니다.")
-    return member
-
-
 async def json_body(request: Request) -> dict:
     if not request.headers.get("content-type", "").startswith("application/json"):
         raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "JSON 요청만 받을 수 있습니다.")
@@ -107,56 +96,17 @@ async def json_body(request: Request) -> dict:
     return body
 
 
-def pin_field_errors(pin) -> list[tuple[str, str]]:
-    if pin is None or pin == "":
-        return [("accountPin", "REQUIRED")]
-    return [] if isinstance(pin, str) and PIN_RE.match(pin) else [("accountPin", "INVALID_FORMAT")]
-
-
 def clean(v) -> str | None:
     """앞뒤 공백 제거 + NFC. 문자열이 아니면 None."""
     return unicodedata.normalize("NFC", v).strip() if isinstance(v, str) else None
 
 
-# ───────────────────────── 계좌 암호 (계좌 도메인 대역) ─────────────────────────
-
-
-def verify_account_pin(account_id: str, pin: str) -> None:
-    """연속 5회 오류 → 300초 잠금. 오류 횟수는 요청 트랜잭션과 별도로 커밋한다."""
-    outcome: tuple[str, int] | None = None
-    with SessionLocal() as s, s.begin():
-        state = s.scalar(select(m.AccountPinState).where(m.AccountPinState.account_id == account_id).with_for_update())
-        if state is None:
-            state = m.AccountPinState(account_id=account_id, fail_count=0)
-            s.add(state)
-            s.flush()
-        now = now_utc()
-        if state.locked_until and now < state.locked_until:
-            outcome = ("locked", ceil((state.locked_until - now).total_seconds()))
-        elif pin == DEMO_ACCOUNT_PIN:
-            state.fail_count = 0
-        else:
-            state.fail_count += 1
-            if state.fail_count >= 5:
-                state.fail_count, state.locked_until = 0, now + timedelta(seconds=300)
-                outcome = ("locked", 300)
-            else:
-                outcome = ("mismatch", 5 - state.fail_count)
-    if outcome is None:
-        return
-    kind, n = outcome
-    if kind == "locked":
-        raise ApiError(429, "ACCOUNT_PIN_LOCKED", "계좌 암호 입력이 잠겼습니다.", {"retryAfterSeconds": n},
-                       {"Retry-After": str(n)})
-    raise ApiError(403, "ACCOUNT_PIN_MISMATCH", "계좌 암호가 올바르지 않습니다.", {"remainingAttempts": n})
-
-
 # ───────────────────────── 조회 헬퍼 ─────────────────────────
 
 
-def owned_card(db: Session, member_id: str, card_id: str) -> m.Card:
+def owned_card(db: Session, user_id: int, card_id: str) -> m.Card:
     card = db.get(m.Card, card_id)
-    if not card or card.member_id != member_id:
+    if not card or card.user_id != user_id:
         raise ApiError(404, "CARD_NOT_FOUND", "카드를 찾을 수 없습니다.")
     return card
 
@@ -189,9 +139,9 @@ def masked_number(card: m.Card) -> str:
     return f"****-****-****-{card.number_last4}"
 
 
-def active_count(db: Session, member_id: str, type_: str) -> int:
+def active_count(db: Session, user_id: int, type_: str) -> int:
     return db.scalar(select(func.count()).select_from(m.Card).where(
-        m.Card.member_id == member_id, m.Card.type == type_, m.Card.status.in_(("active", "suspended")))) or 0
+        m.Card.user_id == user_id, m.Card.type == type_, m.Card.status.in_(("active", "suspended")))) or 0
 
 
 def state_invalid(card: m.Card, allowed: list[str]) -> ApiError:
@@ -214,11 +164,11 @@ def card_detail(db: Session, c: m.Card) -> dict:
 
 
 @router.get("/cards")
-def list_cards(request: Request, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
+def list_cards(request: Request, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     raw = request.query_params.get("includeTerminated", "false")
     if raw not in ("true", "false"):
         raise validation([("includeTerminated", "INVALID_FORMAT")])
-    cards = list(db.scalars(select(m.Card).where(m.Card.member_id == member.id)))
+    cards = list(db.scalars(select(m.Card).where(m.Card.user_id == user.id)))
     live = sorted((c for c in cards if c.status != "terminated"),
                   key=lambda c: (STATUS_ORDER[c.status], -c.issued_at.toordinal(), c.id))
     gone = sorted((c for c in cards if c.status == "terminated"), key=lambda c: c.terminated_at, reverse=True)
@@ -231,8 +181,8 @@ def list_cards(request: Request, member: m.Member = Depends(card_member), db: Se
 
 
 @router.get("/cards/{card_id}")
-def get_card(card_id: str, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
-    return card_detail(db, owned_card(db, member.id, card_id))
+def get_card(card_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    return card_detail(db, owned_card(db, user.id, card_id))
 
 
 # ───────────────────────── 02 이용내역 ─────────────────────────
@@ -244,13 +194,13 @@ def _sign_cursor(payload: dict) -> str:
     return f"{raw.decode()}.{sig.decode()}"
 
 
-def _open_cursor(cursor: str, member_id: str, fingerprint: str) -> dict:
+def _open_cursor(cursor: str, user_id: int, fingerprint: str) -> dict:
     bad = ApiError(400, "INVALID_CURSOR", "커서가 올바르지 않습니다.")
     try:
         raw, sig = cursor.split(".")
         want = base64.urlsafe_b64encode(hmac.new(CURSOR_SECRET, raw.encode(), hashlib.sha256).digest()).rstrip(b"=")
         payload = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
-        ok = (hmac.compare_digest(sig.encode(), want) and payload["m"] == member_id
+        ok = (hmac.compare_digest(sig.encode(), want) and payload["m"] == user_id
               and payload["f"] == fingerprint and payload["e"] > time.time() * 1000)
     except (ValueError, KeyError, TypeError):
         raise bad
@@ -273,7 +223,7 @@ def _tx_item(t: m.CardTransaction, c: m.Card) -> dict:
 
 
 @router.get("/card-transactions")
-def list_transactions(request: Request, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
+def list_transactions(request: Request, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     qp = request.query_params
     fields: list[tuple[str, str]] = []
     parsed: dict[str, date | None] = {}
@@ -307,7 +257,7 @@ def list_transactions(request: Request, member: m.Member = Depends(card_member),
     if fields:
         raise validation(fields)
 
-    cards = {c.id: c for c in db.scalars(select(m.Card).where(m.Card.member_id == member.id))}
+    cards = {c.id: c for c in db.scalars(select(m.Card).where(m.Card.user_id == user.id))}
     card_id = qp.get("cardId")
     if card_id and card_id not in cards:
         raise ApiError(404, "CARD_NOT_FOUND", "카드를 찾을 수 없습니다.")
@@ -332,7 +282,7 @@ def list_transactions(request: Request, member: m.Member = Depends(card_member),
 
     page = list(conds)
     if qp.get("cursor"):
-        cur = _open_cursor(qp["cursor"], member.id, fingerprint)
+        cur = _open_cursor(qp["cursor"], user.id, fingerprint)
         page.append(tuple_(m.CardTransaction.occurred_at, m.CardTransaction.id)
                     < tuple_(datetime.fromtimestamp(cur["t"] / 1000, timezone.utc), cur["id"]))
     rows = list(db.scalars(select(m.CardTransaction).where(*page)
@@ -344,7 +294,7 @@ def list_transactions(request: Request, member: m.Member = Depends(card_member),
     if has_more:
         last = rows[-1]
         next_cursor = _sign_cursor({"t": int(last.occurred_at.timestamp() * 1000), "id": last.id, "f": fingerprint,
-                                    "m": member.id, "e": int((time.time() + 86400) * 1000)})
+                                    "m": user.id, "e": int((time.time() + 86400) * 1000)})
     return {
         "summary": {"approvalTotal": approval_total, "cancelTotal": cancel_total,
                     "netTotal": approval_total - cancel_total, "count": count},
@@ -354,10 +304,10 @@ def list_transactions(request: Request, member: m.Member = Depends(card_member),
 
 
 @router.get("/card-transactions/{tx_id}")
-def get_transaction(tx_id: str, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
+def get_transaction(tx_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     t = db.get(m.CardTransaction, tx_id)
     card = db.get(m.Card, t.card_id) if t else None
-    if not t or card.member_id != member.id:
+    if not t or card.user_id != user.id:
         raise ApiError(404, "TRANSACTION_NOT_FOUND", "거래를 찾을 수 없습니다.")
     o = db.get(m.CardTransaction, t.original_id) if t.original_id else None
     return {**_tx_item(t, card),
@@ -369,10 +319,10 @@ def get_transaction(tx_id: str, member: m.Member = Depends(card_member), db: Ses
 
 
 @router.get("/card-billing/upcoming")
-def upcoming_billing(member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
+def upcoming_billing(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     today = today_kst()
     credit = list(db.scalars(select(m.Card).where(
-        m.Card.member_id == member.id, m.Card.type == "credit", m.Card.status != "terminated")))
+        m.Card.user_id == user.id, m.Card.type == "credit", m.Card.status != "terminated")))
     groups: dict[tuple[date, str], dict] = {}
     for c in credit:
         lines = cycle_lines(card_txs(db, c.id), c.payment_day)
@@ -422,21 +372,21 @@ def _status_result(c: m.Card) -> dict:
             "lostReason": c.lost_reason}
 
 
-def _change_status(db: Session, member_id: str, card_id: str, body: dict, *, action: str, allowed: list[str],
+def _change_status(request: Request, db: Session, user_id: int, card_id: str, body: dict, *, action: str, allowed: list[str],
                    to: str, values: dict, extra_fields: list[tuple[str, str]] = ()) -> dict:
-    fields = [*extra_fields, *pin_field_errors(body.get("accountPin"))]
+    fields = [*extra_fields]
     if fields:
         raise validation(fields)
-    card = owned_card(db, member_id, card_id)
+    card = owned_card(db, user_id, card_id)
     if card.status not in allowed:
         raise state_invalid(card, allowed)
-    verify_account_pin(card.payment_account_id, body["accountPin"])
+    require_pin_verified(request)
     result = db.execute(update(m.Card).where(
-        m.Card.id == card_id, m.Card.member_id == member_id, m.Card.status.in_(allowed)).values(status=to, **values))
-    if result.rowcount == 0:  # 암호 검증 사이에 다른 요청이 먼저 상태를 바꿨다
+        m.Card.id == card_id, m.Card.user_id == user_id, m.Card.status.in_(allowed)).values(status=to, **values))
+    if result.rowcount == 0:  # 본인 재확인 사이에 다른 요청이 먼저 상태를 바꿨다
         db.rollback()
-        raise state_invalid(owned_card(db, member_id, card_id), allowed)
-    db.add(m.CardStatusHistory(card_id=card_id, member_id=member_id, action=action, from_status=card.status,
+        raise state_invalid(owned_card(db, user_id, card_id), allowed)
+    db.add(m.CardStatusHistory(card_id=card_id, user_id=user_id, action=action, from_status=card.status,
                                to_status=to, request_id=m.new_id("req")))
     db.commit()
     db.refresh(card)
@@ -444,26 +394,26 @@ def _change_status(db: Session, member_id: str, card_id: str, body: dict, *, act
 
 
 @router.post("/cards/{card_id}/suspend")
-def suspend_card(card_id: str, body: dict = Depends(json_body), member: m.Member = Depends(card_member),
+def suspend_card(request: Request, card_id: str, body: dict = Depends(json_body), user: m.User = Depends(current_user),
                  db: Session = Depends(get_db)):
-    return _change_status(db, member.id, card_id, body, action="suspend", allowed=["active"], to="suspended",
+    return _change_status(request, db, user.id, card_id, body, action="suspend", allowed=["active"], to="suspended",
                           values={"suspended_at": now_utc()})
 
 
 @router.post("/cards/{card_id}/resume")
-def resume_card(card_id: str, body: dict = Depends(json_body), member: m.Member = Depends(card_member),
+def resume_card(request: Request, card_id: str, body: dict = Depends(json_body), user: m.User = Depends(current_user),
                 db: Session = Depends(get_db)):
-    return _change_status(db, member.id, card_id, body, action="resume", allowed=["suspended"], to="active",
+    return _change_status(request, db, user.id, card_id, body, action="resume", allowed=["suspended"], to="active",
                           values={"suspended_at": None})
 
 
 @router.post("/cards/{card_id}/report-lost")
-def report_lost(card_id: str, body: dict = Depends(json_body), member: m.Member = Depends(card_member),
+def report_lost(request: Request, card_id: str, body: dict = Depends(json_body), user: m.User = Depends(current_user),
                 db: Session = Depends(get_db)):
     reason = body.get("reason")
     extra = ([("reason", "REQUIRED")] if reason is None
              else [("reason", "INVALID_ENUM")] if reason not in ("lost", "stolen") else [])
-    return _change_status(db, member.id, card_id, body, action="report_lost", allowed=["active", "suspended"],
+    return _change_status(request, db, user.id, card_id, body, action="report_lost", allowed=["active", "suspended"],
                           to="lost", extra_fields=extra,
                           values={"suspended_at": None, "lost_at": now_utc(), "lost_reason": reason})
 
@@ -472,8 +422,8 @@ def report_lost(card_id: str, body: dict = Depends(json_body), member: m.Member 
 
 
 @router.get("/cards/{card_id}/limit")
-def get_card_limit(card_id: str, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
-    c = owned_card(db, member.id, card_id)
+def get_card_limit(card_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    c = owned_card(db, user.id, card_id)
     if c.status == "terminated":
         raise state_invalid(c, ["active", "suspended", "lost"])
     return {"cardId": c.id, "type": c.type, "status": c.status,
@@ -491,26 +441,26 @@ def list_card_products(db: Session = Depends(get_db)):
 
 
 @router.get("/accounts")
-def list_payment_accounts(request: Request, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
+def list_payment_accounts(request: Request, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     # 계좌 도메인(김연준) API 가 생기기 전까지 카드 신청 화면용으로 둔다
     if request.query_params.get("purpose", "card_payment") != "card_payment":
         raise validation([("purpose", "INVALID_ENUM")])
-    accounts = db.scalars(select(m.Account).where(m.Account.member_id == member.id, m.Account.status == "active")
+    accounts = db.scalars(select(m.Account).where(m.Account.user_id == user.id, m.Account.status == "active")
                           .order_by(m.Account.is_primary.desc(), m.Account.id))
     return {"items": [{"accountId": a.id, "bankName": a.bank_name, "accountMasked": a.account_masked}
                       for a in accounts]}
 
 
-def _age_under_19(member: m.Member) -> bool:
-    b, t = member.birth_date, today_kst()  # 생년월일이 없으면 통과
+def _age_under_19(user: m.User) -> bool:
+    b, t = user.birth_date, today_kst()  # 생년월일이 없으면 통과
     return bool(b) and t.year - b.year - ((t.month, t.day) < (b.month, b.day)) < 19
 
 
 @router.get("/card-applications/eligibility")
-def apply_eligibility(member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
+def apply_eligibility(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     def one(type_: str) -> dict:
-        current = active_count(db, member.id, type_)
-        reason = ("AGE_UNDER_19" if type_ == "credit" and _age_under_19(member)
+        current = active_count(db, user.id, type_)
+        reason = ("AGE_UNDER_19" if type_ == "credit" and _age_under_19(user)
                   else "COUNT_EXCEEDED" if current >= MAX_CARDS else None)
         return {"available": reason is None, "reason": reason, "currentCount": current, "maxCount": MAX_CARDS}
     return {"types": {"credit": one("credit"), "debit": one("debit")}}
@@ -592,7 +542,6 @@ def _validate_apply(b: dict, key: str | None, db: Session) -> tuple[dict, list[t
             f.append((f"agreements.{k}", "REQUIRED"))
         elif agreements[k] is not True:
             f.append((f"agreements.{k}", "MUST_BE_TRUE"))
-    f += pin_field_errors(b.get("accountPin"))
     req = {"type": type_, "productId": product_id, "paymentAccountId": b.get("paymentAccountId"),
            "paymentDay": (pay_day if pay_day is not None else 25) if type_ == "credit" else None,
            "incomeRange": income if type_ == "credit" else None, "recipient": recipient, "phone": phone,
@@ -603,7 +552,7 @@ def _validate_apply(b: dict, key: str | None, db: Session) -> tuple[dict, list[t
 
 
 def _fingerprint(req: dict) -> str:
-    # 비밀번호(accountPin, cardPin)는 req 에 없다. 서버 기본값(결제일 25)이 이미 적용돼 있다.
+    # 카드 비밀번호(cardPin)는 req 에 없다. 서버 기본값(결제일 25)이 이미 적용돼 있다.
     return hashlib.sha256(json.dumps(req, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -613,19 +562,19 @@ def _replay(row: m.IdempotencyKey, fingerprint: str) -> JSONResponse:
     return JSONResponse(json.loads(row.response_body), status_code=201)
 
 
-def _find_key(db: Session, member_id: str, key: str) -> m.IdempotencyKey | None:
+def _find_key(db: Session, user_id: int, key: str) -> m.IdempotencyKey | None:
     return db.scalar(select(m.IdempotencyKey).where(
-        m.IdempotencyKey.member_id == member_id, m.IdempotencyKey.idem_key == key,
+        m.IdempotencyKey.user_id == user_id, m.IdempotencyKey.idem_key == key,
         m.IdempotencyKey.expires_at > now_utc(), m.IdempotencyKey.response_body.is_not(None)))
 
 
-def _issue_card(db: Session, member_id: str, req: dict, account: m.Account, granted: int | None) -> m.Card:
+def _issue_card(db: Session, user_id: int, req: dict, account: m.Account, granted: int | None) -> m.Card:
     today = today_kst()
     product = db.get(m.CardProduct, req["productId"])
     credit = req["type"] == "credit"
     for _ in range(10):  # 끝 4자리가 이 회원의 모든 카드(해지 포함)와 겹치면 다시 뽑는다
         card = m.Card(
-            member_id=member_id, product_id=product.id, name=product.name, type=req["type"],
+            user_id=user_id, product_id=product.id, name=product.name, type=req["type"],
             number_last4=f"{random.randrange(10000):04d}",
             expiry=f"{today.month:02d}/{(today.year + 5) % 100:02d}", issued_at=today,
             payment_account_id=account.id, payment_bank_name=account.bank_name,
@@ -643,7 +592,7 @@ def _issue_card(db: Session, member_id: str, req: dict, account: m.Account, gran
 
 
 @router.post("/card-applications", status_code=201)
-def apply_card(request: Request, body: dict = Depends(json_body), member: m.Member = Depends(card_member),
+def apply_card(request: Request, body: dict = Depends(json_body), user: m.User = Depends(current_user),
                db: Session = Depends(get_db)):
     key = request.headers.get("Idempotency-Key")
     if not key:
@@ -652,47 +601,47 @@ def apply_card(request: Request, body: dict = Depends(json_body), member: m.Memb
     if fields:
         raise validation(fields)
     fingerprint = _fingerprint(req)
-    saved = _find_key(db, member.id, key)
+    saved = _find_key(db, user.id, key)
     if saved:
         return _replay(saved, fingerprint)
 
     account = db.scalar(select(m.Account).where(
-        m.Account.id == req["paymentAccountId"], m.Account.member_id == member.id, m.Account.status == "active"))
+        m.Account.id == req["paymentAccountId"], m.Account.user_id == user.id, m.Account.status == "active"))
     if not account:
         raise ApiError(404, "ACCOUNT_NOT_FOUND", "계좌를 찾을 수 없습니다.")
-    if req["type"] == "credit" and _age_under_19(member):
+    if req["type"] == "credit" and _age_under_19(user):
         raise ApiError(422, "APPLICANT_NOT_ELIGIBLE", "만 19세 이상부터 신청할 수 있습니다.", {"reason": "AGE_UNDER_19"})
     count_error = lambda n: ApiError(409, "CARD_COUNT_LIMIT_EXCEEDED", "보유 한도를 초과했습니다.",  # noqa: E731
                                      {"type": req["type"], "current": n, "max": MAX_CARDS})
-    if (n := active_count(db, member.id, req["type"])) >= MAX_CARDS:
+    if (n := active_count(db, user.id, req["type"])) >= MAX_CARDS:
         raise count_error(n)
-    verify_account_pin(account.id, body["accountPin"])
+    require_pin_verified(request)
 
     db.rollback()  # 위의 읽기 트랜잭션을 끝내고 짧은 쓰기 트랜잭션을 연다
     now = now_utc()
     db.execute(m.IdempotencyKey.__table__.delete().where(
-        m.IdempotencyKey.member_id == member.id, m.IdempotencyKey.idem_key == key, m.IdempotencyKey.expires_at <= now))
+        m.IdempotencyKey.user_id == user.id, m.IdempotencyKey.idem_key == key, m.IdempotencyKey.expires_at <= now))
     inserted = db.execute(pg_insert(m.IdempotencyKey).values(
-        member_id=member.id, idem_key=key, fingerprint=fingerprint, created_at=now,
+        user_id=user.id, idem_key=key, fingerprint=fingerprint, created_at=now,
         expires_at=now + timedelta(hours=24)).on_conflict_do_nothing().returning(m.IdempotencyKey.idem_key))
     if inserted.first() is None:  # 같은 키의 다른 요청이 끝나길 기다렸다가 저장된 응답을 돌려준다
         db.rollback()
-        saved = _find_key(db, member.id, key)
+        saved = _find_key(db, user.id, key)
         if saved:
             return _replay(saved, fingerprint)
         raise ApiError(409, "CARD_STATE_INVALID", "같은 신청이 처리 중입니다. 잠시 후 다시 시도해 주세요.")
-    db.execute(pg_insert(m.CardIssueQuota).values(member_id=member.id, type=req["type"]).on_conflict_do_nothing())
+    db.execute(pg_insert(m.CardIssueQuota).values(user_id=user.id, type=req["type"]).on_conflict_do_nothing())
     db.execute(select(m.CardIssueQuota).where(
-        m.CardIssueQuota.member_id == member.id, m.CardIssueQuota.type == req["type"]).with_for_update())
-    if (n := active_count(db, member.id, req["type"])) >= MAX_CARDS:
+        m.CardIssueQuota.user_id == user.id, m.CardIssueQuota.type == req["type"]).with_for_update())
+    if (n := active_count(db, user.id, req["type"])) >= MAX_CARDS:
         db.rollback()
         raise count_error(n)
 
     granted = INCOME_LIMIT[req["incomeRange"]] if req["type"] == "credit" else None
     approved = req["type"] == "debit" or granted is not None
-    card = _issue_card(db, member.id, req, account, granted) if approved else None
+    card = _issue_card(db, user.id, req, account, granted) if approved else None
     application = m.CardApplication(
-        member_id=member.id, type=req["type"], product_id=req["productId"], payment_account_id=account.id,
+        user_id=user.id, type=req["type"], product_id=req["productId"], payment_account_id=account.id,
         payment_day=req["paymentDay"], income_range=req["incomeRange"], recipient=req["recipient"],
         phone=req["phone"], address_line1=req["line1"], address_line2=req["line2"],
         agree_card_terms=True, agree_privacy=True, agree_credit_inquiry=req["creditInquiry"],
@@ -700,7 +649,7 @@ def apply_card(request: Request, body: dict = Depends(json_body), member: m.Memb
         granted_limit=granted, result_card_id=card.id if card else None, requested_at=now)
     db.add(application)
     if card:
-        db.add(m.CardStatusHistory(card_id=card.id, member_id=member.id, action="issue", from_status=None,
+        db.add(m.CardStatusHistory(card_id=card.id, user_id=user.id, action="issue", from_status=None,
                                    to_status="active", request_id=m.new_id("req")))
     db.flush()
     response = {
@@ -716,7 +665,7 @@ def apply_card(request: Request, body: dict = Depends(json_body), member: m.Memb
         "estimatedDeliveryBusinessDays": {"min": 3, "max": 5} if card else None,
     }
     db.execute(update(m.IdempotencyKey).where(
-        m.IdempotencyKey.member_id == member.id, m.IdempotencyKey.idem_key == key
+        m.IdempotencyKey.user_id == user.id, m.IdempotencyKey.idem_key == key
     ).values(response_status=201, response_body=json.dumps(response, ensure_ascii=False)))
     db.commit()
     return response
@@ -739,15 +688,15 @@ TERMINATE_ALLOWED = ["active", "suspended", "lost"]
 
 
 @router.get("/cards/{card_id}/termination-check")
-def termination_check(card_id: str, member: m.Member = Depends(card_member), db: Session = Depends(get_db)):
-    c = owned_card(db, member.id, card_id)
+def termination_check(card_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    c = owned_card(db, user.id, card_id)
     if c.status == "terminated":
         raise state_invalid(c, TERMINATE_ALLOWED)
     return _termination_check(db, c)
 
 
 @router.post("/cards/{card_id}/terminate")
-def terminate_card(card_id: str, body: dict = Depends(json_body), member: m.Member = Depends(card_member),
+def terminate_card(request: Request, card_id: str, body: dict = Depends(json_body), user: m.User = Depends(current_user),
                    db: Session = Depends(get_db)):
     fields: list[tuple[str, str]] = []
     reason = body.get("reason")
@@ -757,10 +706,9 @@ def terminate_card(card_id: str, body: dict = Depends(json_body), member: m.Memb
         fields.append(("acknowledged", "REQUIRED"))
     elif body["acknowledged"] is not True:
         fields.append(("acknowledged", "MUST_BE_TRUE"))
-    fields += pin_field_errors(body.get("accountPin"))
     if fields:
         raise validation(fields)
-    card = owned_card(db, member.id, card_id)
+    card = owned_card(db, user.id, card_id)
     if card.status == "terminated":
         raise state_invalid(card, TERMINATE_ALLOWED)
 
@@ -770,7 +718,7 @@ def terminate_card(card_id: str, body: dict = Depends(json_body), member: m.Memb
 
     if not (check := _termination_check(db, card))["canTerminate"]:
         raise blocked(check)
-    verify_account_pin(card.payment_account_id, body["accountPin"])
+    require_pin_verified(request)
 
     db.rollback()  # 읽기 트랜잭션을 끝내고, 카드 행을 잠근 채 미결제 금액을 다시 계산한다
     card = db.scalar(select(m.Card).where(m.Card.id == card_id).with_for_update())
@@ -782,7 +730,7 @@ def terminate_card(card_id: str, body: dict = Depends(json_body), member: m.Memb
         raise blocked(check)
     from_status, now = card.status, now_utc()
     card.status, card.suspended_at, card.terminated_at, card.terminated_reason = "terminated", None, now, reason
-    db.add(m.CardStatusHistory(card_id=card_id, member_id=member.id, action="terminate", from_status=from_status,
+    db.add(m.CardStatusHistory(card_id=card_id, user_id=user.id, action="terminate", from_status=from_status,
                                to_status="terminated", request_id=m.new_id("req")))
     db.commit()
     return {"id": card.id, "status": "terminated", "terminatedAt": iso(now)}

@@ -21,11 +21,11 @@ button { font: inherit; cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 ul { list-style: none; margin: 0; padding: 0; }
 
-/* 모바일 프레임: 폰에서는 꽉 차고, 데스크톱에서는 가운데 430px */
+/* 모바일 프레임: 폰에서는 꽉 차고, 데스크톱에서는 가운데 420px */
 .phone {
   position: relative;
   width: 100%;
-  max-width: 430px;
+  max-width: 420px;
   min-height: 100vh;
   margin: 0 auto;
   background: var(--bg);
@@ -59,7 +59,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 .app-main { flex: 1; padding: 14px 16px 30px; }
 
-.drawer-backdrop { position: fixed; top: 0; bottom: 0; left: 50%; width: 100%; max-width: 430px; transform: translateX(-50%); background: #fff; z-index: 20; }
+.drawer-backdrop { position: fixed; top: 0; bottom: 0; left: 50%; width: 100%; max-width: 420px; transform: translateX(-50%); background: #fff; z-index: 20; }
 .drawer { width: 100%; height: 100%; background: #fff; display: flex; flex-direction: column; }
 .drawer-head { flex: none; min-height: 126px; display: flex; justify-content: space-between; align-items: flex-start; padding: 27px 22px 19px 25px; border-bottom: 1px solid #d9dce2; }
 .drawer-welcome { display: flex; flex-direction: column; gap: 10px; }

@@ -2,6 +2,7 @@
 
 임시 DB(cardtest)와 임시 서버(8001)를 직접 띄우고 끝나면 지운다. 개발 DB 는 건드리지 않는다.
 PostgreSQL(docker compose up -d)이 떠 있어야 한다. 기준 데이터는 seed.py (오늘 = 2026-11-04 기준 값).
+user1 로 로그인한 쿠키 세션으로 요청하고, 쓰기 요청 전에 간편비밀번호를 확인한다(공통.md 4장).
 """
 import json
 import os
@@ -11,22 +12,24 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from http.cookiejar import CookieJar
 from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import create_engine, text
 
 ADMIN_URL = "postgresql+psycopg://aimbank:aimbank@localhost:5432/postgres"
 TEST_URL = "postgresql+psycopg://aimbank:aimbank@localhost:5432/cardtest"
-BASE = "http://127.0.0.1:8001/api/v1"
+BASE = "http://127.0.0.1:8001/api"
 fails: list[str] = []
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))  # 로그인 쿠키를 들고 있는 브라우저 하나
 
 
-def call(method, path, body=None, headers=None):
+def call(method, path, body=None, headers=None, browser=None):
     req = urllib.request.Request(
         BASE + path, data=json.dumps(body).encode() if body is not None else None, method=method,
         headers={"Content-Type": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req) as r:
+        with (browser or opener).open(req) as r:
             return r.status, json.loads(r.read())
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read())
@@ -41,14 +44,23 @@ def check(name, cond, info=""):
 def apply_body(**over):
     body = {"type": "credit", "productId": "prod_credit_01", "paymentAccountId": "acc_002",
             "incomeRange": "20m_40m", "cardPin": "1357", "recipient": "김민수", "phone": "010-1234-5678",
-            "address": {"line1": "서울"}, "agreements": {"cardTerms": True, "privacy": True, "creditInquiry": True},
-            "accountPin": "1234"}
+            "address": {"line1": "서울"}, "agreements": {"cardTerms": True, "privacy": True, "creditInquiry": True}}
     body.update(over)
     return body
 
 
 def apply(body, key=None):
     return call("POST", "/card-applications", body, {"Idempotency-Key": key or str(uuid.uuid4())})
+
+
+def login_user1(browser=None):
+    s, d = call("POST", "/auth/login", {"loginId": "user1", "password": "Test1234!"}, browser=browser)
+    check("00 user1 로그인", s == 200, d)
+
+
+def verify_pin():
+    s, d = call("POST", "/auth/pin/verify", {"pin": "482915"})
+    check("00 간편비밀번호 확인", s == 200 and d["validForSeconds"] == 300, d)
 
 
 def parallel(*fns):
@@ -58,6 +70,9 @@ def parallel(*fns):
 
 # ───── 01 ~ 05 조회 ─────
 def read_scenarios():
+    s, d = call("GET", "/cards", browser=urllib.request.build_opener())
+    check("00 로그인 없이는 401 LOGIN_REQUIRED", s == 401 and d["code"] == "LOGIN_REQUIRED", d)
+    login_user1()
     s, d = call("GET", "/cards/card_002")
     check("01 상세: 이용 1,208,000 / 40.3%", d["limit"] == {"total": 3000000, "used": 1208000, "remaining": 1792000, "usageRate": 40.3}, d)
     s, d = call("GET", "/cards/card_900")
@@ -102,28 +117,24 @@ def read_scenarios():
 
 # ───── 04 정지·분실 ─────
 def status_scenarios():
-    s, d = call("POST", "/cards/card_001/suspend", {"accountPin": "12"})
-    check("04 암호 형식 오류는 횟수에 안 넣음(400)", s == 400, d)
-    for i in range(4):
-        s, d = call("POST", "/cards/card_001/suspend", {"accountPin": "0000"})
-        check(f"04 암호 오답 {i + 1}회 남은 {4 - i}회", s == 403 and d["details"]["remainingAttempts"] == 4 - i, d)
-    s, d = call("POST", "/cards/card_001/suspend", {"accountPin": "0000"})
-    check("04 5번째 오답은 429 / 300초", s == 429 and d["details"]["retryAfterSeconds"] == 300, d)
-    s, d = call("POST", "/cards/card_001/suspend", {"accountPin": "1234"})
-    check("04 잠긴 동안은 맞는 암호도 429", s == 429, d)
-    s, d = call("POST", "/cards/card_002/suspend", {"accountPin": "1234"})
+    s, d = call("POST", "/cards/card_002/suspend", {})
+    check("04 본인 재확인 전에는 403 PIN_VERIFICATION_REQUIRED", s == 403 and d["code"] == "PIN_VERIFICATION_REQUIRED", d)
+    s, d = call("GET", "/cards/card_002")
+    check("04 재확인 실패로 상태는 그대로", d["status"] == "active", d)
+    verify_pin()
+    s, d = call("POST", "/cards/card_002/suspend", {})
     check("04 정지", s == 200 and d["status"] == "suspended" and d["suspendedAt"], d)
-    s, d = call("POST", "/cards/card_002/suspend", {"accountPin": "1234"})
+    s, d = call("POST", "/cards/card_002/suspend", {})
     check("04 이미 정지면 409", s == 409 and d["details"]["currentStatus"] == "suspended", d)
-    s, d = call("POST", "/cards/card_002/resume", {"accountPin": "1234"})
+    s, d = call("POST", "/cards/card_002/resume", {})
     check("04 해제", s == 200 and d["status"] == "active" and d["suspendedAt"] is None, d)
-    r = parallel(lambda: call("POST", "/cards/card_002/suspend", {"accountPin": "1234"}),
-                 lambda: call("POST", "/cards/card_002/suspend", {"accountPin": "1234"}))
+    r = parallel(lambda: call("POST", "/cards/card_002/suspend", {}),
+                 lambda: call("POST", "/cards/card_002/suspend", {}))
     check("04 T22 정지 동시 2건: 200 하나, 409 하나", sorted(x[0] for x in r) == [200, 409], r)
-    call("POST", "/cards/card_002/resume", {"accountPin": "1234"})
-    s, d = call("POST", "/cards/card_002/report-lost", {"accountPin": "1234"})
+    call("POST", "/cards/card_002/resume", {})
+    s, d = call("POST", "/cards/card_002/report-lost", {})
     check("04 분실 사유 누락은 400", s == 400, d)
-    s, d = call("POST", "/cards/card_900/suspend", {"accountPin": "1234"})
+    s, d = call("POST", "/cards/card_900/suspend", {})
     check("04 남의 카드 정지는 404", s == 404, d)
 
 
@@ -131,13 +142,19 @@ def status_scenarios():
 def apply_scenarios():
     s, d = call("GET", "/card-applications/eligibility")
     check("06 자격 조회: 신용 2장·체크 1장", d["types"]["credit"]["currentCount"] == 2 and d["types"]["debit"]["currentCount"] == 1, d)
+    unverified = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    login_user1(unverified)
+    s, d = call("POST", "/card-applications", apply_body(), {"Idempotency-Key": str(uuid.uuid4())}, browser=unverified)
+    check("06 본인 재확인 전 신청은 403 PIN_VERIFICATION_REQUIRED", s == 403 and d["code"] == "PIN_VERIFICATION_REQUIRED", d)
+    s, d = call("POST", "/cards/card_001/terminate", {"acknowledged": True}, browser=unverified)
+    check("07 본인 재확인 전 해지는 403 PIN_VERIFICATION_REQUIRED", s == 403 and d["code"] == "PIN_VERIFICATION_REQUIRED", d)
     s, d = call("POST", "/card-applications", apply_body())
     check("06 키 없으면 IDEMPOTENCY_KEY_REQUIRED", s == 400 and d["code"] == "IDEMPOTENCY_KEY_REQUIRED", d)
     s, d = apply(apply_body(productId="prod_debit_01"))
     check("06 T22 상품·종류 불일치", s == 400 and {"field": "productId", "reason": "PRODUCT_TYPE_MISMATCH"} in d["details"]["fields"], d)
     s, d = apply(apply_body(cardPin="1234", phone="1"))
     check("06 여러 필드 오류를 모두 담음", s == 400 and len(d["details"]["fields"]) == 2, d)
-    s, d = apply(apply_body(paymentAccountId="acc_900"))
+    s, d = apply(apply_body(paymentAccountId="acc_101"))
     check("06 남의 계좌 404", s == 404 and d["code"] == "ACCOUNT_NOT_FOUND", d)
     s, d = apply(apply_body(incomeRange="lt_10m"))
     check("06 소득 부족 거절(201)", s == 201 and d["status"] == "rejected" and d["rejectReason"] == "INCOME_INSUFFICIENT" and d["card"] is None, d)
@@ -155,8 +172,8 @@ def apply_scenarios():
     dbody["agreements"] = {"cardTerms": True, "privacy": True}
     r = parallel(lambda: apply(dbody, key), lambda: apply(dbody, key))
     check("06 같은 키 동시 2건: 같은 응답, 카드는 1장만", r[0][0] == 201 and r[0] == r[1], r)
-    s, again = apply({**dbody, "accountPin": "9999"}, key)
-    check("06 같은 키 재시도는 저장된 응답(암호 달라도)", s == 201 and again == r[0][1], again)
+    s, again = apply(dbody, key)
+    check("06 같은 키 재시도는 저장된 응답", s == 201 and again == r[0][1], again)
     s, d = apply({**dbody, "recipient": "다른이"}, key)
     check("06 같은 키에 다른 본문은 422", s == 422 and d["code"] == "IDEMPOTENCY_KEY_REUSED", d)
     s, d = call("GET", "/card-applications/eligibility")
@@ -174,13 +191,13 @@ def apply_scenarios():
 def terminate_scenarios(new_card_id):
     s, d = call("GET", "/cards/card_002/termination-check")
     check("07 해지 불가 안내", d["unpaidAmount"] == 1208000 and d["firstDueDate"] == "2026-11-25" and not d["canTerminate"], d)
-    s, d = call("POST", "/cards/card_002/terminate", {"acknowledged": True, "accountPin": "1234"})
+    s, d = call("POST", "/cards/card_002/terminate", {"acknowledged": True})
     check("07 미결제가 있으면 409", s == 409 and d["code"] == "CARD_TERMINATE_BLOCKED_UNPAID", d)
-    s, d = call("POST", f"/cards/{new_card_id}/terminate", {"acknowledged": False, "accountPin": "1234"})
+    s, d = call("POST", f"/cards/{new_card_id}/terminate", {"acknowledged": False})
     check("07 유의사항 미확인 400", s == 400, d)
-    s, d = call("POST", f"/cards/{new_card_id}/terminate", {"reason": "unused", "acknowledged": True, "accountPin": "1234"})
+    s, d = call("POST", f"/cards/{new_card_id}/terminate", {"reason": "unused", "acknowledged": True})
     check("07 해지", s == 200 and d["status"] == "terminated", d)
-    s, d = call("POST", f"/cards/{new_card_id}/terminate", {"acknowledged": True, "accountPin": "1234"})
+    s, d = call("POST", f"/cards/{new_card_id}/terminate", {"acknowledged": True})
     check("07 이미 해지면 409", s == 409 and d["code"] == "CARD_STATE_INVALID", d)
     s, d = call("GET", "/cards?includeTerminated=true")
     check("07 해지 카드는 목록 끝에, 상세 응답에 해지 사유 없음", d["items"][-1]["status"] == "terminated" and "terminatedReason" not in json.dumps(d), d)

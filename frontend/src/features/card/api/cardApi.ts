@@ -20,13 +20,13 @@ export const getTransaction = (id: string) => request<TransactionDetail>('GET', 
 
 export const getUpcomingBilling = () => request<UpcomingBilling>('GET', '/card-billing/upcoming')
 
-export const suspendCard = (cardId: string, accountPin: string) =>
-  request<CardStatusResult>('POST', `/cards/${enc(cardId)}/suspend`, { body: { accountPin } })
+export const suspendCard = (cardId: string) =>
+  request<CardStatusResult>('POST', `/cards/${enc(cardId)}/suspend`, { body: {} })
 
-export const resumeCard = (cardId: string, accountPin: string) =>
-  request<CardStatusResult>('POST', `/cards/${enc(cardId)}/resume`, { body: { accountPin } })
+export const resumeCard = (cardId: string) =>
+  request<CardStatusResult>('POST', `/cards/${enc(cardId)}/resume`, { body: {} })
 
-export const reportLost = (cardId: string, body: { reason: 'lost' | 'stolen'; accountPin: string }) =>
+export const reportLost = (cardId: string, body: { reason: 'lost' | 'stolen' }) =>
   request<CardStatusResult>('POST', `/cards/${enc(cardId)}/report-lost`, { body })
 
 export const getCardLimit = (cardId: string) => request<CardLimit>('GET', `/cards/${enc(cardId)}/limit`)

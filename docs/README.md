@@ -16,7 +16,7 @@
 | `common/` | [공통.md](common/공통.md) | 공통 규칙, 결정 기록, 파트 문서 반영 현황 | `main` 브랜치가 기준본 (작성 김경민) |
 | `common/` | [오류코드.md](common/오류코드.md) | 오류 코드 목록(공통·인증·계좌 원본, 카드 색인), 필드 오류 사유 | 공통.md와 같음 |
 | `common/` | [기술스택.md](common/기술스택.md) | 스택, 환경, 폴더 구조 | 팀 |
-| `auth/` | [회원,인증.md](auth/회원,인증.md) | 회원가입, 로그인·로그아웃, 간편비밀번호, 2차 인증, 접근 제어 | 김연준 |
+| `auth/` | [회원,인증.md](auth/회원,인증.md) | 회원가입, 로그인·로그아웃, 간편비밀번호, 2차 인증, 접근 제어. 실패 시나리오 확인 결과는 `auth/auth-check.md` | 김연준 |
 | `account/` | [계좌.md](account/계좌.md) | 저축예금·정기예금·정기적금, 개설·이체·해지, 이자 계산 | 김연준 |
 | `card/` | [README.md](card/README.md) | 카드 기획서 개요, 기능별 상세 `00`~`08` | 김경민 |
 | `dev/card/` | [backend-spec.md](dev/card/backend-spec.md), [frontend-spec.md](dev/card/frontend-spec.md) | 카드 개발 명세 (DB, 서버 규칙, 프론트 구조) | 김경민 |

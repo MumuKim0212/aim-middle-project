@@ -156,7 +156,6 @@ export type CardApplicationRequest = {
   phone: string
   address: { line1: string; line2?: string }
   agreements: { cardTerms: boolean; privacy: boolean; creditInquiry?: boolean }
-  accountPin: string
 }
 export type IssuedCard = {
   id: string
@@ -198,6 +197,5 @@ export type TerminateReason =
 export type TerminateRequest = {
   reason?: TerminateReason | null
   acknowledged: true
-  accountPin: string
 }
 export type TerminateResult = { id: string; status: 'terminated'; terminatedAt: string }

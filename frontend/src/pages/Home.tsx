@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import AuthStrip from '../auth/AuthStrip'
 import './home.css'
 
 type Pictogram = 'open' | 'account' | 'reset' | 'card' | 'ledger' | 'loan'
@@ -51,6 +52,7 @@ export default function Home() {
       </section>
 
       <div className="branch-content">
+        <AuthStrip />
         <form className="branch-search" onSubmit={onSearch} role="search">
           <input type="search" aria-label="AIM지점 검색" placeholder="AIM지점 방문해 볼까요?" onChange={() => setSearchMessage('')} />
           <button type="submit" aria-label="검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="10.7" cy="10.7" r="7" /><path d="m16 16 5 5" /></svg></button>

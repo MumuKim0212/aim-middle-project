@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { applyCard, getApplyEligibility, listCardProducts, listPaymentAccounts } from '../api/cardApi'
 import { toApiError, type ApiError } from '../api/errors'
 import type { CardApplicationRequest, CardApplicationResult, CardType, IncomeRange } from '../api/types'
-import AccountPinDialog from '../components/AccountPinDialog'
 import { ErrorBox, InfoRow, Loading, PageHeader, Section, btnOutline, btnPrimary, inputClass } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
+import { usePinVerify } from '../hooks/usePinVerify'
 import { isSimplePin } from '../lib/pin'
 
 type Draft = {
@@ -72,7 +72,6 @@ const FIELD_MAP: Record<string, [number, string]> = {
   incomeRange: [2, 'incomeRange'], cardPin: [2, 'cardPin'], recipient: [2, 'recipient'], phone: [2, 'phone'],
   'address.line1': [2, 'line1'], 'address.line2': [2, 'line2'],
   'agreements.cardTerms': [3, 'agreements'], 'agreements.privacy': [3, 'agreements'], 'agreements.creditInquiry': [3, 'agreements'],
-  accountPin: [4, 'accountPin'],
 }
 const REASON_TEXT: Record<string, string> = {
   REQUIRED: REQUIRED, INVALID_FORMAT: '형식을 확인해 주세요', OUT_OF_RANGE: '결제일은 1일부터 28일까지 선택할 수 있습니다',
@@ -95,11 +94,11 @@ export default function ApplyPage() {
   const elig = useAsync(getApplyEligibility, [])
   const products = useAsync(listCardProducts, [])
   const accounts = useAsync(listPaymentAccounts, [])
+  const pin = usePinVerify()
   const [step, setStep] = useState(1)
   const [d, setD] = useState<Draft>(INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
-  const [pinOpen, setPinOpen] = useState(false)
   const [retrying, setRetrying] = useState(false) // 응답을 못 받아 같은 키로 다시 확인해야 하는 상태
   const keyRef = useRef<string | null>(null)
   const resultRef = useRef<CardApplicationResult | null>(null)
@@ -129,19 +128,18 @@ export default function ApplyPage() {
     if (Object.keys(found).length === 0) setStep(step + 1)
   }
 
-  const body = (pin: string): CardApplicationRequest => ({
+  const body = (): CardApplicationRequest => ({
     type: d.type!, productId: product!.id, paymentAccountId: d.paymentAccountId,
     ...(credit ? { paymentDay: d.paymentDay, incomeRange: d.incomeRange as IncomeRange } : {}),
     cardPin: d.cardPin, recipient: d.recipient.trim(), phone: d.phone,
     address: { line1: d.line1.trim(), ...(d.line2.trim() ? { line2: d.line2.trim() } : {}) },
     agreements: { cardTerms: d.cardTerms, privacy: d.privacy, ...(credit ? { creditInquiry: d.creditInquiry } : {}) },
-    accountPin: pin,
   })
 
-  const submit = async (pin: string) => {
+  const submit = async () => {
     if (!keyRef.current) keyRef.current = crypto.randomUUID()
     try {
-      resultRef.current = await applyCard(body(pin), keyRef.current)
+      resultRef.current = await applyCard(body(), keyRef.current)
       keyRef.current = null
     } catch (e) {
       const err = toApiError(e)
@@ -150,8 +148,17 @@ export default function ApplyPage() {
     }
   }
 
+  const apply = async () => {
+    setBanner(null)
+    try {
+      const res = await pin.runVerified({ description: '카드 신청을 확정하려면 간편비밀번호를 입력해 주세요.' }, submit)
+      if (res.ok) navigate('/cards/apply/result', { replace: true, state: { result: resultRef.current } })
+    } catch (e) {
+      handleError(toApiError(e))
+    }
+  }
+
   const handleError = (err: ApiError) => {
-    setPinOpen(false)
     setBanner(null)
     setRetrying(err.status === 0)
     if (err.code === 'VALIDATION_FAILED') {
@@ -159,7 +166,7 @@ export default function ApplyPage() {
       const found: Record<string, string> = {}
       let first = 4
       for (const f of fields) {
-        const [s, key] = FIELD_MAP[f.field] ?? [4, 'accountPin']
+        const [s, key] = FIELD_MAP[f.field] ?? [4, 'submit']
         found[key] = REASON_TEXT[f.reason] ?? '입력값을 확인해 주세요'
         first = Math.min(first, s)
       }
@@ -307,7 +314,7 @@ export default function ApplyPage() {
             <InfoRow label="연락처">{d.phone}</InfoRow>
             <InfoRow label="배송 주소">{d.line1} {d.line2}</InfoRow>
           </dl>
-          {errors.accountPin && <p role="alert" className="mt-2 text-sm text-warning">{errors.accountPin}</p>}
+          {errors.submit && <p role="alert" className="mt-2 text-sm text-warning">{errors.submit}</p>}
         </Section>
       )}
 
@@ -321,25 +328,12 @@ export default function ApplyPage() {
             다음
           </button>
         ) : (
-          <button type="button" onClick={() => { setBanner(null); setPinOpen(true) }} className={`${btnPrimary} flex-1`}>
+          <button type="button" onClick={() => void apply()} className={`${btnPrimary} flex-1`}>
             {retrying ? '결과 다시 확인' : '신청하기'}
           </button>
         )}
       </div>
 
-      {pinOpen && accounts.data && (
-        <AccountPinDialog
-          accountId={d.paymentAccountId}
-          account={(() => { const a = accounts.data.items.find((x) => x.accountId === d.paymentAccountId)!; return { bankName: a.bankName, accountMasked: a.accountMasked } })()}
-          title="계좌 암호 입력"
-          description="신청을 확정하려면 결제 계좌의 암호를 입력해 주세요."
-          confirmLabel="신청하기"
-          onSubmit={submit}
-          onSuccess={() => navigate('/cards/apply/result', { replace: true, state: { result: resultRef.current } })}
-          onError={handleError}
-          onClose={() => setPinOpen(false)}
-        />
-      )}
     </main>
   )
 }

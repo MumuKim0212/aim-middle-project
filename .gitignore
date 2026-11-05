@@ -6,3 +6,8 @@ node_modules/
 dist/
 *.log
 *.tsbuildinfo
+
+# 비밀값(API 키 등)은 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
