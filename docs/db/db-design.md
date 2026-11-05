@@ -41,18 +41,25 @@
 
 ## 3. 공통·계좌 (김연준 담당 — 제안)
 
-### `members`
+### `users` · `devices` (회원·인증 — 회원·인증 기획서 8장, 구현됨)
 | 컬럼 | 타입 | NULL | 설명 |
 |---|---|:--:|---|
-| `id` | VARCHAR(40) | X | PK |
-| `login_id` | VARCHAR(50) | X | UNIQUE (가계부 초안의 `email` 대체 가능) |
-| `password_hash` | VARCHAR(100) | X | |
+| `id` | BIGINT | X | PK, IDENTITY(BY DEFAULT). 시드 사용자 id 를 1~3 으로 고정하려고 BY DEFAULT |
+| `login_id` | VARCHAR(20) | X | UNIQUE. 소문자로 정규화해 저장 |
+| `password_hash` | TEXT | X | bcrypt |
 | `name` | VARCHAR(30) | X | |
-| `birth_date` | DATE | O | 카드 신청 만 19세 확인 (`getMember`) |
-| `phone` | VARCHAR(13) | O | |
-| `created_at` / `updated_at` | TIMESTAMPTZ | X | |
+| `birth_date` | DATE | X | 만 14세 이상 가입, 상품 가입 조건에 사용 |
+| `phone` | VARCHAR(11) | X | 숫자만 저장, 중복 허용 |
+| `marketing_agree` | BOOLEAN | X | 선택 약관 |
+| `simple_pin_hash` | TEXT | O | 간편비밀번호(6자리) bcrypt. 간편 로그인·2차 인증 공용. 미설정이면 NULL |
+| `pin_set_at` | TIMESTAMPTZ | O | |
+| `pin_failed_count` / `pin_locked_until` | INTEGER / TIMESTAMPTZ | X / O | 5회 실패 시 잠금(재설정으로만 해제, 먼 미래 값) |
+| `failed_login_count` / `locked_until` | INTEGER / TIMESTAMPTZ | X / O | 비밀번호 5회 실패 시 10분 잠금 |
+| `created_at` / `last_login_at` | TIMESTAMPTZ | X / O | |
 
-> `roles.md`에 로그인·회원 담당이 없다 (카드 명세 미결). 누가 만들지 먼저 정해야 한다.
+`devices`: `id` BIGINT IDENTITY · `user_id` FK → users · `token_hash` UNIQUE(기기 쿠키 값의 SHA-256, 원문 저장 안 함) · `device_name` · `created_at` · `last_used_at` · `expires_at`(90일 슬라이딩) · `revoked_at`.
+
+> **용어 변경(2026-11-05)**: 회원 테이블을 `members` → `users`, 모든 `member_id` → `user_id`(BIGINT)로 바꿨다. 다른 테이블의 `user_id` 는 위 표 기준으로 BIGINT 이다(아래 표의 `member_id VARCHAR(40)` 설명은 옛 이름).
 
 ### `accounts`
 | 컬럼 | 타입 | NULL | 설명 |

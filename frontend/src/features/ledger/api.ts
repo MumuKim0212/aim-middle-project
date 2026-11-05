@@ -1,4 +1,5 @@
 // 가계부 API 타입 (backend/app/ledger.py 응답과 맞춘다)
+import { apiFetch } from '../../lib/http'
 export type Mode = 'roast' | 'basic' | 'kind' | 'numbers'
 export type Level = 'safe' | 'caution' | 'danger'
 export type Reason = 'MONTH_BUDGET' | 'BALANCE' | 'CATEGORY_BUDGET'
@@ -56,11 +57,11 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const fetchSummary = (month?: string): Promise<Summary> =>
-  fetch(`/api/ledger/summary${month ? `?month=${month}` : ''}`).then((r) => json<Summary>(r))
+  apiFetch(`/api/ledger/summary${month ? `?month=${month}` : ''}`).then((r) => json<Summary>(r))
 
 /** record=false 면 판정만 하고 결제 시도 기록(payment_attempts)은 남기지 않는다. */
 export const checkPayment = (amount: number, category: string, record: boolean): Promise<Check> =>
-  fetch('/api/ledger/payment-check', {
+  apiFetch('/api/ledger/payment-check', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ amount, category, record }),
@@ -68,11 +69,11 @@ export const checkPayment = (amount: number, category: string, record: boolean):
 
 export type Settings = { mode: Mode; roastLevel: number }
 
-export const fetchSettings = (): Promise<Settings> => fetch('/api/ledger/settings').then((r) => json<Settings>(r))
+export const fetchSettings = (): Promise<Settings> => apiFetch('/api/ledger/settings').then((r) => json<Settings>(r))
 
 /** 바꿀 것만 보낸다. roastLevel 은 싸가지 모드의 욕설 강도(1 순한맛 / 2 보통 / 3 매운맛). */
 export const saveSettings = (patch: Partial<Settings>): Promise<unknown> =>
-  fetch('/api/ledger/settings', {
+  apiFetch('/api/ledger/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
@@ -108,7 +109,7 @@ export type TxList = {
 }
 
 export const fetchTransactions = (month: string): Promise<TxList> =>
-  fetch(`/api/ledger/transactions?month=${month}`).then((r) => json<TxList>(r))
+  apiFetch(`/api/ledger/transactions?month=${month}`).then((r) => json<TxList>(r))
 
 export class ApiError extends Error {
   constructor(public code: string) {
@@ -117,7 +118,7 @@ export class ApiError extends Error {
 }
 
 async function send(url: string, method: string, body?: unknown): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -171,7 +172,7 @@ export type Entry = {
 }
 
 export const fetchChat = (mode: Mode): Promise<Entry[]> =>
-  fetch(`/api/ledger/chat?mode=${mode}`).then((r) => json<{ entries: Entry[] }>(r)).then((d) => d.entries)
+  apiFetch(`/api/ledger/chat?mode=${mode}`).then((r) => json<{ entries: Entry[] }>(r)).then((d) => d.entries)
 
 export type StreamHandlers = {
   onMeta?: (entry: Entry) => void
@@ -188,7 +189,7 @@ export type StreamHandlers = {
  * mode·roastLevel 은 화면에 보이는 값이다. 서버가 그 말투와 욕설 강도로 답한다.
  */
 export async function streamChat(text: string, mode: Mode, roastLevel: number, h: StreamHandlers): Promise<void> {
-  const res = await fetch('/api/ledger/chat/stream', {
+  const res = await apiFetch('/api/ledger/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, mode, roastLevel }),
@@ -234,7 +235,7 @@ export async function streamChat(text: string, mode: Mode, roastLevel: number, h
 
 /** 이 모드의 새 대화를 시작한다. 다른 모드의 대화는 그대로다. */
 export const newChat = (mode: Mode): Promise<unknown> =>
-  fetch('/api/ledger/chat/new', {
+  apiFetch('/api/ledger/chat/new', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode }),
@@ -247,11 +248,11 @@ export const exportUrl = (month: string) => `/api/ledger/transactions/export?mon
 
 export type TrendMonth = { month: string; spent: number; income: number; byCategory: Record<string, number> }
 export const fetchTrend = (months = 6): Promise<TrendMonth[]> =>
-  fetch(`/api/ledger/trend?months=${months}`).then((r) => json<{ months: TrendMonth[] }>(r)).then((d) => d.months)
+  apiFetch(`/api/ledger/trend?months=${months}`).then((r) => json<{ months: TrendMonth[] }>(r)).then((d) => d.months)
 
 export type Recurring = { merchant: string; category: string; amount: number; months: number; lastDate: string; nextDate: string; registered: boolean }
 export const fetchRecurring = (): Promise<Recurring[]> =>
-  fetch('/api/ledger/recurring').then((r) => json<{ items: Recurring[] }>(r)).then((d) => d.items)
+  apiFetch('/api/ledger/recurring').then((r) => json<{ items: Recurring[] }>(r)).then((d) => d.items)
 export const registerRecurring = (b: { merchant: string; amount: number; dueDate: string }) => send('/api/ledger/recurring/register', 'POST', b)
 
 export const saveGoal = (name: string, target: number) => send('/api/ledger/goal', 'PUT', { name, target })
@@ -265,8 +266,8 @@ export const scanReceipt = (image: string, mime: string): Promise<ReceiptFields>
 export type IncomeItem = { id: string; date: string; source: string; amount: number; canDelete: boolean }
 export const addIncome = (b: { date: string; source: string; amount: number }) => send('/api/ledger/income', 'POST', b)
 export const fetchIncome = (month: string): Promise<IncomeItem[]> =>
-  fetch(`/api/ledger/income?month=${month}`).then((r) => json<{ items: IncomeItem[] }>(r)).then((d) => d.items)
+  apiFetch(`/api/ledger/income?month=${month}`).then((r) => json<{ items: IncomeItem[] }>(r)).then((d) => d.items)
 export type Outflow = { id: string; date: string; kind: 'withdraw' | 'transfer_out'; to: string; amount: number; account: string }
 export const fetchOutflows = (month: string): Promise<{ total: number; items: Outflow[] }> =>
-  fetch(`/api/ledger/account-outflows?month=${month}`).then((r) => json<{ total: number; items: Outflow[] }>(r))
+  apiFetch(`/api/ledger/account-outflows?month=${month}`).then((r) => json<{ total: number; items: Outflow[] }>(r))
 export const deleteIncome = (id: string) => send(`/api/ledger/income/${id}`, 'DELETE')

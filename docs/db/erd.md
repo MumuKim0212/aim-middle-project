@@ -8,7 +8,7 @@ GitHub·VS Code(Mermaid 미리보기)·Notion 코드블록(Mermaid)에서 바로
 ```mermaid
 erDiagram
     %% ── 공통 · 계좌 ──
-    members ||--o{ accounts : "소유"
+    users ||--o{ accounts : "소유"
     accounts ||--|| account_pin_state : "암호 오류 상태"
     accounts ||--o{ account_transactions : "입출금"
 
@@ -20,8 +20,8 @@ erDiagram
     card_products ||--o{ card_applications : "신청 상품"
     card_applications }o--o| cards : "result_card_id"
 
-    members ||..o{ cards : "member_id"
-    members ||..o{ card_applications : "member_id"
+    users ||..o{ cards : "user_id"
+    users ||..o{ card_applications : "user_id"
     accounts ||..o{ cards : "payment_account_id"
 
     %% ── 가계부 ──
@@ -30,16 +30,16 @@ erDiagram
     chat_sessions ||--o{ chat_messages : "대화"
     card_transactions |o--o{ payment_attempts : "허용된 시도"
 
-    members ||..o{ budgets : "member_id"
-    members ||..o{ planned_outflows : "member_id"
-    members ||..o{ payment_attempts : "member_id"
-    members ||..|| ledger_settings : "member_id"
-    members ||..o{ ledger_goals : "member_id"
-    members ||..o{ chat_sessions : "member_id"
-    members ||..o{ ledger_tx_category : "member_id"
+    users ||..o{ budgets : "user_id"
+    users ||..o{ planned_outflows : "user_id"
+    users ||..o{ payment_attempts : "user_id"
+    users ||..|| ledger_settings : "user_id"
+    users ||..o{ ledger_goals : "user_id"
+    users ||..o{ chat_sessions : "user_id"
+    users ||..o{ ledger_tx_category : "user_id"
 
     %% ── 대출 (공통) ──
-    members ||..o{ loan_application : "member_id"
+    users ||..o{ loan_application : "user_id"
     loan_application ||--o{ consent_record : "동의"
     loan_application ||--o| applicant_profile : "고객정보"
     loan_application ||--o| suitability_result : "적합성"
@@ -65,17 +65,28 @@ erDiagram
 
 ```mermaid
 erDiagram
-    members {
-        varchar40 id PK
-        varchar50 login_id UK
-        varchar100 password_hash
+    users {
+        bigint id PK
+        varchar20 login_id UK
+        text password_hash
         varchar30 name
         date birth_date
-        varchar13 phone
+        varchar11 phone
+        text simple_pin_hash
+        timestamptz pin_locked_until
+        timestamptz locked_until
     }
+    devices {
+        bigint id PK
+        bigint user_id FK
+        text token_hash UK
+        timestamptz expires_at
+        timestamptz revoked_at
+    }
+    users ||--o{ devices : "기기 등록"
     accounts {
         varchar40 id PK
-        varchar40 member_id FK
+        varchar40 user_id FK
         varchar30 bank_name
         varchar200 account_no_enc
         varchar20 account_masked
@@ -101,7 +112,7 @@ erDiagram
         varchar40 ref_id
     }
     idempotency_keys {
-        varchar40 member_id PK
+        varchar40 user_id PK
         varchar36 idem_key PK
         char64 fingerprint
         smallint response_status
@@ -118,7 +129,7 @@ erDiagram
         varchar40 actor
         timestamptz at
     }
-    members ||--o{ accounts : owns
+    users ||--o{ accounts : owns
     accounts ||--|| account_pin_state : has
     accounts ||--o{ account_transactions : has
 ```
@@ -136,11 +147,11 @@ erDiagram
     }
     cards {
         varchar40 id PK
-        varchar40 member_id "논리 참조"
+        varchar40 user_id "논리 참조"
         varchar40 product_id FK
         varchar50 name
         varchar6 type
-        char4 number_last4 "UK(member_id,number_last4)"
+        char4 number_last4 "UK(user_id,number_last4)"
         char5 expiry
         varchar12 status "active|suspended|lost|terminated"
         date issued_at
@@ -156,7 +167,7 @@ erDiagram
     card_status_history {
         varchar40 id PK
         varchar40 card_id FK
-        varchar40 member_id
+        varchar40 user_id
         varchar12 action
         varchar12 from_status
         varchar12 to_status
@@ -174,7 +185,7 @@ erDiagram
     }
     card_applications {
         varchar40 id PK
-        varchar40 member_id
+        varchar40 user_id
         varchar6 type
         varchar40 product_id FK
         varchar40 payment_account_id
@@ -185,7 +196,7 @@ erDiagram
         timestamptz requested_at
     }
     card_issue_quota {
-        varchar40 member_id PK
+        varchar40 user_id PK
         varchar6 type PK
     }
     card_products ||--o{ cards : has
@@ -205,13 +216,13 @@ erDiagram
     }
     ledger_tx_category {
         varchar40 card_transaction_id PK
-        varchar40 member_id
+        varchar40 user_id
         varchar20 category
         varchar4 source "auto|user"
     }
     budgets {
         varchar40 id PK
-        varchar40 member_id "UK(member_id,month)"
+        varchar40 user_id "UK(user_id,month)"
         char7 month "YYYY-MM"
         bigint total_amount
         bigint emergency_floor
@@ -223,7 +234,7 @@ erDiagram
     }
     planned_outflows {
         varchar40 id PK
-        varchar40 member_id
+        varchar40 user_id
         date due_date
         bigint amount
         varchar20 type "card_bill|fixed|loan_repayment"
@@ -233,7 +244,7 @@ erDiagram
     }
     payment_attempts {
         varchar40 id PK
-        varchar40 member_id
+        varchar40 user_id
         bigint amount
         varchar20 category
         varchar8 result "allowed|held"
@@ -242,20 +253,20 @@ erDiagram
         varchar40 card_transaction_id FK
     }
     ledger_settings {
-        varchar40 member_id PK
+        varchar40 user_id PK
         varchar8 mode "roast|basic|kind|numbers"
         smallint roast_level
     }
     ledger_goals {
         varchar40 id PK
-        varchar40 member_id
+        varchar40 user_id
         varchar7 month "YYYY-MM, 회원당 월 1건"
         varchar30 name
         bigint target_amount
     }
     chat_sessions {
         varchar40 id PK
-        varchar40 member_id
+        varchar40 user_id
     }
     chat_messages {
         varchar40 id PK
@@ -285,7 +296,7 @@ erDiagram
 erDiagram
     loan_application {
         varchar40 id PK
-        varchar40 member_id "논리 참조"
+        varchar40 user_id "논리 참조"
         varchar20 product_type
         varchar20 status
         varchar10 channel

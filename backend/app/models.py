@@ -1,14 +1,14 @@
 """docs/db/db-design.md 의 통합 테이블 설계를 SQLAlchemy 모델로 옮긴 것.
 
 공통 규칙: 금액 BIGINT(원) · ID 'prefix_<시간순 값>' VARCHAR(40) ·
-enum 은 VARCHAR + CHECK · 도메인 간 참조(member_id, account_id)는 논리 참조(FK 없음).
+enum 은 VARCHAR + CHECK · 도메인 간 참조(user_id, account_id)는 논리 참조(FK 없음).
 """
 import secrets
 import time
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index,
+    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index,
     Integer, Numeric, SmallInteger, String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -45,22 +45,45 @@ Money = BigInteger
 # ───────────────────────── 공통 · 계좌 ─────────────────────────
 
 
-class Member(Base):
-    __tablename__ = "members"
-    id: Mapped[str] = pk("member")
-    login_id: Mapped[str] = mapped_column(String(50), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(100))
+class User(Base):
+    """회원. 회원가입·인증 기획서 8.1 users 테이블. 다른 모든 테이블이 user_id 로 이 테이블을 참조한다."""
+    __tablename__ = "users"
+    # 시드 사용자 id 를 1~3 으로 고정해야 해서 BY DEFAULT 로 둔다(시드 뒤 시퀀스를 맞춘다).
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
+    login_id: Mapped[str] = mapped_column(String(20), unique=True)  # 소문자로 정규화해 저장
+    password_hash: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(String(30))
-    birth_date: Mapped[date | None] = mapped_column(Date)
-    phone: Mapped[str | None] = mapped_column(String(13))
+    birth_date: Mapped[date] = mapped_column(Date)
+    phone: Mapped[str] = mapped_column(String(11))  # 숫자만 저장, 중복 허용
+    marketing_agree: Mapped[bool] = mapped_column(Boolean, default=False)
+    simple_pin_hash: Mapped[str | None] = mapped_column(Text)  # 간편비밀번호(6자리) 해시. 미설정이면 NULL
+    pin_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pin_failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 재설정으로만 풀린다
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = ts_created()
-    updated_at: Mapped[datetime] = ts_updated()
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Device(Base):
+    """기기 등록 쿠키. 쿠키 값(무작위 토큰)은 해시만 저장한다. 인증 파트만 읽고 쓴다."""
+    __tablename__ = "devices"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    device_name: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = ts_created()
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (Index("ix_devices_user", "user_id"),)
 
 
 class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = pk("acc")
-    member_id: Mapped[str] = mapped_column(ForeignKey("members.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     bank_name: Mapped[str] = mapped_column(String(30))
     account_no_enc: Mapped[str] = mapped_column(String(200))
     account_masked: Mapped[str] = mapped_column(String(20))
@@ -73,7 +96,7 @@ class Account(Base):
     __table_args__ = (
         CheckConstraint("balance >= 0", name="ck_accounts_balance"),
         CheckConstraint("status IN ('active','closed')", name="ck_accounts_status"),
-        Index("ix_accounts_member_status", "member_id", "status"),
+        Index("ix_accounts_user_status", "user_id", "status"),
     )
 
 
@@ -111,7 +134,7 @@ class AccountTransaction(Base):
 
 class IdempotencyKey(Base):
     __tablename__ = "idempotency_keys"
-    member_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     idem_key: Mapped[str] = mapped_column(String(36), primary_key=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
     response_status: Mapped[int | None] = mapped_column(SmallInteger)
@@ -150,7 +173,7 @@ class CardProduct(Base):
 class Card(Base):
     __tablename__ = "cards"
     id: Mapped[str] = pk("card")
-    member_id: Mapped[str] = mapped_column(String(40))  # 논리 참조
+    user_id: Mapped[int] = mapped_column(BigInteger)  # 논리 참조
     product_id: Mapped[str] = mapped_column(ForeignKey("card_products.id"))
     name: Mapped[str] = mapped_column(String(50))
     type: Mapped[str] = mapped_column(String(6))
@@ -187,8 +210,8 @@ class Card(Base):
         CheckConstraint("status <> 'lost' OR lost_at IS NOT NULL", name="ck_cards_lost"),
         CheckConstraint("status <> 'terminated' OR terminated_at IS NOT NULL", name="ck_cards_term"),
         CheckConstraint("(lost_at IS NOT NULL) = (lost_reason IS NOT NULL)", name="ck_cards_lost_reason"),
-        UniqueConstraint("member_id", "number_last4", name="uq_cards_member_last4"),
-        Index("ix_cards_member_status", "member_id", "status"),
+        UniqueConstraint("user_id", "number_last4", name="uq_cards_user_last4"),
+        Index("ix_cards_user_status", "user_id", "status"),
     )
 
 
@@ -196,7 +219,7 @@ class CardStatusHistory(Base):
     __tablename__ = "card_status_history"
     id: Mapped[str] = pk("csh")
     card_id: Mapped[str] = mapped_column(ForeignKey("cards.id"))
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     action: Mapped[str] = mapped_column(String(12))
     from_status: Mapped[str | None] = mapped_column(String(12))
     to_status: Mapped[str] = mapped_column(String(12))
@@ -234,7 +257,7 @@ class CardTransaction(Base):
 class CardApplication(Base):
     __tablename__ = "card_applications"
     id: Mapped[str] = pk("capp")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     type: Mapped[str] = mapped_column(String(6))
     product_id: Mapped[str] = mapped_column(ForeignKey("card_products.id"))
     payment_account_id: Mapped[str] = mapped_column(String(40))
@@ -252,12 +275,12 @@ class CardApplication(Base):
     granted_limit: Mapped[int | None] = mapped_column(Money)
     result_card_id: Mapped[str | None] = mapped_column(ForeignKey("cards.id"))
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
-    __table_args__ = (Index("ix_capp_member_time", "member_id", "requested_at"),)
+    __table_args__ = (Index("ix_capp_user_time", "user_id", "requested_at"),)
 
 
 class CardIssueQuota(Base):
     __tablename__ = "card_issue_quota"
-    member_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     type: Mapped[str] = mapped_column(String(6), primary_key=True)
 
 
@@ -267,23 +290,23 @@ class CardIssueQuota(Base):
 class LedgerTxCategory(Base):
     __tablename__ = "ledger_tx_category"
     card_transaction_id: Mapped[str] = mapped_column(ForeignKey("card_transactions.id"), primary_key=True)
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     category: Mapped[str] = mapped_column(String(20))
     source: Mapped[str] = mapped_column(String(4), default="auto")  # auto | user
     updated_at: Mapped[datetime] = ts_updated()
-    __table_args__ = (Index("ix_ltc_member_cat", "member_id", "category"),)
+    __table_args__ = (Index("ix_ltc_user_cat", "user_id", "category"),)
 
 
 class Budget(Base):
     __tablename__ = "budgets"
     id: Mapped[str] = pk("bud")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     month: Mapped[str] = mapped_column(String(7))  # YYYY-MM
     total_amount: Mapped[int] = mapped_column(Money)
     emergency_floor: Mapped[int] = mapped_column(Money, default=0)
     created_at: Mapped[datetime] = ts_created()
     updated_at: Mapped[datetime] = ts_updated()
-    __table_args__ = (UniqueConstraint("member_id", "month", name="uq_budget_member_month"),)
+    __table_args__ = (UniqueConstraint("user_id", "month", name="uq_budget_user_month"),)
 
 
 class CategoryBudget(Base):
@@ -296,7 +319,7 @@ class CategoryBudget(Base):
 class PlannedOutflow(Base):
     __tablename__ = "planned_outflows"
     id: Mapped[str] = pk("po")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     due_date: Mapped[date] = mapped_column(Date)
     amount: Mapped[int] = mapped_column(Money)
     type: Mapped[str] = mapped_column(String(20))  # card_bill|fixed|loan_repayment
@@ -308,7 +331,7 @@ class PlannedOutflow(Base):
 class PaymentAttempt(Base):
     __tablename__ = "payment_attempts"
     id: Mapped[str] = pk("pa")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     amount: Mapped[int] = mapped_column(Money)
     category: Mapped[str | None] = mapped_column(String(20))
     result: Mapped[str] = mapped_column(String(8))  # allowed | held
@@ -316,12 +339,12 @@ class PaymentAttempt(Base):
     over_amount: Mapped[int | None] = mapped_column(Money)
     card_transaction_id: Mapped[str | None] = mapped_column(ForeignKey("card_transactions.id"))
     created_at: Mapped[datetime] = ts_created()
-    __table_args__ = (Index("ix_pa_member_time", "member_id", "created_at"),)
+    __table_args__ = (Index("ix_pa_user_time", "user_id", "created_at"),)
 
 
 class LedgerSettings(Base):
     __tablename__ = "ledger_settings"
-    member_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     mode: Mapped[str] = mapped_column(String(8), default="basic")  # roast|basic|kind|numbers
     roast_level: Mapped[int] = mapped_column(SmallInteger, default=1)
     updated_at: Mapped[datetime] = ts_updated()
@@ -331,19 +354,19 @@ class LedgerGoal(Base):
     """월 저축 목표. 모은 돈은 저장하지 않고 조회 시 계산한다(결제 전 확인에서 보류로 막은 금액)."""
     __tablename__ = "ledger_goals"
     id: Mapped[str] = pk("lgl")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     month: Mapped[str] = mapped_column(String(7))  # YYYY-MM
     name: Mapped[str] = mapped_column(String(30))
     target_amount: Mapped[int] = mapped_column(Money)
     created_at: Mapped[datetime] = ts_created()
-    __table_args__ = (UniqueConstraint("member_id", "month", name="uq_goal_member_month"),
+    __table_args__ = (UniqueConstraint("user_id", "month", name="uq_goal_user_month"),
                       CheckConstraint("target_amount > 0", name="ck_goal_target"))
 
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id: Mapped[str] = pk("chs")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = ts_created()
 
 
@@ -374,7 +397,7 @@ class RagDocument(Base):
 class LoanApplication(Base):
     __tablename__ = "loan_application"
     id: Mapped[str] = pk("loanapp")
-    member_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[int] = mapped_column(BigInteger)
     product_type: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="draft")
     channel: Mapped[str] = mapped_column(String(10), default="mobile")

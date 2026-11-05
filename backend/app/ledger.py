@@ -1,7 +1,7 @@
 """가계부 API (박의혁).
 
 기준: 가계부_4가지_모드_체험.html 의 계산식을 서버로 옮긴 것. 금액은 전부 정수(원).
-member_id 는 인증 세션(current_member)에서만 얻는다.
+user_id 는 인증 세션(current_user)에서만 얻는다.
 
 사용 테이블 (docs/db/db-design.md 5절, 변경 없음)
   card_transactions + ledger_tx_category : 월 지출 / 카테고리별 지출
@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from . import ledger_categorize, ledger_query
 from . import models as m
 from .db import SessionLocal, engine, get_db
-from .deps import current_member
+from .auth.deps import current_user
 from .ledger_answer import enabled as answer_enabled, generate_answer, stream_answer
 from .gemini import LlmUnavailable, generate_json_image
 from .ledger_nlu import find_category_hint, income_source, is_record_command, parse_days_ago, understand
@@ -67,7 +67,7 @@ def month_range(month: str) -> tuple[date, date]:
     return date(y, mo, 1), date(y + (mo == 12), mo % 12 + 1, 1)
 
 
-def category_spent(db: Session, member_id: str, start: date, end: date) -> dict[str, int]:
+def category_spent(db: Session, user_id: int, start: date, end: date) -> dict[str, int]:
     """카테고리별 순지출. 취소 거래는 원 승인 거래의 카테고리를 따른다."""
     signed = case((m.CardTransaction.kind == "approval", m.CardTransaction.amount),
                   else_=-m.CardTransaction.amount)
@@ -80,7 +80,7 @@ def category_spent(db: Session, member_id: str, start: date, end: date) -> dict[
             m.LedgerTxCategory,
             m.LedgerTxCategory.card_transaction_id == func.coalesce(m.CardTransaction.original_id, m.CardTransaction.id),
         )
-        .where(m.Card.member_id == member_id,
+        .where(m.Card.user_id == user_id,
                m.CardTransaction.occurred_at >= start,
                m.CardTransaction.occurred_at < end)
         .group_by(cat)
@@ -88,7 +88,7 @@ def category_spent(db: Session, member_id: str, start: date, end: date) -> dict[
     return {name: int(total) for name, total in rows}
 
 
-def _examples(db: Session, member_id: str, budget_remaining: int, budget_set: bool) -> dict:
+def _examples(db: Session, user_id: int, budget_remaining: int, budget_set: bool) -> dict:
     """화면의 예시 금액(질문 칩·입력칸 예시·시뮬레이션 버튼)도 DB 에서 계산한다. 화면에 금액을 박아 두지 않는다.
 
     typical : 배달 한 번에 쓰는 평소 금액(최근 3개월 배달 승인 거래의 평균, 천 원 단위). 거래가 없으면 10,000원.
@@ -101,7 +101,7 @@ def _examples(db: Session, member_id: str, budget_remaining: int, budget_set: bo
         select(func.avg(m.CardTransaction.amount))
         .join(m.Card, m.Card.id == m.CardTransaction.card_id)
         .join(m.LedgerTxCategory, m.LedgerTxCategory.card_transaction_id == m.CardTransaction.id)
-        .where(m.Card.member_id == member_id, m.CardTransaction.kind == "approval",
+        .where(m.Card.user_id == user_id, m.CardTransaction.kind == "approval",
                m.LedgerTxCategory.category == "배달", m.CardTransaction.occurred_at >= since)
     )
     typical = max(1000, int(round(float(avg) / 1000)) * 1000) if avg else 10_000
@@ -109,24 +109,24 @@ def _examples(db: Session, member_id: str, budget_remaining: int, budget_set: bo
     return {"category": "배달", "typical": typical, "large": large}
 
 
-def _income(db: Session, member_id: str, start: date, end: date) -> int:
+def _income(db: Session, user_id: int, start: date, end: date) -> int:
     """그 기간에 내 계좌로 들어온 돈(입금·이체 입금). 대출 실행금은 수입으로 보지 않는다."""
     total = db.scalar(
         select(func.coalesce(func.sum(m.AccountTransaction.amount), 0))
         .join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.Account.member_id == member_id, m.AccountTransaction.kind.in_(("deposit", "transfer_in")),
+        .where(m.Account.user_id == user_id, m.AccountTransaction.kind.in_(("deposit", "transfer_in")),
                m.AccountTransaction.occurred_at >= datetime.combine(start, time.min),
                m.AccountTransaction.occurred_at < datetime.combine(end, time.min)))
     return int(total or 0)
 
 
-def _goal(db: Session, member_id: str, month: str, saved_amount: int) -> dict | None:
-    g = db.scalar(select(m.LedgerGoal).where(m.LedgerGoal.member_id == member_id, m.LedgerGoal.month == month))
+def _goal(db: Session, user_id: int, month: str, saved_amount: int) -> dict | None:
+    g = db.scalar(select(m.LedgerGoal).where(m.LedgerGoal.user_id == user_id, m.LedgerGoal.month == month))
     if not g:
         return None
     weeks = -(-(month_range(month)[1] - month_range(month)[0]).days // 7)  # 그 달의 주 수(올림)
     monday = date.today() - timedelta(days=date.today().weekday())
-    week_saved = _saved(db, member_id, max(monday, month_range(month)[0]))["heldAmount"]
+    week_saved = _saved(db, user_id, max(monday, month_range(month)[0]))["heldAmount"]
     return {"name": g.name, "target": g.target_amount, "saved": saved_amount,
             "ratio": min(100, pct(saved_amount, g.target_amount)),
             "weeklyTarget": -(-g.target_amount // weeks), "weekSaved": week_saved}
@@ -150,23 +150,23 @@ def _forecast(spent: int, total: int, month: str) -> dict | None:
             "daysLeft": days_in_month - today.day, "over": over}
 
 
-def _saved(db: Session, member_id: str, start: date) -> dict:
+def _saved(db: Session, user_id: int, start: date) -> dict:
     """결제 전 확인에서 '보류'가 나온 이번 달 시도: 횟수와 합계 금액."""
     count, total = db.execute(
         select(func.count(m.PaymentAttempt.id), func.coalesce(func.sum(m.PaymentAttempt.amount), 0))
-        .where(m.PaymentAttempt.member_id == member_id, m.PaymentAttempt.result == "held",
+        .where(m.PaymentAttempt.user_id == user_id, m.PaymentAttempt.result == "held",
                m.PaymentAttempt.created_at >= datetime.combine(start, time.min))
     ).one()
     return {"heldCount": int(count), "heldAmount": int(total)}
 
 
-def _streak(db: Session, member_id: str) -> int:
+def _streak(db: Session, user_id: int) -> int:
     """오늘부터 거꾸로 세는 무지출 연속 일수(카드 승인이 없는 날). 오늘 쓴 게 있으면 0."""
     since = date.today() - timedelta(days=60)
     rows = db.execute(
         select(m.CardTransaction.occurred_at)
         .join(m.Card, m.Card.id == m.CardTransaction.card_id)
-        .where(m.Card.member_id == member_id, m.CardTransaction.kind == "approval",
+        .where(m.Card.user_id == user_id, m.CardTransaction.kind == "approval",
                m.CardTransaction.occurred_at >= datetime.combine(since, time.min))).all()
     spent_days = {r[0].date() for r in rows}
     n, day = 0, date.today()
@@ -176,16 +176,16 @@ def _streak(db: Session, member_id: str) -> int:
     return n
 
 
-def ensure_month_budget(db: Session, member_id: str, month: str) -> None:
+def ensure_month_budget(db: Session, user_id: int, month: str) -> None:
     """이번 달 예산이 아직 없으면 가장 최근 달의 예산(월 예산 + 분류 예산)을 이어받아 만든다. 새 달에도 경고·예측이 꺼지지 않게."""
-    if db.scalar(select(m.Budget.id).where(m.Budget.member_id == member_id, m.Budget.month == month)):
+    if db.scalar(select(m.Budget.id).where(m.Budget.user_id == user_id, m.Budget.month == month)):
         return
-    prev = db.scalar(select(m.Budget).where(m.Budget.member_id == member_id, m.Budget.month < month)
+    prev = db.scalar(select(m.Budget).where(m.Budget.user_id == user_id, m.Budget.month < month)
                      .order_by(m.Budget.month.desc()))
     if not prev:
         return
     try:
-        new = m.Budget(member_id=member_id, month=month, total_amount=prev.total_amount, emergency_floor=prev.emergency_floor)
+        new = m.Budget(user_id=user_id, month=month, total_amount=prev.total_amount, emergency_floor=prev.emergency_floor)
         db.add(new)
         db.flush()
         for c in db.scalars(select(m.CategoryBudget).where(m.CategoryBudget.budget_id == prev.id)):
@@ -195,29 +195,29 @@ def ensure_month_budget(db: Session, member_id: str, month: str) -> None:
         db.rollback()
 
 
-def _daily(db: Session, member_id: str, remaining: int, month: str) -> dict | None:
+def _daily(db: Session, user_id: int, remaining: int, month: str) -> dict | None:
     """오늘 쓸 수 있는 돈 = (오늘 아침 기준 남은 예산) ÷ (오늘 포함 남은 일수). 이번 달만."""
     if month != this_month():
         return None
     today = date.today()
     first, nxt = month_range(month)
     days_left = (nxt - first).days - today.day + 1
-    spent_today = sum(category_spent(db, member_id, today, today + timedelta(days=1)).values())
+    spent_today = sum(category_spent(db, user_id, today, today + timedelta(days=1)).values())
     base = remaining + spent_today  # 오늘 쓰기 전의 남은 예산
     allowance = max(0, base // days_left) if base > 0 else 0
     return {"allowance": allowance, "todaySpent": spent_today, "left": allowance - spent_today, "daysLeft": days_left}
 
 
-def build_summary(db: Session, member_id: str, month: str) -> dict:
-    ledger_categorize.ensure_categories(db, member_id)  # 카드 서비스에서 새로 들어온 거래를 자동 분류
+def build_summary(db: Session, user_id: int, month: str) -> dict:
+    ledger_categorize.ensure_categories(db, user_id)  # 카드 서비스에서 새로 들어온 거래를 자동 분류
     if month == this_month():
-        ensure_month_budget(db, member_id, month)
+        ensure_month_budget(db, user_id, month)
     start, end = month_range(month)
-    spent_by_cat = category_spent(db, member_id, start, end)
+    spent_by_cat = category_spent(db, user_id, start, end)
     spent = sum(spent_by_cat.values())
-    saved = _saved(db, member_id, start)
+    saved = _saved(db, user_id, start)
 
-    budget = db.scalar(select(m.Budget).where(m.Budget.member_id == member_id, m.Budget.month == month))
+    budget = db.scalar(select(m.Budget).where(m.Budget.user_id == user_id, m.Budget.month == month))
     total = budget.total_amount if budget else 0
     cat_budgets: dict[str, int] = {}
     if budget:
@@ -235,11 +235,11 @@ def build_summary(db: Session, member_id: str, month: str) -> dict:
         })
 
     primary = db.scalar(select(m.Account).where(
-        m.Account.member_id == member_id, m.Account.is_primary.is_(True), m.Account.status == "active"))
+        m.Account.user_id == user_id, m.Account.is_primary.is_(True), m.Account.status == "active"))
     balance = primary.balance if primary else 0
     planned_rows = db.scalars(
         select(m.PlannedOutflow)
-        .where(m.PlannedOutflow.member_id == member_id, m.PlannedOutflow.status == "planned",
+        .where(m.PlannedOutflow.user_id == user_id, m.PlannedOutflow.status == "planned",
                m.PlannedOutflow.due_date >= max(date.today(), start), m.PlannedOutflow.due_date < end)
         .order_by(m.PlannedOutflow.due_date)
     ).all()
@@ -268,13 +268,13 @@ def build_summary(db: Session, member_id: str, month: str) -> dict:
         "risk": {"level": level, "ratio": ratio,
                  "hotCategories": [c["category"] for c in (over_cat + [h for h in hot_cat if h not in over_cat])]},
         "categories": categories,
-        "examples": _examples(db, member_id, remaining, budget is not None),
+        "examples": _examples(db, user_id, remaining, budget is not None),
         "forecast": _forecast(spent, total, month),
-        "daily": _daily(db, member_id, remaining, month) if budget else None,
+        "daily": _daily(db, user_id, remaining, month) if budget else None,
         "saved": saved,
-        "income": _income(db, member_id, start, end),
-        "goal": _goal(db, member_id, month, saved["heldAmount"]),
-        "streak": _streak(db, member_id) if month == this_month() else 0,
+        "income": _income(db, user_id, start, end),
+        "goal": _goal(db, user_id, month, saved["heldAmount"]),
+        "streak": _streak(db, user_id) if month == this_month() else 0,
         "account": None if not primary else {
             "id": primary.id, "bankName": primary.bank_name, "masked": primary.account_masked},
         "balance": {
@@ -288,10 +288,10 @@ def build_summary(db: Session, member_id: str, month: str) -> dict:
 @router.get("/summary")
 def summary(
     month: str = Query(default_factory=this_month),
-    member: m.Member = Depends(current_member),
+    user: m.User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    return build_summary(db, member.id, month)
+    return build_summary(db, user.id, month)
 
 
 # ───────────── 결제 전 확인 ─────────────
@@ -306,9 +306,9 @@ class PaymentCheckIn(BaseModel):
 REASON_ORDER = ("MONTH_BUDGET", "BALANCE", "CATEGORY_BUDGET")
 
 
-def judge_payment(db: Session, member_id: str, amount: int, category: str, record: bool) -> dict:
+def judge_payment(db: Session, user_id: int, amount: int, category: str, record: bool) -> dict:
     """결제 가능/보류를 서버에서 판정한다. record=True 면 payment_attempts 에 근거를 남긴다."""
-    s = build_summary(db, member_id, this_month())
+    s = build_summary(db, user_id, this_month())
     remaining, expected = s["budget"]["remaining"], s["balance"]["expected"]
     cat = next((c for c in s["categories"] if c["category"] == category and c["budget"] is not None), None)
     cat_remaining = cat["remaining"] if cat else None
@@ -320,7 +320,7 @@ def judge_payment(db: Session, member_id: str, amount: int, category: str, recor
 
     if record:
         db.add(m.PaymentAttempt(
-            member_id=member_id, amount=amount, category=category, result=result,
+            user_id=user_id, amount=amount, category=category, result=result,
             reason=reasons[0] if reasons else None, over_amount=over or None))
         db.commit()
 
@@ -342,10 +342,10 @@ def judge_payment(db: Session, member_id: str, amount: int, category: str, recor
 @router.post("/payment-check")
 def payment_check(
     body: PaymentCheckIn,
-    member: m.Member = Depends(current_member),
+    user: m.User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    return judge_payment(db, member.id, body.amount, body.category, body.record)
+    return judge_payment(db, user.id, body.amount, body.category, body.record)
 
 
 # ───────────── 물어보기 (대화) ─────────────
@@ -367,11 +367,11 @@ def _prev_n_month(n: int) -> str:
     return f"{y:04d}-{mo:02d}"
 
 
-def _history(db: Session, member_id: str, back: int) -> dict:
+def _history(db: Session, user_id: int, back: int) -> dict:
     """지난달(back=1) / 지지난달(back=2) 지출과 그 전달 대비."""
     month, before = _prev_n_month(back), _prev_n_month(back + 1)
-    cur = category_spent(db, member_id, *month_range(month))
-    prior = sum(category_spent(db, member_id, *month_range(before)).values())
+    cur = category_spent(db, user_id, *month_range(month))
+    prior = sum(category_spent(db, user_id, *month_range(before)).values())
     top = max(cur.items(), key=lambda kv: kv[1], default=(None, 0))
     spent = sum(cur.values())
     return {
@@ -383,13 +383,13 @@ def _history(db: Session, member_id: str, back: int) -> dict:
 REASON_KO = {"MONTH_BUDGET": "월 예산", "BALANCE": "예상 잔액"}
 
 
-def _week(db: Session, member_id: str) -> dict:
+def _week(db: Session, user_id: int) -> dict:
     """이번 주(월요일~오늘) 지출과 지난주 같은 기간 대비."""
     today = date.today()
     start = today - timedelta(days=today.weekday())
     end = today + timedelta(days=1)
-    cur = category_spent(db, member_id, start, end)
-    prior = sum(category_spent(db, member_id, start - timedelta(days=7), end - timedelta(days=7)).values())
+    cur = category_spent(db, user_id, start, end)
+    prior = sum(category_spent(db, user_id, start - timedelta(days=7), end - timedelta(days=7)).values())
     top = max(cur.items(), key=lambda kv: kv[1], default=(None, 0))
     spent = sum(cur.values())
     return {"from": start.isoformat(), "to": today.isoformat(), "spent": spent, "prevSpent": prior,
@@ -397,9 +397,9 @@ def _week(db: Session, member_id: str) -> dict:
             "topName": top[0] if top[1] > 0 else "없음", "topAmount": max(top[1], 0)}
 
 
-def _cat_spent(db: Session, member_id: str, category: str) -> dict:
+def _cat_spent(db: Session, user_id: int, category: str) -> dict:
     """이번 달 한 분류의 지출과 그 분류 예산(없으면 None)."""
-    s = build_summary(db, member_id, this_month())
+    s = build_summary(db, user_id, this_month())
     row = next((c for c in s["categories"] if c["category"] == category), None)
     return {"category": category, "spent": row["spent"] if row else 0,
             "budget": row["budget"] if row else None, "remaining": row["remaining"] if row else None}
@@ -527,9 +527,9 @@ def _answer_facts(intent: str, text: str, ctx: dict, s: dict) -> dict:
     return facts
 
 
-def _mode_session(db: Session, member_id: str, mode: str) -> m.ChatSession | None:
+def _mode_session(db: Session, user_id: int, mode: str) -> m.ChatSession | None:
     """이 모드의 가장 최근 대화방. 모드는 방의 첫 메시지(context_json.mode)에 적어 두므로 테이블은 그대로다."""
-    sessions = db.scalars(select(m.ChatSession).where(m.ChatSession.member_id == member_id)
+    sessions = db.scalars(select(m.ChatSession).where(m.ChatSession.user_id == user_id)
                           .order_by(m.ChatSession.created_at.desc(), m.ChatSession.id.desc()).limit(40)).all()
     for sess in sessions:
         first = db.scalar(select(m.ChatMessage).where(m.ChatMessage.session_id == sess.id)
@@ -539,9 +539,9 @@ def _mode_session(db: Session, member_id: str, mode: str) -> m.ChatSession | Non
     return None
 
 
-def _new_session(db: Session, member_id: str, mode: str) -> m.ChatSession:
+def _new_session(db: Session, user_id: int, mode: str) -> m.ChatSession:
     """새 대화방. 빈 방은 모드를 알 수 없으니 첫 메시지로 모드 표시(role='system')를 남긴다."""
-    sess = m.ChatSession(member_id=member_id)
+    sess = m.ChatSession(user_id=user_id)
     db.add(sess)
     db.flush()
     db.add(m.ChatMessage(session_id=sess.id, role="system", content="새 대화", context_json={"mode": mode}))
@@ -549,8 +549,8 @@ def _new_session(db: Session, member_id: str, mode: str) -> m.ChatSession:
     return sess
 
 
-def _body_mode(db: Session, member_id: str, mode: str | None) -> str:
-    settings = db.get(m.LedgerSettings, member_id)
+def _body_mode(db: Session, user_id: int, mode: str | None) -> str:
+    settings = db.get(m.LedgerSettings, user_id)
     return mode if mode in MODES else (settings.mode if settings else "basic")
 
 
@@ -578,9 +578,9 @@ def _already_said(db: Session, session_id: str, mode: str) -> list[str]:
 
 
 @router.get("/chat")
-def get_chat(mode: str | None = None, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def get_chat(mode: str | None = None, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """이 모드의 대화만 돌려준다(모드마다 대화가 따로다)."""
-    session = _mode_session(db, member.id, _body_mode(db, member.id, mode))
+    session = _mode_session(db, user.id, _body_mode(db, user.id, mode))
     if not session:
         return {"entries": []}
     rows = db.scalars(select(m.ChatMessage).where(m.ChatMessage.session_id == session.id)
@@ -594,13 +594,13 @@ class ChatIn(BaseModel):
     roastLevel: int | None = None  # 싸가지 모드 욕설 강도 1~3. 없으면 저장된 설정
 
 
-def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
+def _prepare_turn(db: Session, user_id: int, body: ChatIn) -> dict:
     """질문 해석 → 계산(판정·숫자 확정) → 질문 저장. 답변 생성에 필요한 것을 모아 돌려준다."""
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "EMPTY_TEXT")
-    mode = _body_mode(db, member_id, body.mode)
-    session = _mode_session(db, member_id, mode) or _new_session(db, member_id, mode)
+    mode = _body_mode(db, user_id, body.mode)
+    session = _mode_session(db, user_id, mode) or _new_session(db, user_id, mode)
     recent = _recent_turns(db, session.id)
 
     u = understand(text)
@@ -638,11 +638,11 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
         category = u.category or UNCATEGORIZED
     ctx: dict = {"amount": u.amount, "category": category, "nlu": u.source, "mode": mode}
     if u.intent == "purchase" and u.amount is not None:
-        ctx["check"] = judge_payment(db, member_id, u.amount, category, record=False)
+        ctx["check"] = judge_payment(db, user_id, u.amount, category, record=False)
     if u.intent == "income" and u.amount is not None:
         day = date.today() - timedelta(days=u.days_ago)
         try:
-            tx = create_income(db, member_id, day, u.hint or "수입", u.amount)
+            tx = create_income(db, user_id, day, u.hint or "수입", u.amount)
             when = "오늘" if u.days_ago == 0 else "어제" if u.days_ago == 1 else f"{u.days_ago}일 전"
             ctx["income"] = {"id": tx.id, "amount": u.amount, "source": u.hint or "수입", "date": day.isoformat(), "when": when}
         except HTTPException as e:
@@ -650,7 +650,7 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
     if u.intent == "record" and u.amount is not None:
         day = date.today() - timedelta(days=u.days_ago)
         try:
-            tx = create_tx(db, member_id, day, f"{u.hint or category} · 대화 입력", category, u.amount)
+            tx = create_tx(db, user_id, day, f"{u.hint or category} · 대화 입력", category, u.amount)
             when = "오늘" if u.days_ago == 0 else "어제" if u.days_ago == 1 else f"{u.days_ago}일 전"
             ctx["recorded"] = {"id": tx.id, "amount": u.amount, "category": category, "date": day.isoformat(), "when": when}
         except HTTPException as e:
@@ -663,22 +663,22 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
             ctx["recorded"] = last_rec
     if u.intent == "query":
         # 정해 둔 의도에 안 맞는 조회 질문: 읽기 전용 SQL 로 푼다(검사·역할·시간 제한은 ledger_query 참고)
-        ctx["query"] = ledger_query.public(ledger_query.run(engine, member_id, text))
+        ctx["query"] = ledger_query.public(ledger_query.run(engine, user_id, text))
     if u.intent == "week":
-        ctx["week"] = _week(db, member_id)
+        ctx["week"] = _week(db, user_id)
     if u.intent == "category":
-        ctx["catSpent"] = _cat_spent(db, member_id, u.category or category)
+        ctx["catSpent"] = _cat_spent(db, user_id, u.category or category)
     if u.intent in ("last", "prev2"):
-        ctx["history"] = _history(db, member_id, 1 if u.intent == "last" else 2)
+        ctx["history"] = _history(db, user_id, 1 if u.intent == "last" else 2)
 
     msg = m.ChatMessage(session_id=session.id, role="user", content=text, intent=u.intent, context_json=ctx)
     db.add(msg)
     db.commit()  # 질문은 먼저 저장한다(답변을 만드는 도중 연결이 끊겨도 기록은 남는다)
 
-    settings = db.get(m.LedgerSettings, member_id)
+    settings = db.get(m.LedgerSettings, user_id)
     level = body.roastLevel if body.roastLevel in (1, 2, 3) else (settings.roast_level if settings else 1)
     # 판정·숫자는 위에서 코드가 확정했다. LLM 은 이 사실을 현재 말투로 풀어 쓸 뿐이다.
-    facts = _answer_facts(u.intent, text, ctx, build_summary(db, member_id, this_month()))
+    facts = _answer_facts(u.intent, text, ctx, build_summary(db, user_id, this_month()))
     said = _already_said(db, session.id, mode)
     return {"session": session, "msg": msg, "mode": mode, "level": level, "recent": recent, "said": said, "facts": facts}
 
@@ -692,9 +692,9 @@ def _save_reply(db: Session, t: dict, text: str) -> m.ChatMessage:
 
 
 @router.post("/chat", status_code=201)
-def ask(body: ChatIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def ask(body: ChatIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """한 번에 답변을 돌려준다(스트리밍을 안 쓰는 호출용)."""
-    t = _prepare_turn(db, member.id, body)
+    t = _prepare_turn(db, user.id, body)
     answer = generate_answer(t["facts"], t["mode"], t["level"], t["recent"], t["said"])
     reply = _save_reply(db, t, answer["text"]) if answer else None
     return _entry(t["msg"], [reply] if reply else None)
@@ -705,11 +705,11 @@ class NewChatIn(BaseModel):
 
 
 @router.post("/chat/new", status_code=201)
-def new_chat(body: NewChatIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def new_chat(body: NewChatIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """이 모드의 대화를 새로 시작한다(다른 모드의 대화는 그대로다)."""
     if body.mode not in MODES:
         raise HTTPException(400, "INVALID_MODE")
-    _new_session(db, member.id, body.mode)
+    _new_session(db, user.id, body.mode)
     return {"entries": []}
 
 
@@ -718,19 +718,19 @@ def _sse(event: str, data: dict) -> str:
 
 
 @router.post("/chat/stream")
-def ask_stream(body: ChatIn, member: m.Member = Depends(current_member)):
+def ask_stream(body: ChatIn, user: m.User = Depends(current_user)):
     """답변을 SSE 로 흘려 준다.  meta(질문 해석 결과) → delta(글자 조각)* → done(저장된 최종 대화 한 건).
 
     done 에 answer 가 없으면(LLM 실패·검증 탈락) 화면이 템플릿 문장으로 바꿔 보여 준다.
     """
-    member_id = member.id
+    user_id = user.id
     if not body.text.strip():
         raise HTTPException(400, "EMPTY_TEXT")
 
     def gen():
         with SessionLocal() as db:  # 응답이 흐르는 동안 쓸 자체 세션(요청 의존성 세션은 먼저 닫힌다)
             try:
-                t = _prepare_turn(db, member_id, body)
+                t = _prepare_turn(db, user_id, body)
             except HTTPException as e:
                 yield _sse("error", {"code": e.detail})
                 return
@@ -760,20 +760,20 @@ class SettingsIn(BaseModel):
 
 
 @router.get("/settings")
-def get_settings(member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
-    row = db.get(m.LedgerSettings, member.id)
+def get_settings(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    row = db.get(m.LedgerSettings, user.id)
     return {"mode": row.mode if row else "basic", "roastLevel": row.roast_level if row else 1}
 
 
 @router.put("/settings")
-def put_settings(body: SettingsIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def put_settings(body: SettingsIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     if body.mode is not None and body.mode not in MODES:
         raise HTTPException(400, "INVALID_MODE")
     if body.roastLevel is not None and body.roastLevel not in (1, 2, 3):
         raise HTTPException(400, "INVALID_ROAST_LEVEL")
-    row = db.get(m.LedgerSettings, member.id)
+    row = db.get(m.LedgerSettings, user.id)
     if not row:
-        row = m.LedgerSettings(member_id=member.id, mode=body.mode or "basic", roast_level=body.roastLevel or 1)
+        row = m.LedgerSettings(user_id=user.id, mode=body.mode or "basic", roast_level=body.roastLevel or 1)
         db.add(row)
     if body.mode is not None:
         row.mode = body.mode
@@ -797,7 +797,7 @@ def _prev_month(month: str) -> str:
     return f"{y:04d}-{mo:02d}"
 
 
-def _adjust_card_bill(db: Session, member_id: str, card: m.Card, tx_date: date, delta: int) -> None:
+def _adjust_card_bill(db: Session, user_id: int, card: m.Card, tx_date: date, delta: int) -> None:
     """신용카드 승인은 미결제 카드대금(planned_outflows)을 늘리고, 삭제하면 줄인다.
 
     기획안 3절: 카드 승인 시점에는 미결제 카드대금이 늘고 계좌 잔액은 실제 출금 때 줄어든다.
@@ -808,7 +808,7 @@ def _adjust_card_bill(db: Session, member_id: str, card: m.Card, tx_date: date, 
     today = date.today()
     row = db.scalar(
         select(m.PlannedOutflow)
-        .where(m.PlannedOutflow.member_id == member_id, m.PlannedOutflow.type == "card_bill",
+        .where(m.PlannedOutflow.user_id == user_id, m.PlannedOutflow.type == "card_bill",
                m.PlannedOutflow.ref_id == card.id, m.PlannedOutflow.status == "planned",
                m.PlannedOutflow.due_date >= today)
         .order_by(m.PlannedOutflow.due_date)
@@ -820,18 +820,18 @@ def _adjust_card_bill(db: Session, member_id: str, card: m.Card, tx_date: date, 
         due = date(today.year, today.month, day)
         if due < today:  # 이번 달 결제일이 지났으면 다음 달
             due = date(today.year + (today.month == 12), today.month % 12 + 1, day)
-        db.add(m.PlannedOutflow(member_id=member_id, due_date=due, amount=delta, type="card_bill",
+        db.add(m.PlannedOutflow(user_id=user_id, due_date=due, amount=delta, type="card_bill",
                                 ref_type="card", ref_id=card.id))
 
 
 @router.get("/transactions")
 def transactions(
     month: str = Query(default_factory=this_month),
-    member: m.Member = Depends(current_member),
+    user: m.User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     start, end = month_range(month)
-    ledger_categorize.ensure_categories(db, member.id)
+    ledger_categorize.ensure_categories(db, user.id)
     cat = func.coalesce(m.LedgerTxCategory.category, UNCATEGORIZED)
     rows = db.execute(
         select(m.CardTransaction, cat, m.LedgerTxCategory.source)
@@ -840,7 +840,7 @@ def transactions(
             m.LedgerTxCategory,
             m.LedgerTxCategory.card_transaction_id == func.coalesce(m.CardTransaction.original_id, m.CardTransaction.id),
         )
-        .where(m.Card.member_id == member.id,
+        .where(m.Card.user_id == user.id,
                m.CardTransaction.occurred_at >= start, m.CardTransaction.occurred_at < end)
         .order_by(m.CardTransaction.occurred_at.desc(), m.CardTransaction.id.desc())
     ).all()
@@ -858,9 +858,9 @@ def transactions(
         "userMade": source == "user",
     } for tx, category, source in rows]
 
-    now_by_cat = category_spent(db, member.id, start, end)
+    now_by_cat = category_spent(db, user.id, start, end)
     prev_start, prev_end = month_range(_prev_month(month))
-    prev_spent = sum(category_spent(db, member.id, prev_start, prev_end).values())
+    prev_spent = sum(category_spent(db, user.id, prev_start, prev_end).values())
     top = max(now_by_cat.items(), key=lambda kv: kv[1], default=(None, 0))
     spent = sum(now_by_cat.values())
     return {
@@ -873,7 +873,7 @@ def transactions(
             "delta": spent - prev_spent,
             "topCategory": top[0] if top[1] > 0 else None,
             "topAmount": top[1] if top[1] > 0 else 0,
-            "income": _income(db, member.id, start, end),
+            "income": _income(db, user.id, start, end),
         },
     }
 
@@ -885,7 +885,7 @@ class TxIn(BaseModel):
     amount: int = Field(gt=0, le=100_000_000)
 
 
-def create_tx(db: Session, member_id: str, day: date, merchant: str, category: str, amount: int) -> m.CardTransaction:
+def create_tx(db: Session, user_id: int, day: date, merchant: str, category: str, amount: int) -> m.CardTransaction:
     """카드 지출 한 건을 기록한다(화면 입력과 대화 입력이 같이 쓴다). 실패하면 HTTPException."""
     merchant = merchant.strip()
     if not merchant:
@@ -896,7 +896,7 @@ def create_tx(db: Session, member_id: str, day: date, merchant: str, category: s
         raise HTTPException(400, "FUTURE_DATE")  # 미래 날짜는 기록할 수 없다 (시안과 동일)
     # 기록할 카드: 사용 중인 카드 중 신용카드를 우선한다
     card = db.scalar(
-        select(m.Card).where(m.Card.member_id == member_id, m.Card.status == "active")
+        select(m.Card).where(m.Card.user_id == user_id, m.Card.status == "active")
         .order_by(case((m.Card.type == "credit", 0), else_=1), m.Card.issued_at)
     )
     if not card:
@@ -906,24 +906,24 @@ def create_tx(db: Session, member_id: str, day: date, merchant: str, category: s
         occurred_at=datetime.combine(day, time(12, 0)))
     db.add(tx)
     db.flush()
-    db.add(m.LedgerTxCategory(card_transaction_id=tx.id, member_id=member_id, category=category, source="user"))
-    _adjust_card_bill(db, member_id, card, day, amount)
+    db.add(m.LedgerTxCategory(card_transaction_id=tx.id, user_id=user_id, category=category, source="user"))
+    _adjust_card_bill(db, user_id, card, day, amount)
     db.commit()
     return tx
 
 
 @router.post("/transactions", status_code=201)
-def add_transaction(body: TxIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
-    return {"id": create_tx(db, member.id, body.date, body.merchant, body.category, body.amount).id}
+def add_transaction(body: TxIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    return {"id": create_tx(db, user.id, body.date, body.merchant, body.category, body.amount).id}
 
 
 @router.delete("/transactions/{tx_id}", status_code=204)
-def delete_transaction(tx_id: str, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def delete_transaction(tx_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     row = db.execute(
         select(m.CardTransaction, m.LedgerTxCategory)
         .join(m.Card, m.Card.id == m.CardTransaction.card_id)
         .join(m.LedgerTxCategory, m.LedgerTxCategory.card_transaction_id == m.CardTransaction.id)
-        .where(m.CardTransaction.id == tx_id, m.Card.member_id == member.id)
+        .where(m.CardTransaction.id == tx_id, m.Card.user_id == user.id)
     ).first()
     if not row:
         raise HTTPException(404, "NOT_FOUND")
@@ -933,7 +933,7 @@ def delete_transaction(tx_id: str, member: m.Member = Depends(current_member), d
     if db.scalar(select(m.CardTransaction.id).where(m.CardTransaction.original_id == tx.id)):
         raise HTTPException(409, "HAS_CANCEL")
     card = db.get(m.Card, tx.card_id)
-    _adjust_card_bill(db, member.id, card, tx.occurred_at.date(), -tx.amount)
+    _adjust_card_bill(db, user.id, card, tx.occurred_at.date(), -tx.amount)
     db.delete(cat)
     db.flush()
     db.delete(tx)
@@ -947,13 +947,13 @@ class TxEdit(BaseModel):
 
 
 @router.put("/transactions/{tx_id}")
-def edit_transaction(tx_id: str, body: TxEdit, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def edit_transaction(tx_id: str, body: TxEdit, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """분류는 모든 승인 거래에서 바꿀 수 있고, 사용처·금액은 직접 기록한 거래만 바꿀 수 있다."""
     row = db.execute(
         select(m.CardTransaction, m.LedgerTxCategory)
         .join(m.Card, m.Card.id == m.CardTransaction.card_id)
         .outerjoin(m.LedgerTxCategory, m.LedgerTxCategory.card_transaction_id == m.CardTransaction.id)
-        .where(m.CardTransaction.id == tx_id, m.Card.member_id == member.id)
+        .where(m.CardTransaction.id == tx_id, m.Card.user_id == user.id)
     ).first()
     if not row:
         raise HTTPException(404, "NOT_FOUND")
@@ -967,7 +967,7 @@ def edit_transaction(tx_id: str, body: TxEdit, member: m.Member = Depends(curren
         if db.scalar(select(m.CardTransaction.id).where(m.CardTransaction.original_id == tx.id)):
             raise HTTPException(409, "HAS_CANCEL")
         card = db.get(m.Card, tx.card_id)
-        _adjust_card_bill(db, member.id, card, tx.occurred_at.date(), body.amount - tx.amount)
+        _adjust_card_bill(db, user.id, card, tx.occurred_at.date(), body.amount - tx.amount)
         tx.amount = body.amount
     if body.merchant is not None and body.merchant.strip():
         tx.merchant = body.merchant.strip()
@@ -977,16 +977,16 @@ def edit_transaction(tx_id: str, body: TxEdit, member: m.Member = Depends(curren
         if cat:
             cat.category = body.category  # 직접 기록한 거래는 source 그대로, 자동 분류 거래는 분류만 바꾼다
         else:
-            db.add(m.LedgerTxCategory(card_transaction_id=tx.id, member_id=member.id, category=body.category, source="auto"))
+            db.add(m.LedgerTxCategory(card_transaction_id=tx.id, user_id=user.id, category=body.category, source="auto"))
     db.commit()
     return {"id": tx.id}
 
 
 @router.get("/transactions/export")
-def export_transactions(month: str = Query(default_factory=this_month), member: m.Member = Depends(current_member),
+def export_transactions(month: str = Query(default_factory=this_month), user: m.User = Depends(current_user),
                         db: Session = Depends(get_db)):
     """그 달 카드 내역을 CSV 로 내려준다(엑셀에서 한글이 깨지지 않게 BOM 을 붙인다)."""
-    data = transactions(month=month, member=member, db=db)
+    data = transactions(month=month, user=user, db=db)
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["날짜", "사용처", "분류", "구분", "금액(원)"])
@@ -997,15 +997,15 @@ def export_transactions(month: str = Query(default_factory=this_month), member: 
 
 
 @router.get("/trend")
-def trend(months: int = Query(6, ge=2, le=12), member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def trend(months: int = Query(6, ge=2, le=12), user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """최근 N개월(오래된 순) 월별 지출·수입과 분류별 지출."""
-    ledger_categorize.ensure_categories(db, member.id)
+    ledger_categorize.ensure_categories(db, user.id)
     out = []
     for back in range(months - 1, -1, -1):
         month = _prev_n_month(back)
         start, end = month_range(month)
-        by_cat = category_spent(db, member.id, start, end)
-        out.append({"month": month, "spent": sum(by_cat.values()), "income": _income(db, member.id, start, end),
+        by_cat = category_spent(db, user.id, start, end)
+        out.append({"month": month, "spent": sum(by_cat.values()), "income": _income(db, user.id, start, end),
                     "byCategory": by_cat})
     return {"months": out}
 
@@ -1026,7 +1026,7 @@ def _next_day(last: date) -> date:
 
 
 @router.get("/recurring")
-def recurring(member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def recurring(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """최근 6개월에 서로 다른 2개월 이상 비슷한 금액(±10%)으로 반복된 결제를 고정지출 후보로 보여 준다."""
     since = date.today().replace(day=1) - timedelta(days=150)
     cat = func.coalesce(m.LedgerTxCategory.category, UNCATEGORIZED)
@@ -1034,7 +1034,7 @@ def recurring(member: m.Member = Depends(current_member), db: Session = Depends(
         select(m.CardTransaction.merchant, m.CardTransaction.amount, m.CardTransaction.occurred_at, cat)
         .join(m.Card, m.Card.id == m.CardTransaction.card_id)
         .outerjoin(m.LedgerTxCategory, m.LedgerTxCategory.card_transaction_id == m.CardTransaction.id)
-        .where(m.Card.member_id == member.id, m.CardTransaction.kind == "approval",
+        .where(m.Card.user_id == user.id, m.CardTransaction.kind == "approval",
                m.CardTransaction.occurred_at >= datetime.combine(since, time.min))
         .order_by(m.CardTransaction.occurred_at)
     ).all()
@@ -1043,7 +1043,7 @@ def recurring(member: m.Member = Depends(current_member), db: Session = Depends(
         if RECURRING_SKIP not in merchant:
             groups.setdefault(merchant, []).append((amount, when.date(), category))
     registered = {p.ref_id for p in db.scalars(select(m.PlannedOutflow).where(
-        m.PlannedOutflow.member_id == member.id, m.PlannedOutflow.type == "fixed",
+        m.PlannedOutflow.user_id == user.id, m.PlannedOutflow.type == "fixed",
         m.PlannedOutflow.status == "planned"))}
     items = []
     for merchant, tx in groups.items():
@@ -1067,16 +1067,16 @@ class RecurringIn(BaseModel):
 
 
 @router.post("/recurring/register", status_code=201)
-def register_recurring(body: RecurringIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def register_recurring(body: RecurringIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """고정지출을 예정 출금(type=fixed)에 올린다. 같은 사용처는 한 번만."""
     if body.dueDate < date.today():
         raise HTTPException(400, "PAST_DATE")
     key = body.merchant[:40]
     if db.scalar(select(m.PlannedOutflow.id).where(
-            m.PlannedOutflow.member_id == member.id, m.PlannedOutflow.type == "fixed",
+            m.PlannedOutflow.user_id == user.id, m.PlannedOutflow.type == "fixed",
             m.PlannedOutflow.ref_id == key, m.PlannedOutflow.status == "planned")):
         raise HTTPException(409, "ALREADY_REGISTERED")
-    row = m.PlannedOutflow(member_id=member.id, due_date=body.dueDate, amount=body.amount, type="fixed",
+    row = m.PlannedOutflow(user_id=user.id, due_date=body.dueDate, amount=body.amount, type="fixed",
                            ref_type="recurring", ref_id=key)
     db.add(row)
     db.commit()
@@ -1092,20 +1092,20 @@ class GoalIn(BaseModel):
 
 
 @router.put("/goal")
-def put_goal(body: GoalIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def put_goal(body: GoalIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     month = this_month()
-    g = db.scalar(select(m.LedgerGoal).where(m.LedgerGoal.member_id == member.id, m.LedgerGoal.month == month))
+    g = db.scalar(select(m.LedgerGoal).where(m.LedgerGoal.user_id == user.id, m.LedgerGoal.month == month))
     if g:
         g.name, g.target_amount = body.name.strip(), body.target
     else:
-        db.add(m.LedgerGoal(member_id=member.id, month=month, name=body.name.strip(), target_amount=body.target))
+        db.add(m.LedgerGoal(user_id=user.id, month=month, name=body.name.strip(), target_amount=body.target))
     db.commit()
-    return _goal(db, member.id, month, _saved(db, member.id, month_range(month)[0])["heldAmount"])
+    return _goal(db, user.id, month, _saved(db, user.id, month_range(month)[0])["heldAmount"])
 
 
 @router.delete("/goal", status_code=204)
-def delete_goal(member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
-    g = db.scalar(select(m.LedgerGoal).where(m.LedgerGoal.member_id == member.id, m.LedgerGoal.month == this_month()))
+def delete_goal(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    g = db.scalar(select(m.LedgerGoal).where(m.LedgerGoal.user_id == user.id, m.LedgerGoal.month == this_month()))
     if g:
         db.delete(g)
         db.commit()
@@ -1137,7 +1137,7 @@ class ReceiptIn(BaseModel):
 
 
 @router.post("/receipt")
-def read_receipt(body: ReceiptIn, member: m.Member = Depends(current_member)):
+def read_receipt(body: ReceiptIn, user: m.User = Depends(current_user)):
     """영수증 사진을 읽어 입력 칸에 채울 값을 돌려준다. 저장은 하지 않는다(사용자가 확인한 뒤 기록)."""
     if body.mime not in RECEIPT_MIME:
         raise HTTPException(400, "INVALID_IMAGE")
@@ -1169,14 +1169,14 @@ INCOME_MEMO = "가계부 입력"  # 가계부에서 직접 기록한 입금 표�
 INCOME_KINDS = ("deposit", "transfer_in")
 
 
-def create_income(db: Session, member_id: str, day: date, source: str, amount: int) -> m.AccountTransaction:
+def create_income(db: Session, user_id: int, day: date, source: str, amount: int) -> m.AccountTransaction:
     """대표계좌에 입금을 기록하고 잔액을 늘린다(화면 입력과 대화 입력이 같이 쓴다)."""
     source = source.strip()[:30]
     if not source:
         raise HTTPException(400, "INVALID_SOURCE")
     if day > date.today():
         raise HTTPException(400, "FUTURE_DATE")
-    acc = db.scalar(select(m.Account).where(m.Account.member_id == member_id, m.Account.is_primary.is_(True),
+    acc = db.scalar(select(m.Account).where(m.Account.user_id == user_id, m.Account.is_primary.is_(True),
                                             m.Account.status == "active"))
     if not acc:
         raise HTTPException(409, "NO_PRIMARY_ACCOUNT")
@@ -1195,17 +1195,17 @@ class IncomeIn(BaseModel):
 
 
 @router.post("/income", status_code=201)
-def add_income(body: IncomeIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
-    return {"id": create_income(db, member.id, body.date, body.source, body.amount).id}
+def add_income(body: IncomeIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    return {"id": create_income(db, user.id, body.date, body.source, body.amount).id}
 
 
 @router.get("/income")
-def list_income(month: str = Query(default_factory=this_month), member: m.Member = Depends(current_member),
+def list_income(month: str = Query(default_factory=this_month), user: m.User = Depends(current_user),
                 db: Session = Depends(get_db)):
     start, end = month_range(month)
     rows = db.scalars(
         select(m.AccountTransaction).join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.Account.member_id == member.id, m.AccountTransaction.kind.in_(INCOME_KINDS),
+        .where(m.Account.user_id == user.id, m.AccountTransaction.kind.in_(INCOME_KINDS),
                m.AccountTransaction.occurred_at >= datetime.combine(start, time.min),
                m.AccountTransaction.occurred_at < datetime.combine(end, time.min))
         .order_by(m.AccountTransaction.occurred_at.desc(), m.AccountTransaction.id.desc())).all()
@@ -1215,11 +1215,11 @@ def list_income(month: str = Query(default_factory=this_month), member: m.Member
 
 
 @router.delete("/income/{tx_id}", status_code=204)
-def delete_income(tx_id: str, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def delete_income(tx_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """가계부에서 기록한 수입만 지운다. 그만큼 잔액을 되돌리고, 잔액이 모자라면 못 지운다."""
     row = db.execute(
         select(m.AccountTransaction, m.Account).join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.AccountTransaction.id == tx_id, m.Account.member_id == member.id)).first()
+        .where(m.AccountTransaction.id == tx_id, m.Account.user_id == user.id)).first()
     if not row:
         raise HTTPException(404, "NOT_FOUND")
     tx, acc = row
@@ -1233,14 +1233,14 @@ def delete_income(tx_id: str, member: m.Member = Depends(current_member), db: Se
 
 
 @router.get("/account-outflows")
-def account_outflows(month: str = Query(default_factory=this_month), member: m.Member = Depends(current_member),
+def account_outflows(month: str = Query(default_factory=this_month), user: m.User = Depends(current_user),
                      db: Session = Depends(get_db)):
     """내 계좌에서 나간 돈(출금·이체). 카드대금·대출상환은 카드 지출·예정 출금과 겹쳐서 뺀다. 예산 계산에는 넣지 않는다."""
     start, end = month_range(month)
     rows = db.execute(
         select(m.AccountTransaction, m.Account.account_masked)
         .join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.Account.member_id == member.id, m.AccountTransaction.kind.in_(("withdraw", "transfer_out")),
+        .where(m.Account.user_id == user.id, m.AccountTransaction.kind.in_(("withdraw", "transfer_out")),
                m.AccountTransaction.occurred_at >= datetime.combine(start, time.min),
                m.AccountTransaction.occurred_at < datetime.combine(end, time.min))
         .order_by(m.AccountTransaction.occurred_at.desc(), m.AccountTransaction.id.desc())).all()
@@ -1259,7 +1259,7 @@ class BudgetIn(BaseModel):
 
 
 @router.put("/budget")
-def put_budget(body: BudgetIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def put_budget(body: BudgetIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """이번 달 월 예산과 카테고리 예산을 저장한다(없으면 만든다)."""
     for name, amount in body.categories.items():
         if name not in CATEGORIES:
@@ -1267,11 +1267,11 @@ def put_budget(body: BudgetIn, member: m.Member = Depends(current_member), db: S
         if amount <= 0:
             raise HTTPException(400, "INVALID_AMOUNT")
     month = this_month()
-    budget = db.scalar(select(m.Budget).where(m.Budget.member_id == member.id, m.Budget.month == month))
+    budget = db.scalar(select(m.Budget).where(m.Budget.user_id == user.id, m.Budget.month == month))
     if budget:
         budget.total_amount = body.total
     else:
-        budget = m.Budget(member_id=member.id, month=month, total_amount=body.total, emergency_floor=0)
+        budget = m.Budget(user_id=user.id, month=month, total_amount=body.total, emergency_floor=0)
         db.add(budget)
         db.flush()
     for name, amount in body.categories.items():
@@ -1286,7 +1286,7 @@ def put_budget(body: BudgetIn, member: m.Member = Depends(current_member), db: S
             if row:
                 db.delete(row)
     db.commit()
-    return build_summary(db, member.id, month)
+    return build_summary(db, user.id, month)
 
 
 class PlannedIn(BaseModel):
@@ -1294,11 +1294,11 @@ class PlannedIn(BaseModel):
 
 
 @router.put("/planned-outflows/{po_id}")
-def put_planned(po_id: str, body: PlannedIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def put_planned(po_id: str, body: PlannedIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """예정 출금(카드대금 등) 금액을 고친다. 계좌 잔액은 계좌 도메인 소유라 여기서 바꾸지 않는다."""
     row = db.get(m.PlannedOutflow, po_id)
-    if not row or row.member_id != member.id:
+    if not row or row.user_id != user.id:
         raise HTTPException(404, "NOT_FOUND")
     row.amount = body.amount
     db.commit()
-    return build_summary(db, member.id, this_month())
+    return build_summary(db, user.id, this_month())

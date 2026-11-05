@@ -24,19 +24,19 @@ BAD = [
     "UPDATE monthly_budgets SET total_amount = 1",
     "INSERT INTO income VALUES (1)",
     "DROP TABLE spending",
-    "SELECT * FROM members",                                  # 허용 목록 밖의 표
-    "SELECT password_hash FROM members",
+    "SELECT * FROM users",                                  # 허용 목록 밖의 표
+    "SELECT password_hash FROM users",
     "SELECT * FROM card_transactions",                        # 원본 표 직접 접근
     "SELECT * FROM public.spending",                          # 스키마 지정
     "SELECT * FROM pg_catalog.pg_tables",
     "SELECT * FROM information_schema.tables",
-    "SELECT set_config('app.member_id', 'other', false)",     # 설정 바꾸기
+    "SELECT set_config('app.user_id', 'other', false)",     # 설정 바꾸기
     "SELECT current_setting('server_version')",
     "SELECT pg_sleep(10)",                                    # 서버 붙잡기
     "SELECT version()",
     "SELECT pg_read_file('/etc/passwd')",
     "SELECT 1; DELETE FROM spending",                         # 문장 이어 붙이기
-    "SELECT * FROM spending s JOIN members m ON true",
+    "SELECT * FROM spending s JOIN users m ON true",
     "WITH spending AS (SELECT 1) SELECT * FROM spending",     # 가상 표 이름 가로채기
     "SELECT * INTO tmp FROM spending",
     "SELECT * FROM spending FOR UPDATE",
@@ -46,14 +46,14 @@ BAD = [
 
 def test_good_pass():
     for sql in GOOD:
-        validate_sql(sql, "member_001")
+        validate_sql(sql, 1)
 
 
 def test_bad_rejected():
     leaked = []
     for sql in BAD:
         try:
-            validate_sql(sql, "member_001")
+            validate_sql(sql, 1)
             leaked.append(sql)
         except QueryRejected:
             pass

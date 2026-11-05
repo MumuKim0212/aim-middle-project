@@ -70,17 +70,17 @@ def _classify_with_llm(merchants: list[str]) -> dict[str, str]:
     return out
 
 
-def ensure_categories(db: Session, member_id: str, force: bool = False) -> int:
+def ensure_categories(db: Session, user_id: int, force: bool = False) -> int:
     """분류가 없는 승인 거래에 자동 분류를 채운다. 새로 채운 건수를 돌려준다."""
     now = time.monotonic()
-    if not force and now - _last_run.get(member_id, 0) < THROTTLE_SEC:
+    if not force and now - _last_run.get(user_id, 0) < THROTTLE_SEC:
         return 0
-    _last_run[member_id] = now
+    _last_run[user_id] = now
     rows = db.execute(
         select(m.CardTransaction.id, m.CardTransaction.merchant)
         .join(m.Card, m.Card.id == m.CardTransaction.card_id)
         .outerjoin(m.LedgerTxCategory, m.LedgerTxCategory.card_transaction_id == m.CardTransaction.id)
-        .where(m.Card.member_id == member_id, m.CardTransaction.kind == "approval",
+        .where(m.Card.user_id == user_id, m.CardTransaction.kind == "approval",
                m.LedgerTxCategory.card_transaction_id.is_(None))
         .limit(200)
     ).all()
@@ -91,7 +91,7 @@ def ensure_categories(db: Session, member_id: str, force: bool = False) -> int:
     by_llm = _classify_with_llm(unknown) if unknown else {}
     for tx_id, name in rows:
         cat = decided[tx_id] or by_llm.get(name) or "기타"
-        db.add(m.LedgerTxCategory(card_transaction_id=tx_id, member_id=member_id, category=cat, source="auto"))
+        db.add(m.LedgerTxCategory(card_transaction_id=tx_id, user_id=user_id, category=cat, source="auto"))
     db.commit()
     log.info("카드 거래 %d건 자동 분류", len(rows))
     return len(rows)

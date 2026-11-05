@@ -1,0 +1,59 @@
+/* 로그인·회원가입·간편비밀번호 화면 */
+.auth-page { padding: 22px 20px 40px; }
+.auth-page.center { text-align: center; }
+.auth-title { margin: 6px 0 14px; font-size: 21px; letter-spacing: -0.04em; line-height: 1.35; }
+.auth-sub { margin: -6px 0 14px; color: var(--muted); font-size: 13px; }
+.auth-progress { position: relative; height: 22px; margin-bottom: 8px; }
+.auth-progress span { position: absolute; right: 0; top: 0; color: var(--muted); font-size: 12px; font-weight: 700; }
+.auth-progress i { position: absolute; left: 0; bottom: 0; z-index: 1; height: 4px; border-radius: 4px; background: var(--blue); transition: width 0.2s; }
+.auth-progress::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; border-radius: 4px; background: var(--line); }
+.auth-form { display: grid; gap: 16px; }
+.auth-field { display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.auth-field input { width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-size: 15px; }
+.auth-field input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+.auth-err { margin: 2px 0 0; color: #d54d44; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.auth-notice { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--blue-soft); color: #1a4fb8; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.auth-actions { display: flex; gap: 10px; margin-top: 4px; }
+.auth-actions button { flex: 1; min-height: 50px; border: 0; border-radius: 12px; font-size: 15px; font-weight: 800; }
+.auth-actions .primary { background: var(--blue); color: #fff; }
+.auth-actions .primary:disabled { opacity: 0.5; }
+.auth-actions .ghost { background: #eef1f7; color: var(--ink); }
+.auth-foot { margin: 18px 0 0; color: var(--muted); font-size: 13px; text-align: center; }
+.auth-foot a { color: var(--blue); font-weight: 800; }
+.auth-link { margin-top: 18px; border: 0; background: transparent; color: var(--muted); font-size: 13px; text-decoration: underline; }
+.auth-terms { display: grid; gap: 4px; }
+.auth-terms label { display: flex; align-items: center; gap: 10px; padding: 13px 4px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.auth-terms label.all { font-size: 16px; font-weight: 800; border-bottom: 2px solid var(--ink); }
+.auth-terms input { width: 20px; height: 20px; }
+.auth-terms b { color: var(--blue); }
+.auth-summary { display: grid; margin: 0 0 14px; border-top: 1px solid var(--line); }
+.auth-summary div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.auth-summary dt { color: var(--muted); }
+.auth-summary dd { margin: 0; font-weight: 700; text-align: right; }
+.auth-stack { display: grid; gap: 10px; margin-top: 8px; }
+.auth-btn { display: block; width: 100%; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-size: 15px; font-weight: 800; text-align: center; }
+.auth-btn.danger { border-color: #f0c9c6; color: #d54d44; }
+.auth-modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: rgba(10, 18, 30, 0.55); }
+.auth-modal > div { width: 100%; max-width: 360px; padding: 22px; border-radius: 16px; background: #fff; }
+.auth-modal h3 { margin: 0 0 8px; font-size: 17px; letter-spacing: -0.03em; }
+.auth-modal p { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+
+/* 숫자 키패드 */
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 26px 0 28px; }
+.pin-dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #c3cbdc; }
+.pin-dots i.on { border-color: var(--blue); background: var(--blue); }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 320px; margin: 0 auto; }
+.pin-pad button { min-height: 62px; border: 0; border-radius: 14px; background: #eef1f7; color: var(--ink); font-size: 24px; font-weight: 700; }
+.pin-pad button:active:not(:disabled) { background: #dfe5f1; }
+.pin-pad button:disabled { opacity: 0.35; }
+
+/* 홈 위쪽 로그인 안내 */
+.auth-strip { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 12px 14px; border: 1px solid #d9e6ff; border-radius: 14px; background: #f3f7ff; font-size: 13px; }
+.auth-strip strong { font-size: 14px; }
+.auth-strip .btns { display: flex; gap: 8px; }
+.auth-strip a, .auth-strip button { padding: 8px 12px; border: 0; border-radius: 9px; background: var(--blue); color: #fff; font-size: 12.5px; font-weight: 800; }
+.auth-strip a.ghost, .auth-strip button.ghost { background: #e3eaf8; color: #1a3a7a; }
+.auth-flash { margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: #e8f6ee; color: #1f7a4a; font-size: 13px; font-weight: 700; }
+.drawer-logout { border: 0; background: transparent; padding: 0; color: #5d6b85; font-size: 13px; text-decoration: underline; }
+.auth-strip { flex-wrap: wrap; }
+.auth-strip .btns a, .auth-strip .btns button { white-space: nowrap; }

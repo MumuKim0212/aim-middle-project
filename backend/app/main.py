@@ -1,14 +1,21 @@
 from contextlib import asynccontextmanager
 from datetime import date
 
+import os
+
 from fastapi import Depends, FastAPI
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models as m
 from .db import SessionLocal, engine, get_db
-from .deps import current_member
+from .auth.deps import current_user
+from .auth.router import me_router, router as auth_router
 from . import ledger_query
 from .ledger import router as ledger_router
 from .seed import seed
@@ -29,9 +36,30 @@ app.add_middleware(
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
+)
+# 서명된 쿠키 세션(기획서 5.3). 서명 키는 코드가 아니라 환경변수(.env)에서 읽는다. 개발 중에는 Secure 를 끈다.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET") or "dev-only-session-secret-change-me",
+    session_cookie="aim_session",
+    max_age=None,  # 브라우저 세션 쿠키. 30분 만료는 마지막 활동 시각으로 서버가 판단한다(auth/deps.py)
+    same_site="lax",
+    https_only=False,
 )
 
 
+@app.exception_handler(StarletteHTTPException)
+async def api_error_handler(request, exc):
+    """인증 오류는 {"code", "message"} 모양으로 돌려준다(기획서 6.1). 기존 문자열 오류는 그대로 둔다."""
+    d = exc.detail
+    if isinstance(d, dict) and "code" in d:
+        return JSONResponse({**d, "detail": d["code"]}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+    return await http_exception_handler(request, exc)
+
+
+app.include_router(auth_router)
+app.include_router(me_router)
 app.include_router(ledger_router)
 
 
@@ -40,14 +68,14 @@ def health():
     return {"status": "ok"}
 
 
-def _loan_summary(db: Session, member_id: str) -> dict:
+def _loan_summary(db: Session, user_id: int) -> dict:
     today = date.today()
     rows = db.execute(
         select(m.Contract, m.LoanTerms, m.Pricing, m.LoanApplication)
         .join(m.LoanApplication, m.LoanApplication.id == m.Contract.application_id)
         .join(m.LoanTerms, m.LoanTerms.application_id == m.Contract.application_id)
         .join(m.Pricing, m.Pricing.application_id == m.Contract.application_id)
-        .where(m.LoanApplication.member_id == member_id)
+        .where(m.LoanApplication.user_id == user_id)
     ).all()
     items, total, due_total, next_due = [], 0, 0, None
     for contract, terms, pricing, _app in rows:
@@ -84,19 +112,19 @@ def _loan_summary(db: Session, member_id: str) -> dict:
 
 
 @app.get("/api/home")
-def home(member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+def home(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """메인 화면 한 번에 필요한 요약 (계좌·카드·가계부·대출)."""
     today = date.today()
     month = today.strftime("%Y-%m")
     month_start = today.replace(day=1)
 
     accounts = db.scalars(
-        select(m.Account).where(m.Account.member_id == member.id, m.Account.status == "active")
+        select(m.Account).where(m.Account.user_id == user.id, m.Account.status == "active")
         .order_by(m.Account.is_primary.desc(), m.Account.id)
     ).all()
 
     cards = db.scalars(
-        select(m.Card).where(m.Card.member_id == member.id, m.Card.status != "terminated")
+        select(m.Card).where(m.Card.user_id == user.id, m.Card.status != "terminated")
         .order_by(m.Card.issued_at)
     ).all()
     card_ids = [c.id for c in cards]
@@ -110,13 +138,13 @@ def home(member: m.Member = Depends(current_member), db: Session = Depends(get_d
         approved, cancelled = sums.get("approval", 0), sums.get("cancel", 0)
     spent = approved - cancelled
 
-    budget = db.scalar(select(m.Budget).where(m.Budget.member_id == member.id, m.Budget.month == month))
+    budget = db.scalar(select(m.Budget).where(m.Budget.user_id == user.id, m.Budget.month == month))
     budget_total = budget.total_amount if budget else 0
 
     products = db.scalars(select(m.ProductCatalog).order_by(m.ProductCatalog.product_id)).all()
 
     return {
-        "member": {"id": member.id, "name": member.name},
+        "user": {"id": user.id, "name": user.name},
         "accounts": {
             "totalBalance": sum(a.balance for a in accounts),
             "items": [
@@ -141,7 +169,7 @@ def home(member: m.Member = Depends(current_member), db: Session = Depends(get_d
             "usageRate": round(spent / budget_total * 100, 1) if budget_total else 0,
         },
         "loans": {
-            **_loan_summary(db, member.id),
+            **_loan_summary(db, user.id),
             "products": [
                 {"id": p.product_id, "type": p.type, "name": p.name,
                  "maxAmount": (p.rules or {}).get("max_amount"),

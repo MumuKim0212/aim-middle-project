@@ -1,8 +1,8 @@
 """가계부 자유 질문: 정해 둔 의도에 안 맞는 조회 질문을 읽기 전용 SQL 로 푼다(text-to-SQL, 안전장치 포함).
 
 핵심은 "프롬프트를 믿지 않는 것"이다. LLM 이 어떤 SQL 을 만들어도 아래가 DB·코드 차원에서 막는다.
-  1. 가상 표(CTE)만 본다 : 내 member_id 로 이미 걸러진 표(spending, income …)만 이름으로 노출하고,
-                           member_id 는 바인드 값으로 박아서 SQL 안에서 바꿀 수 없다.
+  1. 가상 표(CTE)만 본다 : 내 user_id 로 이미 걸러진 표(spending, income …)만 이름으로 노출하고,
+                           user_id 는 바인드 값으로 박아서 SQL 안에서 바꿀 수 없다.
   2. 읽기 전용 역할      : SET LOCAL ROLE ledger_ro. 필요한 열에만 SELECT 권한이 있는 역할(비밀번호·계좌번호 열은 없음).
   3. 읽기 전용 트랜잭션  : SET TRANSACTION READ ONLY. 쓰기는 DB 가 거부한다.
   4. 쿼리 검사(sqlglot)  : SELECT 한 문장, 허용한 표·함수만, 서브쿼리 포함 전부 검사. 그 밖은 실행하지 않는다.
@@ -38,50 +38,50 @@ VIRTUAL: dict[str, tuple[str, str]] = {
         "CASE WHEN t.kind = 'approval' THEN t.amount ELSE -t.amount END AS amount, t.kind "
         "FROM card_transactions t JOIN cards c ON c.id = t.card_id "
         "LEFT JOIN ledger_tx_category lc ON lc.card_transaction_id = COALESCE(t.original_id, t.id) "
-        "WHERE c.member_id = :mid",
+        "WHERE c.user_id = :mid",
     ),
     "income": (
         "내 계좌로 들어온 돈(수입). date, source(월급·용돈 등 이름), amount",
         "SELECT a.occurred_at::date AS date, COALESCE(a.counterparty, a.memo, '입금') AS source, a.amount "
         "FROM account_transactions a JOIN accounts ac ON ac.id = a.account_id "
-        "WHERE ac.member_id = :mid AND a.kind IN ('deposit', 'transfer_in')",
+        "WHERE ac.user_id = :mid AND a.kind IN ('deposit', 'transfer_in')",
     ),
     "monthly_budgets": (
         "월별 총 예산. month('YYYY-MM'), total_amount",
-        "SELECT b.month, b.total_amount FROM budgets b WHERE b.member_id = :mid",
+        "SELECT b.month, b.total_amount FROM budgets b WHERE b.user_id = :mid",
     ),
     "category_limits": (
         "월별 분류 예산. month, category, amount",
         "SELECT b.month, cb.category, cb.amount FROM category_budgets cb JOIN budgets b ON b.id = cb.budget_id "
-        "WHERE b.member_id = :mid",
+        "WHERE b.user_id = :mid",
     ),
     "payment_checks": (
         "결제 전 확인 기록. date, amount, category, result(allowed|held), over_amount",
         "SELECT p.created_at::date AS date, p.amount, p.category, p.result, p.over_amount "
-        "FROM payment_attempts p WHERE p.member_id = :mid",
+        "FROM payment_attempts p WHERE p.user_id = :mid",
     ),
     "upcoming_payments": (
         "예정 출금(카드대금·고정비). due_date, amount, type(card_bill|fixed|loan_repayment), status",
-        "SELECT o.due_date, o.amount, o.type, o.status FROM planned_outflows o WHERE o.member_id = :mid",
+        "SELECT o.due_date, o.amount, o.type, o.status FROM planned_outflows o WHERE o.user_id = :mid",
     ),
     "saving_goals": (
         "월 저축 목표. month, name, target_amount",
-        "SELECT g.month, g.name, g.target_amount FROM ledger_goals g WHERE g.member_id = :mid",
+        "SELECT g.month, g.name, g.target_amount FROM ledger_goals g WHERE g.user_id = :mid",
     ),
 }
 
 # 읽기 전용 역할에 줄 열 단위 SELECT 권한(원본 표). 비밀번호·계좌번호 같은 열은 넣지 않는다.
 GRANTS: dict[str, list[str]] = {
     "card_transactions": ["id", "card_id", "kind", "occurred_at", "merchant", "amount", "original_id"],
-    "cards": ["id", "member_id"],
+    "cards": ["id", "user_id"],
     "ledger_tx_category": ["card_transaction_id", "category"],
-    "budgets": ["id", "member_id", "month", "total_amount"],
+    "budgets": ["id", "user_id", "month", "total_amount"],
     "category_budgets": ["budget_id", "category", "amount"],
     "account_transactions": ["account_id", "kind", "amount", "occurred_at", "counterparty", "memo"],
-    "accounts": ["id", "member_id"],
-    "payment_attempts": ["member_id", "amount", "category", "result", "over_amount", "created_at"],
-    "planned_outflows": ["member_id", "due_date", "amount", "type", "status"],
-    "ledger_goals": ["member_id", "month", "name", "target_amount"],
+    "accounts": ["id", "user_id"],
+    "payment_attempts": ["user_id", "amount", "category", "result", "over_amount", "created_at"],
+    "planned_outflows": ["user_id", "due_date", "amount", "type", "status"],
+    "ledger_goals": ["user_id", "month", "name", "target_amount"],
 }
 
 READY = False
@@ -125,7 +125,7 @@ class QueryRejected(Exception):
     pass
 
 
-def validate_sql(sql: str, member_id: str) -> str:
+def validate_sql(sql: str, user_id: int) -> str:
     """통과하면 가상 표 정의를 앞에 붙이고 행 수를 제한한 최종 SQL 을, 아니면 QueryRejected 를 던진다."""
     sql = (sql or "").strip().rstrip(";").strip()
     if not sql:
@@ -178,14 +178,14 @@ def _jsonable(v):
     return v
 
 
-def execute(engine: Engine, member_id: str, final_sql: str) -> tuple[list[str], list[list]]:
+def execute(engine: Engine, user_id: int, final_sql: str) -> tuple[list[str], list[list]]:
     """읽기 전용 역할·읽기 전용 트랜잭션·시간 제한 안에서 실행한다."""
     with engine.connect() as conn:
         with conn.begin():
             conn.execute(text("SET TRANSACTION READ ONLY"))
             conn.execute(text(f"SET LOCAL ROLE {ROLE}"))
             conn.execute(text(f"SET LOCAL statement_timeout = {TIMEOUT_MS}"))
-            res = conn.execute(text(final_sql), {"mid": member_id})
+            res = conn.execute(text(final_sql), {"mid": user_id})
             cols = list(res.keys())
             rows = [[_jsonable(v) for v in r] for r in res.fetchmany(MAX_ROWS + 1)]
     return cols, rows[:MAX_ROWS]
@@ -226,7 +226,7 @@ def _system(today: date) -> str:
     return _SYSTEM.format(today=today.isoformat(), month=today.strftime("%Y-%m"), tables=tables)
 
 
-def run(engine: Engine, member_id: str, question: str, today: date | None = None) -> dict:
+def run(engine: Engine, user_id: int, question: str, today: date | None = None) -> dict:
     """질문 → SQL 생성 → 검사 → 실행. 결과는 항상 {ok, basis, columns, rows, sql, error} 모양이다."""
     today = today or date.today()
     out = {"ok": False, "basis": "", "columns": [], "rows": [], "sql": "", "error": None}
@@ -244,13 +244,13 @@ def run(engine: Engine, member_id: str, question: str, today: date | None = None
         return out
     out["sql"] = str(raw["sql"]).strip()[:2000]
     try:
-        final_sql = validate_sql(out["sql"], member_id)
+        final_sql = validate_sql(out["sql"], user_id)
     except QueryRejected as e:
         log.warning("자유 질문 SQL 거부: %s", e)
         out["error"] = f"rejected:{e}"
         return out
     try:
-        cols, rows = execute(engine, member_id, final_sql)
+        cols, rows = execute(engine, user_id, final_sql)
     except Exception as e:  # 열 이름 오류, 시간 초과 등
         log.warning("자유 질문 SQL 실행 실패: %s", type(e).__name__)
         out["error"] = f"exec:{type(e).__name__}"

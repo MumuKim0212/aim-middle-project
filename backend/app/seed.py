@@ -1,12 +1,13 @@
-"""개발용 시드 데이터. 카드 기획서 기준 데이터(member_001, acc_001/002, card_001/002)를 따른다."""
+"""개발용 시드 데이터. 카드 기획서 기준 데이터(user_id 1, acc_001/002, card_001/002)를 따른다."""
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from . import models as m
+from .auth.security import hash_secret
 
-DEMO_MEMBER_ID = "member_001"
+DEMO_USER_ID = 1  # user1 (김하나)
 
 
 def _schedule(contract_no: str, start: date, amount: int, months: int, rate: float):
@@ -42,7 +43,7 @@ def _ensure_planned_outflows(db: Session) -> None:
         due = date(today.year + y, mo + 1, pay_day)
     db.add_all([
         # 시안: 25일 카드대금 반영 후 예상 95,000원 = 1,245,000 - 1,150,000
-        m.PlannedOutflow(id="po_001", member_id=DEMO_MEMBER_ID, due_date=due, amount=1_150_000,
+        m.PlannedOutflow(id="po_001", user_id=DEMO_USER_ID, due_date=due, amount=1_150_000,
                          type="card_bill", ref_type="card", ref_id="card_002"),
     ])
     db.commit()
@@ -74,7 +75,7 @@ def _ensure_demo_history(db: Session) -> None:
             db.add(m.CardTransaction(id=id_, card_id="card_002", kind="approval", merchant=merchant, amount=amount,
                                      occurred_at=datetime(first.year, first.month, day, 12)))
             db.flush()
-            db.add(m.LedgerTxCategory(card_transaction_id=id_, member_id=DEMO_MEMBER_ID, category=cat))
+            db.add(m.LedgerTxCategory(card_transaction_id=id_, user_id=DEMO_USER_ID, category=cat))
     # 월급: 지난 5개월은 25일, 이번 달은 1일 입금
     primary = db.get(m.Account, "acc_001")
     paydays = [_month_ago(today, b).replace(day=25) for b in (5, 4, 3, 2, 1)] + [today.replace(day=1)]
@@ -116,8 +117,31 @@ def _ensure_demo_sync(db: Session) -> None:
     db.commit()
 
 
+# 시드 사용자(기획서 4.4). 비밀번호·간편비밀번호는 README 에 적는다(개발용 값).
+SEED_USERS = [
+    # (id, 아이디, 비밀번호, 이름, 생년월일, 휴대폰, 간편비밀번호)
+    (1, "user1", "Test1234!", "김하나", date(1990, 5, 15), "01012345678", "482915"),
+    (2, "user2", "Test5678!", "이두리", date(1992, 8, 3), "01023456789", "739204"),
+    (3, "user3", "Test9012!", "박세나", date(1995, 12, 20), "01034567890", None),  # 간편비밀번호 미설정
+]
+
+
+def _seed_users(db: Session) -> None:
+    now = datetime.now().astimezone()
+    for uid, login_id, pw, name, birth, phone, pin in SEED_USERS:
+        db.add(m.User(id=uid, login_id=login_id, password_hash=hash_secret(pw), name=name, birth_date=birth, phone=phone,
+                      simple_pin_hash=hash_secret(pin) if pin else None, pin_set_at=now if pin else None))
+    db.flush()
+    # id 를 직접 넣었으니 다음 가입이 4번부터 시작하도록 시퀀스를 맞춘다
+    db.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users))"))
+    # user2: 타인 데이터 접근 차단 테스트용(F-06). 계좌만 하나 둔다.
+    db.add(m.Account(id="acc_101", user_id=2, bank_name="AIM Bank", account_no_enc="enc:110-777-100101",
+                     account_masked="****0101", balance=300_000, purpose="general", is_primary=True))
+    db.add(m.AccountPinState(account_id="acc_101"))
+
+
 def seed(db: Session) -> None:
-    if db.get(m.Member, DEMO_MEMBER_ID):
+    if db.get(m.User, DEMO_USER_ID):
         _ensure_planned_outflows(db)
         _ensure_demo_history(db)
         _ensure_demo_sync(db)
@@ -125,14 +149,13 @@ def seed(db: Session) -> None:
     today = date.today()
     month = today.strftime("%Y-%m")
 
-    db.add(m.Member(id=DEMO_MEMBER_ID, login_id="demo", password_hash="!demo-no-login",
-                    name="김민수", birth_date=date(1990, 5, 15), phone="010-1234-5678"))
+    _seed_users(db)
     db.flush()
     db.add_all([
-        m.Account(id="acc_001", member_id=DEMO_MEMBER_ID, bank_name="AIM Bank",
+        m.Account(id="acc_001", user_id=DEMO_USER_ID, bank_name="AIM Bank",
                   account_no_enc="enc:110-123-454821", account_masked="****4821",
                   balance=1_245_000, purpose="general", is_primary=True),
-        m.Account(id="acc_002", member_id=DEMO_MEMBER_ID, bank_name="AIM Bank",
+        m.Account(id="acc_002", user_id=DEMO_USER_ID, bank_name="AIM Bank",
                   account_no_enc="enc:110-123-455678", account_masked="****5678",
                   balance=50_000, purpose="card_payment"),
         m.AccountPinState(account_id="acc_001"),
@@ -146,11 +169,11 @@ def seed(db: Session) -> None:
     ])
     db.flush()
     db.add_all([
-        m.Card(id="card_001", member_id=DEMO_MEMBER_ID, product_id="prod_debit_01", name="AIM 체크카드",
+        m.Card(id="card_001", user_id=DEMO_USER_ID, product_id="prod_debit_01", name="AIM 체크카드",
                type="debit", number_last4="1111", expiry="03/30", issued_at=date(2025, 3, 10),
                payment_account_id="acc_001", payment_bank_name="AIM Bank", payment_account_masked="****4821",
                debit_per_tx=1_000_000, debit_per_day=3_000_000),
-        m.Card(id="card_002", member_id=DEMO_MEMBER_ID, product_id="prod_credit_01", name="AIM 신용카드",
+        m.Card(id="card_002", user_id=DEMO_USER_ID, product_id="prod_credit_01", name="AIM 신용카드",
                type="credit", number_last4="2222", expiry="06/30", issued_at=date(2025, 6, 1),
                payment_account_id="acc_002", payment_bank_name="AIM Bank", payment_account_masked="****5678",
                payment_day=25, credit_limit=3_000_000),
@@ -176,15 +199,15 @@ def seed(db: Session) -> None:
                                  merchant=merchant, amount=amount))
     db.flush()
     for id_, _, _, _, cat in txs:
-        db.add(m.LedgerTxCategory(card_transaction_id=id_, member_id=DEMO_MEMBER_ID, category=cat))
+        db.add(m.LedgerTxCategory(card_transaction_id=id_, user_id=DEMO_USER_ID, category=cat))
 
     # 가계부 예산: 월 800,000 / 배달 90,000
-    db.add(m.Budget(id="bud_001", member_id=DEMO_MEMBER_ID, month=month, total_amount=800_000,
+    db.add(m.Budget(id="bud_001", user_id=DEMO_USER_ID, month=month, total_amount=800_000,
                     emergency_floor=0))
     db.flush()
     db.add_all([
         m.CategoryBudget(budget_id="bud_001", category="배달", amount=90_000),
-        m.LedgerSettings(member_id=DEMO_MEMBER_ID, mode="roast", roast_level=2),
+        m.LedgerSettings(user_id=DEMO_USER_ID, mode="roast", roast_level=2),
     ])
 
     # 대출 상품 (화면 시안의 상품 목록)
@@ -209,7 +232,7 @@ def seed(db: Session) -> None:
         ("loanapp_002", "LA-2026-000412", "loan_r_01", 8_000_000, 24, 0.0450, date(2026, 10, 30)),
     ]
     for app_id, no, pid, amount, months, rate, start in loans:
-        db.add(m.LoanApplication(id=app_id, member_id=DEMO_MEMBER_ID, product_type="general", status="contracted"))
+        db.add(m.LoanApplication(id=app_id, user_id=DEMO_USER_ID, product_type="general", status="contracted"))
         db.flush()
         db.add_all([
             m.LoanTerms(application_id=app_id, product_id=pid, amount=amount, term_months=months,
