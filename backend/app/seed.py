@@ -1,6 +1,7 @@
 """개발용 시드 데이터. 카드 기획서 기준 데이터(member_001, acc_001/002, card_001/002)를 따른다."""
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import models as m
@@ -24,23 +25,43 @@ def _schedule(contract_no: str, start: date, amount: int, months: int, rate: flo
     return rows
 
 
+def _month_ago(d: date, n: int) -> date:
+    y, mo = divmod(d.year * 12 + d.month - 1 - n, 12)
+    return date(y, mo + 1, 1)
+
+
+def _ensure_planned_outflows(db: Session) -> None:
+    """가계부 예정 출금 데모 데이터 (이미 시드된 DB 에도 한 번만 추가)."""
+    if db.scalar(select(m.PlannedOutflow.id).limit(1)):
+        return
+    today = date.today()
+    y, mo = divmod(today.month, 12)
+    pay_day = min(25, 28)
+    due = date(today.year, today.month, pay_day)
+    if due < today:  # 이번 달 결제일이 지났으면 다음 달
+        due = date(today.year + y, mo + 1, pay_day)
+    db.add_all([
+        # 시안: 25일 카드대금 반영 후 예상 95,000원 = 1,245,000 - 1,150,000
+        m.PlannedOutflow(id="po_001", member_id=DEMO_MEMBER_ID, due_date=due, amount=1_150_000,
+                         type="card_bill", ref_type="card", ref_id="card_002"),
+    ])
+    db.commit()
+
+
 def seed(db: Session) -> None:
     if db.get(m.Member, DEMO_MEMBER_ID):
+        _ensure_planned_outflows(db)
         return
     today = date.today()
     month = today.strftime("%Y-%m")
-
-    def at(days_ago: int) -> datetime:
-        d = max(1, today.day - days_ago)
-        return datetime(today.year, today.month, d, 12, 0)
 
     db.add(m.Member(id=DEMO_MEMBER_ID, login_id="demo", password_hash="!demo-no-login",
                     name="김민수", birth_date=date(1990, 5, 15), phone="010-1234-5678"))
     db.flush()
     db.add_all([
         m.Account(id="acc_001", member_id=DEMO_MEMBER_ID, bank_name="AIM Bank",
-                  account_no_enc="enc:110-123-451234", account_masked="****1234",
-                  balance=2_000_000, purpose="general", is_primary=True),
+                  account_no_enc="enc:110-123-454821", account_masked="****4821",
+                  balance=1_245_000, purpose="general", is_primary=True),
         m.Account(id="acc_002", member_id=DEMO_MEMBER_ID, bank_name="AIM Bank",
                   account_no_enc="enc:110-123-455678", account_masked="****5678",
                   balance=50_000, purpose="card_payment"),
@@ -57,7 +78,7 @@ def seed(db: Session) -> None:
     db.add_all([
         m.Card(id="card_001", member_id=DEMO_MEMBER_ID, product_id="prod_debit_01", name="AIM 체크카드",
                type="debit", number_last4="1111", expiry="03/30", issued_at=date(2025, 3, 10),
-               payment_account_id="acc_001", payment_bank_name="AIM Bank", payment_account_masked="****1234",
+               payment_account_id="acc_001", payment_bank_name="AIM Bank", payment_account_masked="****4821",
                debit_per_tx=1_000_000, debit_per_day=3_000_000),
         m.Card(id="card_002", member_id=DEMO_MEMBER_ID, product_id="prod_credit_01", name="AIM 신용카드",
                type="credit", number_last4="2222", expiry="06/30", issued_at=date(2025, 6, 1),
@@ -65,31 +86,35 @@ def seed(db: Session) -> None:
                payment_day=25, credit_limit=3_000_000),
     ])
     db.flush()
+    # 가계부 시안(가계부_4가지_모드_체험.html)의 예시 데이터와 같은 값.
+    # 이번 달 612,000원 = 생활 331,000 + 쇼핑 200,000 + 배달 81,000
+    prev, prev2 = _month_ago(today, 1), _month_ago(today, 2)
     txs = [
-        ("ctx_001", "card_002", at(1), "배달의민족", 21_000, "delivery"),
-        ("ctx_002", "card_002", at(3), "스타벅스", 9_500, "food"),
-        ("ctx_003", "card_001", at(4), "지하철", 1_450, "transport"),
-        ("ctx_004", "card_002", at(6), "쿠팡", 89_000, "shopping"),
-        ("ctx_005", "card_002", at(8), "GS25", 6_300, "food"),
+        ("ctx_001", date(today.year, today.month, 1), "생활비 결제", 331_000, "생활"),
+        ("ctx_002", date(today.year, today.month, 2), "온라인 쇼핑", 200_000, "쇼핑"),
+        ("ctx_003", date(today.year, today.month, 3), "배달 주문", 81_000, "배달"),
+        ("ctx_004", date(prev.year, prev.month, 8), "지난달 생활비", 300_000, "생활"),
+        ("ctx_005", date(prev.year, prev.month, 13), "지난달 장보기", 160_000, "장보기"),
+        ("ctx_006", date(prev.year, prev.month, 20), "지난달 배달", 120_000, "배달"),
+        ("ctx_007", date(prev2.year, prev2.month, 8), "지지난달 생활비", 330_000, "생활"),
+        ("ctx_008", date(prev2.year, prev2.month, 17), "지지난달 장보기", 130_000, "장보기"),
+        ("ctx_009", date(prev2.year, prev2.month, 22), "지지난달 배달", 80_000, "배달"),
     ]
-    for id_, card, when, merchant, amount, cat in txs:
-        db.add(m.CardTransaction(id=id_, card_id=card, kind="approval", occurred_at=when,
+    for id_, day, merchant, amount, cat in txs:
+        db.add(m.CardTransaction(id=id_, card_id="card_002", kind="approval",
+                                 occurred_at=datetime.combine(day, datetime.min.time()).replace(hour=12),
                                  merchant=merchant, amount=amount))
     db.flush()
-    db.add(m.CardTransaction(id="ctx_006", card_id="card_002", kind="cancel", occurred_at=at(5),
-                             merchant="쿠팡", amount=89_000, original_id="ctx_004"))
-    for id_, _, _, _, _, cat in txs:
+    for id_, _, _, _, cat in txs:
         db.add(m.LedgerTxCategory(card_transaction_id=id_, member_id=DEMO_MEMBER_ID, category=cat))
 
-    # 가계부
-    budget = m.Budget(id="bud_001", member_id=DEMO_MEMBER_ID, month=month, total_amount=800_000,
-                      emergency_floor=100_000)
-    db.add(budget)
+    # 가계부 예산: 월 800,000 / 배달 90,000
+    db.add(m.Budget(id="bud_001", member_id=DEMO_MEMBER_ID, month=month, total_amount=800_000,
+                    emergency_floor=0))
     db.flush()
     db.add_all([
-        m.CategoryBudget(budget_id="bud_001", category="delivery", amount=100_000),
-        m.CategoryBudget(budget_id="bud_001", category="food", amount=200_000),
-        m.LedgerSettings(member_id=DEMO_MEMBER_ID, mode="basic"),
+        m.CategoryBudget(budget_id="bud_001", category="배달", amount=90_000),
+        m.LedgerSettings(member_id=DEMO_MEMBER_ID, mode="roast"),
     ])
 
     # 대출 상품 (화면 시안의 상품 목록)
@@ -125,3 +150,4 @@ def seed(db: Session) -> None:
         db.flush()
         db.add_all(_schedule(no, start, amount, months, rate))
     db.commit()
+    _ensure_planned_outflows(db)

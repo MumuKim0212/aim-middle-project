@@ -1,0 +1,118 @@
+/* 가계부 화면. 가계부_4가지_모드_체험.html 의 스타일을 이 앱 레이아웃에 맞춰 옮겼다. 전부 .lg 아래에서만 적용된다. */
+.lg {
+  --bg: #f4f8fc; --ink: #17304d; --muted: #728ba0; --accent: #1683d5;
+  --panel: #fff; --border: #e0eaf3; --alert: #fff2eb; --alert-ink: #af593c;
+  /* 앱 공통 main 여백을 상쇄해서 화면 가장자리까지 채운다 */
+  margin: -14px -16px -90px;
+  padding-bottom: 8px;
+  min-height: calc(100vh - 56px - var(--nav-h));
+  background: var(--bg); color: var(--ink);
+}
+.lg[data-mode='roast'] { --bg: #171419; --ink: #f8f1eb; --muted: #b7a4a0; --accent: #ef7753; --panel: #292226; --border: #5b3d3c; --alert: #3b2426; --alert-ink: #ffad8d; }
+.lg[data-mode='kind'] { --bg: #fff8ee; --ink: #3d5367; --muted: #a18c75; --accent: #e69a50; --panel: #fff; --border: #eee0c9; --alert: #fff0e5; --alert-ink: #b5794f; }
+.lg[data-mode='numbers'] { --bg: #e8f0ed; --ink: #203d35; --muted: #688077; --accent: #1d7561; --panel: #f8fbf8; --border: #abc8bc; --alert: #e4eee7; --alert-ink: #2b5d4d; }
+.lg button { font: inherit; }
+
+/* 탭 */
+.lg-tabs { height: 42px; display: grid; grid-template-columns: repeat(3, 1fr); background: #fff; border-bottom: 1px solid #e6edf2; }
+.lg-tabs button { border: 0; border-bottom: 3px solid transparent; background: #fff; color: #8998a6; font-size: 12px; font-weight: 750; }
+.lg-tabs button.on { border-bottom-color: #1688dc; color: #0876c7; }
+
+/* 모드 선택 */
+.lg-modebar { padding: 16px 16px 13px; }
+.lg-modebar > span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.lg-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.lg-modes button { padding: 9px 0; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); color: var(--muted); font-size: 11px; font-weight: 800; }
+.lg-modes button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+/* 히어로 */
+.lg-hero { position: relative; height: 221px; overflow: hidden; background-size: cover; background-position: center 40%; background-repeat: no-repeat; }
+.lg-hero::after { content: ''; position: absolute; inset: 0; pointer-events: none; }
+.lg-hero-content { position: relative; z-index: 1; padding: 19px; }
+.lg-hero .eyebrow { font-size: 10px; font-weight: 850; letter-spacing: 0.03em; }
+.lg-hero h1 { margin: 10px 0 5px; font-size: 29px; line-height: 1.13; letter-spacing: -0.085em; }
+.lg-hero p { margin: 0; font-size: 11px; font-weight: 700; }
+.lg-hero .badge { display: inline-block; margin: 16px 0 0; padding: 5px 8px; border: 1px solid currentColor; border-radius: 0; background: transparent; color: inherit; font-size: 10px; font-weight: 850; }
+.lg-gridmark { display: none; position: absolute; right: 15px; bottom: 10px; font: 900 62px ui-monospace, Consolas, monospace; color: #1e80622b; }
+.lg[data-mode='roast'] .lg-hero { background-color: #1a0e13; background-position: center 42%; color: #fff; }
+.lg[data-mode='roast'] .lg-hero::after { background: linear-gradient(90deg, #1c0d12e6 0%, #1c0d1270 64%, transparent); }
+.lg[data-mode='roast'] .lg-hero h1 em { color: #ff946c; font-style: normal; }
+.lg[data-mode='basic'] .lg-hero { background-color: #e5f2ff; background-position: center 37%; color: #104688; }
+.lg[data-mode='basic'] .lg-hero::after { background: linear-gradient(90deg, #eaf6ffca 0%, transparent 75%); }
+.lg[data-mode='kind'] .lg-hero { background-color: #fff0d7; color: #355d88; }
+.lg[data-mode='kind'] .lg-hero::after { background: linear-gradient(90deg, #fff3dfdc 0%, transparent 72%); }
+.lg[data-mode='numbers'] .lg-hero {
+  height: 187px; color: #1e5947;
+  background: repeating-linear-gradient(0deg, #d8e8df 0 1px, transparent 1px 37px), repeating-linear-gradient(90deg, #d8e8df 0 1px, transparent 1px 37px), #ebf4ee;
+}
+.lg[data-mode='numbers'] .lg-hero::after { background: linear-gradient(90deg, #eaf4ee 0%, #eaf4eea3 66%, transparent); }
+.lg[data-mode='numbers'] .lg-hero h1 { font: 800 29px/1.15 ui-monospace, Consolas, monospace; letter-spacing: -0.07em; }
+.lg[data-mode='numbers'] .lg-gridmark { display: block; }
+
+/* 본문 카드 */
+.lg-content { padding: 13px 17px 25px; }
+.lg-answer, .lg-account, .lg-budget, .lg-warning, .lg-reward, .lg-panel { border: 1px solid var(--border); background: var(--panel); }
+.lg-answer { margin-bottom: 12px; padding: 12px 14px; border-left: 3px solid var(--accent); font-size: 12px; line-height: 1.6; }
+.lg-answer small { display: block; margin-bottom: 3px; color: var(--accent); font-size: 10px; font-weight: 850; }
+.lg-account, .lg-budget { padding: 15px 16px; border-radius: 13px; }
+.lg-budget { margin-top: 10px; }
+.lg-account small, .lg-budget small { display: block; color: var(--muted); font-size: 10px; font-weight: 800; }
+.lg-account strong { display: block; margin: 5px 0 11px; font-size: 26px; letter-spacing: -0.065em; }
+.lg-budget strong { display: block; margin: 4px 0 11px; color: var(--accent); font-size: 27px; letter-spacing: -0.065em; }
+.lg-account .sub { display: flex; justify-content: space-between; gap: 7px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; }
+.lg-account .sub b { color: var(--accent); }
+.lg-progress { height: 7px; border-radius: 10px; background: var(--border); overflow: hidden; }
+.lg-progress i { display: block; height: 100%; background: var(--accent); }
+.lg-budget .sub { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 10px; }
+.lg-warning { margin-top: 12px; padding: 14px 15px; border-radius: 13px; background: var(--alert); color: var(--alert-ink); }
+.lg-warning .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lg-warning .top strong { font-size: 13px; }
+.lg-warning .top b { padding: 3px 6px; border: 1px solid currentColor; border-radius: 4px; font-size: 9px; }
+.lg-warning p { margin: 6px 0 0; font-size: 11px; line-height: 1.55; }
+.lg-reward { margin-top: 10px; padding: 12px 14px; border-radius: 12px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.lg-reward b { display: block; margin-bottom: 2px; color: var(--accent); font-size: 11px; }
+
+.lg-panel { margin-top: 11px; padding: 15px; border-radius: 12px; }
+.lg-panel h2 { margin: 0 0 12px; font-size: 15px; letter-spacing: -0.05em; }
+.lg-panel p { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.lg-muted { color: var(--muted); font-size: 10px; }
+.lg-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lg-field { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 10px; font-weight: 800; }
+.lg-field input, .lg-field select { width: 100%; min-height: 38px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--ink); font-size: 12px; }
+.lg-action, .lg-demopay { display: block; width: 100%; min-height: 41px; margin-top: 11px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 850; }
+.lg-demopay { padding: 12px; border-radius: 9px; margin-top: 12px; }
+.lg-feedback { margin: 9px 0 0; padding: 10px 11px; border-left: 3px solid var(--accent); background: var(--bg); color: var(--ink) !important; font-size: 11px; line-height: 1.55; }
+.lg-feedback.blocked { border-color: #d54d44; background: var(--alert); color: var(--alert-ink) !important; }
+.lg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 17px 0 9px; }
+.lg-head h2 { margin: 0; font-size: 15px; letter-spacing: -0.05em; }
+.lg-head button { border: 0; background: transparent; color: var(--accent); font-size: 10px; font-weight: 800; }
+.lg-line { display: grid; grid-template-columns: 52px 1fr auto; gap: 7px; align-items: center; margin-top: 9px; color: var(--muted); font-size: 10px; }
+.lg-line b { color: var(--ink); }
+.lg-minibar { height: 6px; background: var(--border); overflow: hidden; }
+.lg-minibar i { display: block; height: 100%; background: var(--accent); }
+
+/* 물어보기 */
+.lg-chatlog { display: grid; gap: 10px; margin-top: 11px; }
+.lg-pair { display: grid; gap: 10px; }
+.lg-msg { max-width: 91%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--ink); font-size: 11px; line-height: 1.55; }
+.lg-msg.user { justify-self: end; border-color: var(--accent); background: var(--accent); color: #fff; }
+.lg-msg small { display: block; margin-bottom: 3px; color: var(--accent); font-size: 9px; font-weight: 850; }
+.lg-empty { padding: 20px 4px; color: var(--muted); font-size: 11px; text-align: center; }
+
+/* 하단 고정 채팅바: 앱 하단 탭 바로 위에 붙는다 */
+.lg-chatbar { position: sticky; bottom: var(--nav-h); z-index: 4; padding: 8px 14px 10px; background: var(--bg); box-shadow: 0 -8px 18px rgba(19, 50, 75, 0.1); }
+.lg-quick { display: flex; gap: 6px; margin-bottom: 8px; }
+.lg-quick button { padding: 5px 9px; border: 1px solid var(--border); border-radius: 20px; background: var(--panel); color: var(--muted); font-size: 10px; font-weight: 750; }
+.lg-chat { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 5px 5px 5px 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); }
+.lg-chat label { color: var(--accent); font-size: 20px; line-height: 1; }
+.lg-chat input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.lg-chat input::placeholder { color: var(--muted); }
+.lg-chat button { flex: none; width: 35px; height: 35px; border: 0; border-radius: 7px; background: var(--accent); color: #fff; font-size: 19px; }
+
+/* 모드별 모양 */
+.lg[data-mode='roast'] :is(.lg-account, .lg-budget, .lg-panel, .lg-msg) { border-radius: 2px; }
+.lg[data-mode='roast'] .lg-warning { border-radius: 2px; border-top: 3px solid #ef7753; }
+.lg[data-mode='kind'] :is(.lg-account, .lg-budget, .lg-warning, .lg-reward, .lg-panel) { border-radius: 19px; }
+.lg[data-mode='kind'] .lg-msg { border-radius: 16px; }
+.lg[data-mode='numbers'] :is(.lg-account, .lg-budget, .lg-warning, .lg-reward, .lg-answer, .lg-panel, .lg-msg) { border-radius: 0; box-shadow: 4px 4px 0 #abc8bc; }
+.lg[data-mode='numbers'] :is(.lg-account strong, .lg-budget strong) { font-family: ui-monospace, Consolas, monospace; }

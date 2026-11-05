@@ -1,14 +1,16 @@
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models as m
 from .db import SessionLocal, engine, get_db
-from .seed import DEMO_MEMBER_ID, seed
+from .deps import current_member
+from .ledger import router as ledger_router
+from .seed import seed
 
 
 @asynccontextmanager
@@ -28,12 +30,7 @@ app.add_middleware(
 )
 
 
-def current_member(db: Session = Depends(get_db)) -> m.Member:
-    """TODO: 로그인(토큰) 담당 확정 후 교체. 지금은 데모 회원 고정."""
-    member = db.get(m.Member, DEMO_MEMBER_ID)
-    if not member:
-        raise HTTPException(401, "UNAUTHORIZED")
-    return member
+app.include_router(ledger_router)
 
 
 @app.get("/api/health")

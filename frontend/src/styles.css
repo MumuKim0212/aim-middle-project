@@ -8,6 +8,7 @@
   --card: #ffffff;
   --green: #17a673;
   --radius: 20px;
+  --nav-h: 68px;
 }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-height: 100%; }
@@ -52,6 +53,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   position: sticky; bottom: 0; z-index: 5;
   display: grid; grid-template-columns: repeat(5, 1fr);
   background: #fff; border-top: 1px solid var(--line);
+  min-height: var(--nav-h);
   padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
 }
 .bottom-nav a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); padding: 4px 0; }
