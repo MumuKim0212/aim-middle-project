@@ -20,7 +20,7 @@ member_id 는 인증 세션(current_member)에서만 얻는다.
   결제 전 확인  = 금액이 월 예산 잔여 / 예상 잔액 / 카테고리 예산 잔여 중 하나라도 넘으면 보류
 """
 import re
-from datetime import date
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -224,3 +224,200 @@ def put_settings(body: SettingsIn, member: m.Member = Depends(current_member), d
         db.add(m.LedgerSettings(member_id=member.id, mode=body.mode))
     db.commit()
     return {"mode": body.mode}
+
+
+# ───────────── 소비 내역 ─────────────
+#
+# 지출 기록은 "모의 카드 승인"이다. 카드 도메인의 card_transactions 에 승인 행을 넣고
+# ledger_tx_category(source='user') 에 사용자가 고른 분류를 남긴다. 카드 설계서는 거래를 만드는
+# 카드 API가 없다고 했으므로, 가계부 모듈이 직접 쓰는 이 경로는 데모 용도다(팀 합의 필요).
+# 'source=user' 행만 삭제할 수 있다(시드 거래는 삭제 불가).
+
+
+def _prev_month(month: str) -> str:
+    y, mo = int(month[:4]), int(month[5:])
+    y, mo = (y - 1, 12) if mo == 1 else (y, mo - 1)
+    return f"{y:04d}-{mo:02d}"
+
+
+def _adjust_card_bill(db: Session, member_id: str, card: m.Card, tx_date: date, delta: int) -> None:
+    """신용카드 승인은 미결제 카드대금(planned_outflows)을 늘리고, 삭제하면 줄인다.
+
+    기획안 3절: 카드 승인 시점에는 미결제 카드대금이 늘고 계좌 잔액은 실제 출금 때 줄어든다.
+    이번 달 거래만 이번 달 예정 출금에 반영한다.
+    """
+    if card.type != "credit" or tx_date.strftime("%Y-%m") != this_month():
+        return
+    today = date.today()
+    row = db.scalar(
+        select(m.PlannedOutflow)
+        .where(m.PlannedOutflow.member_id == member_id, m.PlannedOutflow.type == "card_bill",
+               m.PlannedOutflow.ref_id == card.id, m.PlannedOutflow.status == "planned",
+               m.PlannedOutflow.due_date >= today)
+        .order_by(m.PlannedOutflow.due_date)
+    )
+    if row:
+        row.amount = max(0, row.amount + delta)
+    elif delta > 0:
+        day = min(card.payment_day or 25, 28)
+        due = date(today.year, today.month, day)
+        if due < today:  # 이번 달 결제일이 지났으면 다음 달
+            due = date(today.year + (today.month == 12), today.month % 12 + 1, day)
+        db.add(m.PlannedOutflow(member_id=member_id, due_date=due, amount=delta, type="card_bill",
+                                ref_type="card", ref_id=card.id))
+
+
+@router.get("/transactions")
+def transactions(
+    month: str = Query(default_factory=this_month),
+    member: m.Member = Depends(current_member),
+    db: Session = Depends(get_db),
+):
+    start, end = month_range(month)
+    cat = func.coalesce(m.LedgerTxCategory.category, UNCATEGORIZED)
+    rows = db.execute(
+        select(m.CardTransaction, cat, m.LedgerTxCategory.source)
+        .join(m.Card, m.Card.id == m.CardTransaction.card_id)
+        .outerjoin(
+            m.LedgerTxCategory,
+            m.LedgerTxCategory.card_transaction_id == func.coalesce(m.CardTransaction.original_id, m.CardTransaction.id),
+        )
+        .where(m.Card.member_id == member.id,
+               m.CardTransaction.occurred_at >= start, m.CardTransaction.occurred_at < end)
+        .order_by(m.CardTransaction.occurred_at.desc(), m.CardTransaction.id.desc())
+    ).all()
+
+    items = [{
+        "id": tx.id,
+        "date": tx.occurred_at.date().isoformat(),
+        "merchant": tx.merchant,
+        "category": category,
+        "kind": tx.kind,
+        # 화면 표시용 부호: 승인은 지출(-), 취소는 환불(+)
+        "amount": -tx.amount if tx.kind == "approval" else tx.amount,
+        "canDelete": tx.kind == "approval" and source == "user",
+    } for tx, category, source in rows]
+
+    now_by_cat = category_spent(db, member.id, start, end)
+    prev_start, prev_end = month_range(_prev_month(month))
+    prev_spent = sum(category_spent(db, member.id, prev_start, prev_end).values())
+    top = max(now_by_cat.items(), key=lambda kv: kv[1], default=(None, 0))
+    spent = sum(now_by_cat.values())
+    return {
+        "month": month,
+        "items": items,
+        "report": {
+            "spent": spent,
+            "prevSpent": prev_spent,
+            "hasPrev": prev_spent != 0,
+            "delta": spent - prev_spent,
+            "topCategory": top[0] if top[1] > 0 else None,
+            "topAmount": top[1] if top[1] > 0 else 0,
+        },
+    }
+
+
+class TxIn(BaseModel):
+    date: date
+    merchant: str = Field(min_length=1, max_length=30)
+    category: str
+    amount: int = Field(gt=0, le=100_000_000)
+
+
+@router.post("/transactions", status_code=201)
+def add_transaction(body: TxIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    merchant = body.merchant.strip()
+    if not merchant:
+        raise HTTPException(400, "INVALID_MERCHANT")
+    if body.category not in CATEGORIES:
+        raise HTTPException(400, "INVALID_CATEGORY")
+    if body.date > date.today():
+        raise HTTPException(400, "FUTURE_DATE")  # 미래 날짜는 기록할 수 없다 (시안과 동일)
+    # 기록할 카드: 사용 중인 카드 중 신용카드를 우선한다
+    card = db.scalar(
+        select(m.Card).where(m.Card.member_id == member.id, m.Card.status == "active")
+        .order_by(case((m.Card.type == "credit", 0), else_=1), m.Card.issued_at)
+    )
+    if not card:
+        raise HTTPException(409, "NO_ACTIVE_CARD")
+    tx = m.CardTransaction(
+        card_id=card.id, kind="approval", merchant=merchant, amount=body.amount, installment_months=0,
+        occurred_at=datetime.combine(body.date, time(12, 0)))
+    db.add(tx)
+    db.flush()
+    db.add(m.LedgerTxCategory(card_transaction_id=tx.id, member_id=member.id, category=body.category, source="user"))
+    _adjust_card_bill(db, member.id, card, body.date, body.amount)
+    db.commit()
+    return {"id": tx.id}
+
+
+@router.delete("/transactions/{tx_id}", status_code=204)
+def delete_transaction(tx_id: str, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    row = db.execute(
+        select(m.CardTransaction, m.LedgerTxCategory)
+        .join(m.Card, m.Card.id == m.CardTransaction.card_id)
+        .join(m.LedgerTxCategory, m.LedgerTxCategory.card_transaction_id == m.CardTransaction.id)
+        .where(m.CardTransaction.id == tx_id, m.Card.member_id == member.id)
+    ).first()
+    if not row:
+        raise HTTPException(404, "NOT_FOUND")
+    tx, cat = row
+    if cat.source != "user" or tx.kind != "approval":
+        raise HTTPException(409, "NOT_DELETABLE")
+    if db.scalar(select(m.CardTransaction.id).where(m.CardTransaction.original_id == tx.id)):
+        raise HTTPException(409, "HAS_CANCEL")
+    card = db.get(m.Card, tx.card_id)
+    _adjust_card_bill(db, member.id, card, tx.occurred_at.date(), -tx.amount)
+    db.delete(cat)
+    db.flush()
+    db.delete(tx)
+    db.commit()
+
+
+# ───────────── 예산 · 예정 출금 설정 ─────────────
+
+
+class BudgetIn(BaseModel):
+    total: int = Field(gt=0, le=10_000_000_000)
+    categories: dict[str, int] = {}  # 예: {"배달": 90000}
+
+
+@router.put("/budget")
+def put_budget(body: BudgetIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    """이번 달 월 예산과 카테고리 예산을 저장한다(없으면 만든다)."""
+    for name, amount in body.categories.items():
+        if name not in CATEGORIES:
+            raise HTTPException(400, "INVALID_CATEGORY")
+        if amount <= 0:
+            raise HTTPException(400, "INVALID_AMOUNT")
+    month = this_month()
+    budget = db.scalar(select(m.Budget).where(m.Budget.member_id == member.id, m.Budget.month == month))
+    if budget:
+        budget.total_amount = body.total
+    else:
+        budget = m.Budget(member_id=member.id, month=month, total_amount=body.total, emergency_floor=0)
+        db.add(budget)
+        db.flush()
+    for name, amount in body.categories.items():
+        row = db.get(m.CategoryBudget, (budget.id, name))
+        if row:
+            row.amount = amount
+        else:
+            db.add(m.CategoryBudget(budget_id=budget.id, category=name, amount=amount))
+    db.commit()
+    return build_summary(db, member.id, month)
+
+
+class PlannedIn(BaseModel):
+    amount: int = Field(ge=0, le=10_000_000_000)
+
+
+@router.put("/planned-outflows/{po_id}")
+def put_planned(po_id: str, body: PlannedIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    """예정 출금(카드대금 등) 금액을 고친다. 계좌 잔액은 계좌 도메인 소유라 여기서 바꾸지 않는다."""
+    row = db.get(m.PlannedOutflow, po_id)
+    if not row or row.member_id != member.id:
+        raise HTTPException(404, "NOT_FOUND")
+    row.amount = body.amount
+    db.commit()
+    return build_summary(db, member.id, this_month())

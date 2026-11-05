@@ -116,3 +116,27 @@
 .lg[data-mode='kind'] .lg-msg { border-radius: 16px; }
 .lg[data-mode='numbers'] :is(.lg-account, .lg-budget, .lg-warning, .lg-reward, .lg-answer, .lg-panel, .lg-msg) { border-radius: 0; box-shadow: 4px 4px 0 #abc8bc; }
 .lg[data-mode='numbers'] :is(.lg-account strong, .lg-budget strong) { font-family: ui-monospace, Consolas, monospace; }
+
+/* 소비 내역 */
+.lg-monthhead { display: flex; gap: 10px; align-items: flex-end; justify-content: space-between; }
+.lg-monthhead h2 { margin: 0 0 12px; }
+.lg-monthhead input { width: 134px; }
+.lg-field.wide { grid-column: 1 / -1; }
+.lg-readonly { display: flex; align-items: center; min-height: 38px; padding: 0 9px; border: 1px dashed var(--border); border-radius: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.lg-note { margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.lg-note b { color: var(--accent); }
+.lg-report { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
+.lg-report > div { padding: 12px; border: 1px solid var(--border); background: var(--bg); }
+.lg-report small { display: block; color: var(--muted); font-size: 10px; }
+.lg-report strong { display: block; margin-top: 4px; font-size: 16px; letter-spacing: -0.04em; }
+.lg-report em { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-style: normal; }
+.lg-list { display: grid; margin-top: 8px; }
+.lg-tx { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 8px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.lg-tx time { color: var(--muted); font-size: 10px; }
+.lg-tx strong { display: block; font-size: 11px; }
+.lg-tx small { color: var(--muted); font-size: 10px; }
+.lg-tx b { font-size: 12px; }
+.lg-tx button { grid-column: 3; border: 0; background: transparent; color: var(--accent); font-size: 10px; }
+.lg[data-mode='numbers'] .lg-report > div { border-radius: 0; box-shadow: 3px 3px 0 #abc8bc; }
+.lg[data-mode='roast'] .lg-field :is(input, select) { border-radius: 2px; }
+.lg[data-mode='kind'] .lg-field :is(input, select) { border-radius: 16px; }

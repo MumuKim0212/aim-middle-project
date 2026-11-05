@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { won } from '../../format'
 import { checkPayment, fetchMode, fetchSummary, saveMode, type Mode, type Summary } from './api'
+import HistoryTab from './HistoryTab'
 import {
   ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_BODY, REWARD_TITLE, WARNING_TITLE,
   answerFor, metrics, paymentFeedback, riskText, warningLevelLabel, type Entry,
@@ -47,6 +48,13 @@ export default function LedgerPage() {
       })
       .catch((e: Error) => setError(e.message))
   }, [])
+
+  /** 지출·예산이 바뀐 뒤 요약(남은 예산, 예상 잔액, 경고)을 다시 불러온다 */
+  const reloadSummary = async () => {
+    const [s, chk] = await Promise.all([fetchSummary(), checkPayment(20000, '배달', false)])
+    setSummary(s)
+    setInitial((i) => (i ? { ...i, check: chk } : i)) // 첫 답변도 새 수치로 다시 판정
+  }
 
   const changeMode = (md: Mode) => {
     setModeState(md)
@@ -156,12 +164,7 @@ export default function LedgerPage() {
       )}
 
       {tab === 'history' && (
-        <section className="lg-content">
-          <div className="lg-panel">
-            <h2>소비 내역</h2>
-            <p>월별 소비 내역, 지출 기록, 예산 설정 화면은 다음 단계에서 만들어요.</p>
-          </div>
-        </section>
+        <HistoryTab summary={summary} reload={reloadSummary} />
       )}
 
       {tab !== 'history' && (
