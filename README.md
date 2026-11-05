@@ -10,7 +10,8 @@
 |---|---|
 | `backend/` | FastAPI + SQLAlchemy 2 + PostgreSQL |
 | `frontend/` | React 18 + Vite + TypeScript (모바일 우선, 430px 프레임) |
-| `docs/db/db-design.md` | 통합 DB 테이블 설계 (카드·가계부·대출 브랜치 기반) |
+| `docs/README.md` | 기획·설계 문서 목차 (공통, 기술스택, 오류코드, 인증, 계좌, 카드) |
+| `docs/db/db-design.md` | 통합 DB 테이블 설계 (기획 문서 기준) |
 | `docs/db/erd.md` | ERD (Mermaid, GitHub에서 바로 렌더링) |
 | `docker-compose.yml` | 개발용 PostgreSQL 16 (호스트 포트 5433) |
 
