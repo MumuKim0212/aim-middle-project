@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models as m
+from .cards import ApiError, api_error_response, internal_error_response, router as cards_router
 from .db import SessionLocal, engine, get_db
 from .seed import DEMO_MEMBER_ID, seed
 
@@ -26,6 +27,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(cards_router)
+app.add_exception_handler(ApiError, api_error_response)
+app.add_exception_handler(Exception, internal_error_response)
 
 
 def current_member(db: Session = Depends(get_db)) -> m.Member:

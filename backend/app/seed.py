@@ -1,6 +1,7 @@
-"""개발용 시드 데이터. 카드 기획서 기준 데이터(member_001, acc_001/002, card_001/002)를 따른다."""
-from datetime import date, datetime, timedelta
+"""개발용 시드 데이터. 카드 기획서 기준 데이터(member_001~004, acc_001/002/401/900, card_001~005/900)를 따른다."""
+from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from . import models as m
@@ -24,15 +25,92 @@ def _schedule(contract_no: str, start: date, amount: int, months: int, rate: flo
     return rows
 
 
+KST = timezone(timedelta(hours=9))
+
+
+def _kst(y: int, mo: int, d: int, hh: int = 12, mm: int = 0) -> datetime:
+    return datetime(y, mo, d, hh, mm, tzinfo=KST)
+
+
+def _reset_cards(db: Session) -> None:
+    """카드 기준 데이터를 다시 넣기 위해 카드·거래 관련 행을 지운다 (FK 순서)."""
+    for model in (m.LedgerTxCategory, m.PaymentAttempt, m.CardTransaction, m.CardApplication,
+                  m.CardStatusHistory, m.Card, m.CardIssueQuota, m.CardProduct):
+        db.execute(delete(model))
+
+
+def _seed_cards(db: Session) -> None:
+    """카드 기획서 00-api-common.md 10절 기준 데이터 (오늘 = 2026-11-04 기준 값). 계좌 암호는 모두 1234."""
+    for mid, login, name, birth in [("member_002", "demo2", "이영희", date(1985, 3, 2)),
+                                    ("member_003", "demo3", "박철수", date(1990, 1, 1)),
+                                    ("member_004", "demo4", "최민준", date(2008, 6, 1))]:
+        db.add(m.Member(id=mid, login_id=login, password_hash="!demo-no-login", name=name, birth_date=birth))
+    db.flush()
+    for acc, owner, masked, balance in [("acc_401", "member_004", "****4010", 100_000),
+                                        ("acc_900", "member_002", "****9000", 700_000)]:
+        db.add_all([m.Account(id=acc, member_id=owner, bank_name="AIM Bank", account_no_enc=f"enc:{masked}",
+                              account_masked=masked, balance=balance, purpose="card_payment", is_primary=True),
+                    m.AccountPinState(account_id=acc)])
+    db.add_all([
+        m.CardProduct(id="prod_debit_01", type="debit", name="AIM 체크카드", description="생활 영역 캐시백 체크카드"),
+        m.CardProduct(id="prod_credit_01", type="credit", name="AIM 신용카드", description="후불 결제 신용카드"),
+    ])
+    db.flush()
+
+    def card(id_, owner, type_, last4, expiry, issued, acc, masked, **kw):
+        product = "prod_credit_01" if type_ == "credit" else "prod_debit_01"
+        if type_ == "debit":
+            kw = {"debit_per_tx": 1_000_000, "debit_per_day": 3_000_000, **kw}
+        return m.Card(id=id_, member_id=owner, product_id=product, name="AIM 신용카드" if type_ == "credit" else "AIM 체크카드",
+                      type=type_, number_last4=last4, expiry=expiry, issued_at=issued, payment_account_id=acc,
+                      payment_bank_name="AIM Bank", payment_account_masked=masked, **kw)
+
+    db.add_all([
+        card("card_001", DEMO_MEMBER_ID, "debit", "1111", "03/30", date(2025, 3, 10), "acc_001", "****1234"),
+        card("card_002", DEMO_MEMBER_ID, "credit", "2222", "06/30", date(2025, 6, 1), "acc_002", "****5678",
+             payment_day=25, credit_limit=3_000_000),
+        card("card_003", DEMO_MEMBER_ID, "credit", "3333", "09/30", date(2025, 9, 20), "acc_001", "****1234",
+             payment_day=10, credit_limit=1_000_000, status="suspended", suspended_at=_kst(2026, 10, 30, 14, 5)),
+        card("card_004", DEMO_MEMBER_ID, "credit", "4444", "01/31", date(2026, 1, 5), "acc_001", "****1234",
+             payment_day=25, credit_limit=500_000, status="lost", lost_at=_kst(2026, 10, 20, 11, 30),
+             lost_reason="lost"),
+        card("card_005", DEMO_MEMBER_ID, "debit", "5555", "08/29", date(2024, 8, 30), "acc_001", "****1234",
+             status="terminated", terminated_at=_kst(2026, 8, 30, 10)),
+        card("card_900", "member_002", "debit", "9000", "05/30", date(2025, 5, 1), "acc_900", "****9000"),
+    ])
+    db.flush()
+
+    # (id, card, 일시, 가맹점, 금액, 할부, 가계부 분류)
+    approvals = [
+        ("tx_205", "card_002", _kst(2026, 8, 10, 15, 40), "삼성전자", 900_000, 3, "shopping"),
+        ("tx_201", "card_002", _kst(2026, 9, 12, 13, 10), "이마트", 120_000, 0, "shopping"),
+        ("tx_202", "card_002", _kst(2026, 10, 5, 12, 20), "쿠팡", 300_000, 0, "shopping"),
+        ("tx_203", "card_002", _kst(2026, 10, 18, 9, 5), "스타벅스 강남점", 12_000, 0, "food"),
+        ("tx_206", "card_002", _kst(2026, 10, 30, 19, 30), "현대백화점", 600_000, 2, "shopping"),
+        ("tx_207", "card_002", _kst(2026, 11, 2, 8, 10), "GS25", 8_000, 0, "food"),
+        ("tx_401", "card_004", _kst(2026, 10, 15, 20), "올리브영", 45_000, 0, "shopping"),
+    ] + [(f"tx_1{n:02d}", "card_001", _kst(2026, 10, n), f"편의점 {n:02d}호점", n * 1_000, 0, "food")
+         for n in range(1, 31)]
+    for id_, card_id, when, merchant, amount, inst, _ in approvals:
+        db.add(m.CardTransaction(id=id_, card_id=card_id, kind="approval", occurred_at=when, merchant=merchant,
+                                 amount=amount, installment_months=inst))
+    db.flush()
+    db.add(m.CardTransaction(id="tx_204", card_id="card_002", kind="cancel", occurred_at=_kst(2026, 10, 22, 10, 15),
+                             merchant="스타벅스 강남점", amount=12_000, original_id="tx_203"))
+    for id_, *_rest, category in approvals:
+        db.add(m.LedgerTxCategory(card_transaction_id=id_, member_id=DEMO_MEMBER_ID, category=category))
+    db.flush()
+
+
 def seed(db: Session) -> None:
     if db.get(m.Member, DEMO_MEMBER_ID):
+        if not db.get(m.Card, "card_900"):  # 예전 시드(카드 2장)를 기획서 기준 데이터로 바꾼다
+            _reset_cards(db)
+            _seed_cards(db)
+            db.commit()
         return
     today = date.today()
     month = today.strftime("%Y-%m")
-
-    def at(days_ago: int) -> datetime:
-        d = max(1, today.day - days_ago)
-        return datetime(today.year, today.month, d, 12, 0)
 
     db.add(m.Member(id=DEMO_MEMBER_ID, login_id="demo", password_hash="!demo-no-login",
                     name="김민수", birth_date=date(1990, 5, 15), phone="010-1234-5678"))
@@ -48,38 +126,7 @@ def seed(db: Session) -> None:
         m.AccountPinState(account_id="acc_002"),
     ])
 
-    # 카드
-    db.add_all([
-        m.CardProduct(id="prod_debit_01", type="debit", name="AIM 체크카드", description="생활 영역 캐시백 체크카드"),
-        m.CardProduct(id="prod_credit_01", type="credit", name="AIM 신용카드", description="후불 결제 신용카드"),
-    ])
-    db.flush()
-    db.add_all([
-        m.Card(id="card_001", member_id=DEMO_MEMBER_ID, product_id="prod_debit_01", name="AIM 체크카드",
-               type="debit", number_last4="1111", expiry="03/30", issued_at=date(2025, 3, 10),
-               payment_account_id="acc_001", payment_bank_name="AIM Bank", payment_account_masked="****1234",
-               debit_per_tx=1_000_000, debit_per_day=3_000_000),
-        m.Card(id="card_002", member_id=DEMO_MEMBER_ID, product_id="prod_credit_01", name="AIM 신용카드",
-               type="credit", number_last4="2222", expiry="06/30", issued_at=date(2025, 6, 1),
-               payment_account_id="acc_002", payment_bank_name="AIM Bank", payment_account_masked="****5678",
-               payment_day=25, credit_limit=3_000_000),
-    ])
-    db.flush()
-    txs = [
-        ("ctx_001", "card_002", at(1), "배달의민족", 21_000, "delivery"),
-        ("ctx_002", "card_002", at(3), "스타벅스", 9_500, "food"),
-        ("ctx_003", "card_001", at(4), "지하철", 1_450, "transport"),
-        ("ctx_004", "card_002", at(6), "쿠팡", 89_000, "shopping"),
-        ("ctx_005", "card_002", at(8), "GS25", 6_300, "food"),
-    ]
-    for id_, card, when, merchant, amount, cat in txs:
-        db.add(m.CardTransaction(id=id_, card_id=card, kind="approval", occurred_at=when,
-                                 merchant=merchant, amount=amount))
-    db.flush()
-    db.add(m.CardTransaction(id="ctx_006", card_id="card_002", kind="cancel", occurred_at=at(5),
-                             merchant="쿠팡", amount=89_000, original_id="ctx_004"))
-    for id_, _, _, _, _, cat in txs:
-        db.add(m.LedgerTxCategory(card_transaction_id=id_, member_id=DEMO_MEMBER_ID, category=cat))
+    _seed_cards(db)
 
     # 가계부
     budget = m.Budget(id="bud_001", member_id=DEMO_MEMBER_ID, month=month, total_amount=800_000,

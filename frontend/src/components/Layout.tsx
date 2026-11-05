@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 
 const MENU_SECTIONS = [
   { id: 'accounts', label: '계좌조회', items: [{ to: '/accounts', label: '내 계좌조회' }, { to: '/accounts/open', label: '계좌개설' }] },
-  { id: 'cards', label: '카드', items: [{ to: '/cards', label: '내 카드조회' }, { to: '/cards', label: '카드 이용내역' }] },
+  { id: 'cards', label: '카드', items: [{ to: '/cards', label: '내 카드 목록·상세' }, { to: '/cards/transactions', label: '이용내역 조회' }, { to: '/cards/billing', label: '청구·결제 예정 금액' }, { to: '/cards/security', label: '카드 분실·정지·재개' }, { to: '/cards/limit', label: '한도 조회' }] },
   { id: 'loans', label: '대출', items: [{ to: '/loans', label: '대출조회' }, { to: '/loans', label: '대출상품' }] },
   { id: 'ledger', label: '가계부', items: [{ to: '/ledger', label: '내 가계부' }, { to: '/ledger', label: '소비 내역' }] },
   { id: 'auth', label: '로그인·보안', items: [{ to: '/auth/login', label: '로그인' }, { to: '/auth/reset', label: '비밀번호 재설정' }] },
