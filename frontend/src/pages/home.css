@@ -1,0 +1,74 @@
+.phone.is-home { background: #f8f3ed; }
+.is-home .app-main { padding: 0; }
+
+.app-header.branch-header {
+  position: relative;
+  height: 68px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  border: 0;
+  background: #f8f3ed;
+  z-index: 2;
+}
+.branch-logo { display: inline-flex; align-items: center; gap: 7px; color: #174696; font-size: 23px; font-weight: 800; letter-spacing: -.05em; white-space: nowrap; }
+.branch-logo svg { width: 30px; height: 24px; }
+.branch-menu-button { width: 40px; height: 40px; border: 0; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 5px; }
+.branch-menu-button span { display: block; width: 26px; height: 2.5px; border-radius: 2px; background: #101c31; }
+
+.branch-home { color: #12223c; background: #f8f3ed; overflow: hidden; }
+.branch-hero { position: relative; min-height: 326px; overflow: hidden; background: #f8f3ed; }
+.branch-hero-art { position: absolute; width: 370px; height: 480px; top: -45px; right: -60px; object-fit: cover; object-position: 55% 36%; pointer-events: none; }
+.branch-hero-content { position: relative; z-index: 1; padding: 49px 24px 38px; max-width: 100%; }
+.branch-eyebrow { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-size: 16px; letter-spacing: -.04em; }
+.branch-eyebrow span { width: 23px; height: 1px; background: #7f8a99; }
+.branch-hero h2 { margin: 0; font-size: clamp(40px, 11vw, 50px); font-weight: 850; line-height: 1.04; letter-spacing: -.055em; white-space: nowrap; }
+.branch-hero h2 em { font-style: normal; color: #1769e8; }
+.branch-badges { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; }
+.branch-badges span { display: inline-flex; align-items: center; min-height: 30px; padding: 4px 11px; border-radius: 99px; background: #1451bd; color: white; font-size: 13px; font-weight: 750; box-shadow: 0 3px 8px rgba(20,81,189,.16); }
+.branch-badges span + span { background: #208ee4; }
+.branch-description { margin: 16px 0 0; font-size: 12px; line-height: 1.5; font-weight: 500; letter-spacing: -.04em; }
+
+.branch-content { position: relative; z-index: 1; padding: 24px 18px 40px; }
+.branch-search { position: relative; display: flex; height: 48px; border: 1.5px solid #1768e9; border-radius: 28px; background: rgba(255,255,255,.82); box-shadow: 0 5px 14px rgba(33,60,98,.05); }
+.branch-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0 16px 0 22px; color: #124da9; font: inherit; font-size: 15px; }
+.branch-search input::placeholder { color: #1764d8; opacity: 1; }
+.branch-search button { flex: none; width: 50px; border: 0; background: transparent; color: #1764d8; display: grid; place-items: center; }
+.branch-search button svg { width: 25px; height: 25px; }
+.branch-search:focus-within { outline: 3px solid rgba(24,106,232,.14); }
+.branch-search-message { margin: 7px 8px 0; color: #1657bd; font-size: 12px; }
+
+.branch-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 26px; }
+.branch-shortcuts a { min-height: 108px; padding: 16px 5px 9px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; text-align: center; border: 1px solid #e0d8d0; border-radius: 22px; background: #fcf8f3; box-shadow: 0 4px 7px rgba(48,44,44,.11); color: #12223c; transition: transform .16s, box-shadow .16s; }
+.branch-shortcuts a.is-primary { background: linear-gradient(145deg,#1265d7,#173b94); color: #fff; border-color: #1257c4; }
+.branch-shortcuts svg { width: 27px; height: 27px; }
+.branch-shortcuts strong { font-size: 13px; line-height: 1.17; letter-spacing: -.05em; }
+.branch-shortcut-arrow { font-size: 17px; line-height: 1; }
+.branch-shortcuts a:hover, .branch-service-card:hover { transform: translateY(-2px); box-shadow: 0 8px 15px rgba(48,44,44,.13); }
+.branch-shortcuts a:focus-visible, .branch-service-card:focus-visible, .branch-menu-button:focus-visible { outline: 3px solid #5a9bff; outline-offset: 3px; }
+
+.branch-services { margin-top: 29px; padding-top: 29px; border-top: 1px solid #ded7d0; }
+.branch-section-heading { display: flex; align-items: center; gap: 11px; margin: 0 3px 18px; }
+.branch-section-heading h3 { position: relative; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.06em; white-space: nowrap; }
+.branch-section-rule { height: 1px; background: #b8c0cb; flex: 1; }
+.branch-section-heading p { margin: 0; color: #667184; font-size: 10px; white-space: nowrap; letter-spacing: -.04em; }
+.branch-service-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.branch-service-card { min-height: 92px; display: flex; align-items: center; gap: 9px; padding: 13px 10px; border: 1px solid #e2dad2; border-radius: 20px; background: #fdf9f4; box-shadow: 0 4px 7px rgba(48,44,44,.10); transition: transform .16s, box-shadow .16s; }
+.branch-service-card > svg { width: 31px; height: 31px; flex: none; color: #153b81; }
+.branch-service-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.branch-service-copy strong { font-size: 17px; font-weight: 800; letter-spacing: -.05em; }
+.branch-service-copy small { color: #667184; font-size: 9px; letter-spacing: -.07em; white-space: nowrap; }
+.branch-service-arrow { font-size: 17px; flex: none; }
+
+@media (max-width: 360px) {
+  .branch-hero-art { right: -135px; }
+  .branch-hero-content { padding-left: 18px; }
+  .branch-hero h2 { font-size: 40px; }
+  .branch-badges span { font-size: 11px; }
+  .branch-content { padding-inline: 12px; }
+  .branch-service-card { gap: 5px; padding: 10px 7px; }
+  .branch-service-card > svg { width: 26px; height: 26px; }
+  .branch-service-copy strong { font-size: 15px; }
+  .branch-service-copy small { font-size: 8px; }
+}

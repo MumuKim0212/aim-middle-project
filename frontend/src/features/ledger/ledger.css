@@ -3,9 +3,9 @@
   --bg: #f4f8fc; --ink: #17304d; --muted: #728ba0; --accent: #1683d5;
   --panel: #fff; --border: #e0eaf3; --alert: #fff2eb; --alert-ink: #af593c;
   /* 앱 공통 main 여백을 상쇄해서 화면 가장자리까지 채운다 */
-  margin: -14px -16px -90px;
+  margin: -14px -16px -30px;
   padding-bottom: 8px;
-  min-height: calc(100vh - 56px - var(--nav-h));
+  min-height: calc(100vh - 56px);
   background: var(--bg); color: var(--ink);
 }
 .lg[data-mode='roast'] { --bg: #171419; --ink: #f8f1eb; --muted: #b7a4a0; --accent: #ef7753; --panel: #292226; --border: #5b3d3c; --alert: #3b2426; --alert-ink: #ffad8d; }
@@ -99,8 +99,8 @@
 .lg-msg small { display: block; margin-bottom: 3px; color: var(--accent); font-size: 9px; font-weight: 850; }
 .lg-empty { padding: 20px 4px; color: var(--muted); font-size: 11px; text-align: center; }
 
-/* 하단 고정 채팅바: 앱 하단 탭 바로 위에 붙는다 */
-.lg-chatbar { position: sticky; bottom: var(--nav-h); z-index: 4; padding: 8px 14px 10px; background: var(--bg); box-shadow: 0 -8px 18px rgba(19, 50, 75, 0.1); }
+/* 하단 고정 채팅바: 화면 맨 아래에 붙는다(앱에 하단 탭이 없다) */
+.lg-chatbar { position: sticky; bottom: 0; z-index: 4; padding: 8px 14px 10px; background: var(--bg); box-shadow: 0 -8px 18px rgba(19, 50, 75, 0.1); }
 .lg-quick { display: flex; gap: 6px; margin-bottom: 8px; }
 .lg-quick button { padding: 5px 9px; border: 1px solid var(--border); border-radius: 20px; background: var(--panel); color: var(--muted); font-size: 10px; font-weight: 750; }
 .lg-chat { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 5px 5px 5px 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); }
