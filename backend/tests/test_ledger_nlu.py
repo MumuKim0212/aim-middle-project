@@ -26,6 +26,13 @@ CASES = [
     ("그저께 쇼핑 5만원 샀어", "record", 50000, "쇼핑", 2),
     ("3일 전 장보기 4만원 썼어", "record", 40000, "장보기", 3),
     ("어제 택시 1만 5천원 썼어", "record", 15000, "교통", 1),
+    ("교육비로 2만원 등록", "record", 20000, "생활", 0),
+    ("학원비 15만원 기록해줘", "record", 150000, "생활", 0),
+    ("등록했어?", "record", None, None, None),
+    ("5만원 수입으로 등록해", "income", 50000, None, 0),
+    ("어제 월급 300만원 들어왔어", "income", 3000000, None, 1),
+    ("5만원 용돈 받았어", "income", 50000, None, 0),
+    ("월급 들어왔어", "income", None, None, None),
     # 조회
     ("이번 주 얼마 썼어", "week", None, None, None),
     ("이번 달 외식 얼마 썼어", "category", None, "외식", None),
@@ -34,6 +41,7 @@ CASES = [
     ("잔액 얼마야", "balance", None, None, None),
     ("남은 예산 알려줘", "budget", None, None, None),
     ("배달 얼마 남았어", "budget", None, "배달", None),
+    ("배달 예산 제외 다른거는?", "budget", None, "배달", None),
     # 잡담
     ("야", "chat", None, None, None),
     ("왜 욕하냐", "chat", None, None, None),

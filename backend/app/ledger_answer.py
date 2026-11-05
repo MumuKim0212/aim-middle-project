@@ -72,6 +72,10 @@ _SYSTEM = """너는 은행 가계부 앱의 '답변 작성기'다. 아래 '사�
 10. alreadySaid 는 이미 한 답변들이다. 그 문장·표현·말버릇을 그대로 되풀이하지 말고, 같은 뜻이라도 매번 새로운 표현으로 말해라.
     사용자가 같은 말을 반복해도 똑같이 대꾸하지 마라.
 
+11. 사실에 '조회 결과'가 있으면 그 표의 값만 근거로 답하고, 값이 여러 개면 눈에 띄는 한두 개만 골라 말해라. 기간·범위는 '계산 기준'에 적힌 것만 말하고(기준에 없는 '이번 달' 같은 말을 지어내지 마라), 기준은 한 번 짚어 줘도 된다.
+    '계산 불가'가 true 면 아직 그건 계산하지 못한다고 솔직히 말하고, 대신 물어볼 수 있는 것(예: 이번 달 분류별 지출, 이번 주 지출)을 하나 제안해라.
+    '결과 없음'이 true 면 해당하는 내역이 없다고 말해라.
+
 말투: {tone}
 
 출력 형식(반드시 지켜라): 첫 줄에 `VERDICT: held` 또는 `VERDICT: allowed` 또는 `VERDICT: info` 만 쓰고, 줄을 바꾼 뒤 답변 문장만 쓴다.
@@ -117,6 +121,8 @@ def _ints(obj) -> set[int]:
         return out
     if isinstance(obj, int):
         out.add(abs(obj))
+    elif isinstance(obj, str):  # 날짜·월 같은 서버가 만든 문자열 속 숫자("2026-11-05", "11월")도 쓸 수 있다
+        out |= {int(x) for x in re.findall(r"\d+", obj) if len(x) <= 12}
     elif isinstance(obj, dict):
         for v in obj.values():
             out |= _ints(v)

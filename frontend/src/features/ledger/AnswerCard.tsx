@@ -28,6 +28,13 @@ export default function AnswerCard({ entry: e, summary: s, text }: { entry: Entr
       ['전월 대비', `${h.delta >= 0 ? '+' : '−'}${won(Math.abs(h.delta))}`, h.delta > 0 ? 'bad' : undefined],
       ['가장 많이 쓴 항목', `${h.topName} ${won(h.topAmount)}`],
     ]
+  } else if (e.intent === 'income' && e.income) {
+    const r = e.income
+    badge = { label: '수입 기록', held: false }
+    rows = [['날짜', r.when], ['수입 이름', r.source], ['금액', won(r.amount)], ['계좌 잔액', won(m.balance)], ['카드대금 반영 후 예상', won(m.projected)]]
+  } else if (e.intent === 'daily' && s.daily) {
+    const d = s.daily
+    rows = [['오늘 더 쓸 수 있는 돈', won(Math.max(0, d.left)), d.left < 0 ? 'bad' : undefined], ['오늘 쓴 돈', won(d.todaySpent)], ['하루 기준 금액', won(d.allowance)]]
   } else if (e.intent === 'record' && e.recorded) {
     const r = e.recorded
     badge = { label: '기록 완료', held: false }
@@ -47,12 +54,37 @@ export default function AnswerCard({ entry: e, summary: s, text }: { entry: Entr
     rows = [['계좌 잔액', won(m.balance)], ['카드대금 반영 후 예상', won(m.projected)]]
   } else if (e.intent === 'budget') {
     rows = [['이번 달 남은 예산', won(m.remaining)], ['쓴 돈 / 월 예산', `${won(m.spent)} / ${won(m.budget)}`]]
+    for (const c of s.categories) {
+      if (c.budget !== null && c.remaining !== null) rows.push([`${c.category} 예산 남음`, won(c.remaining), c.remaining < 0 ? 'bad' : undefined])
+    }
   }
+
+  const q = e.intent === 'query' ? e.query : null
 
   return (
     <div className="lg-card">
       {badge && <span className={badge.held ? 'lg-badge held' : 'lg-badge ok'}>{badge.label}</span>}
       <p>{text}</p>
+      {q && q.ok && q.rows.length > 0 && (
+        <div className="lg-qtable">
+          <table>
+            <thead><tr>{q.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+            <tbody>
+              {q.rows.map((r, i) => (
+                <tr key={i}>{r.map((v, j) => <td key={j}>{typeof v === 'number' ? v.toLocaleString('ko-KR') : v ?? '—'}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+          {q.total > q.rows.length && <small>앞의 {q.rows.length}행만 보여 줘요 (전체 {q.total}행)</small>}
+        </div>
+      )}
+      {q && q.ok && q.sql && (
+        <details className="lg-qsql">
+          <summary>이렇게 계산했어요</summary>
+          <p>{q.basis}</p>
+          <code>{q.sql}</code>
+        </details>
+      )}
       {rows.length > 0 && (
         <dl>
           {rows.map(([k, v, tone]) => (

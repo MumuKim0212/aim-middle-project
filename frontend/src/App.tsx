@@ -16,6 +16,7 @@ export default function App() {
         <Route path="cards" element={<Placeholder title="카드" owner="김경민" />} />
         <Route path="loans" element={<Placeholder title="대출" owner="임대진" />} />
         <Route path="ledger" element={<LedgerPage />} />
+        <Route path="ledger/:tab" element={<LedgerPage />} />
         <Route path="*" element={<Placeholder title="페이지를 찾을 수 없어요" />} />
       </Route>
     </Routes>

@@ -48,9 +48,77 @@ def _ensure_planned_outflows(db: Session) -> None:
     db.commit()
 
 
+def _ensure_demo_history(db: Session) -> None:
+    """가계부 화면 확인용 가데이터(이미 시드된 DB 에도 한 번만 추가).
+
+    시안의 숫자(이번 달·지난달·지지난달 지출)가 바뀌지 않게, 그 달들은 건드리지 않고 3~5개월 전에만 넣는다.
+      · 반복 결제(넷플릭스·통신요금·헬스장): 고정지출 후보와 월별 추이 확인용
+      · 월급 입금: 수입 표시와 '수입 대비 지출' 확인용 (잔액은 그대로 두고 내역만 추가)
+    """
+    if db.get(m.CardTransaction, "ctx_d01"):
+        return
+    today = date.today()
+    recurring = [("넷플릭스", 17_000, "기타", 15), ("통신요금", 55_000, "생활", 20), ("헬스장", 45_000, "생활", 10)]
+    # 그 밖의 소비는 달마다 금액이 달라서 고정지출 후보로 잡히지 않는다(추이 그래프만 채운다)
+    extra = {
+        3: [("마트 장보기", 140_000, "장보기", 6), ("주말 외식", 62_000, "외식", 12), ("교통비", 38_000, "교통", 18)],
+        4: [("마트 장보기", 118_000, "장보기", 6), ("주말 외식", 91_000, "외식", 12), ("교통비", 45_000, "교통", 18), ("옷 쇼핑", 130_000, "쇼핑", 22)],
+        5: [("마트 장보기", 165_000, "장보기", 6), ("주말 외식", 48_000, "외식", 12), ("교통비", 29_000, "교통", 18)],
+    }
+    n = 0
+    for back in (3, 4, 5):
+        first = _month_ago(today, back)
+        for merchant, amount, cat, day in recurring + extra[back]:
+            n += 1
+            id_ = f"ctx_d{n:02d}"
+            db.add(m.CardTransaction(id=id_, card_id="card_002", kind="approval", merchant=merchant, amount=amount,
+                                     occurred_at=datetime(first.year, first.month, day, 12)))
+            db.flush()
+            db.add(m.LedgerTxCategory(card_transaction_id=id_, member_id=DEMO_MEMBER_ID, category=cat))
+    # 월급: 지난 5개월은 25일, 이번 달은 1일 입금
+    primary = db.get(m.Account, "acc_001")
+    paydays = [_month_ago(today, b).replace(day=25) for b in (5, 4, 3, 2, 1)] + [today.replace(day=1)]
+    for i, day in enumerate(paydays, 1):
+        db.add(m.AccountTransaction(id=f"atx_d{i:02d}", account_id="acc_001", kind="deposit", amount=2_800_000,
+                                    balance_after=primary.balance if primary else 0, counterparty="AIM 주식회사",
+                                    memo="월급", occurred_at=datetime(day.year, day.month, day.day, 9)))
+    db.commit()
+
+
+def _ensure_demo_sync(db: Session) -> None:
+    """카드·계좌 연동 확인용 가데이터(한 번만 추가).
+
+    · 분류가 없는 카드 거래(카드 서비스가 쌓은 것처럼): 가계부가 사용처 이름으로 자동 분류하는지 확인용. 3~5개월 전에만 넣어
+      시안의 이번 달·지난달 숫자는 그대로 둔다.
+    · 계좌 출금·이체: 이번 달 '계좌 출금·이체' 목록 확인용(예산 계산에는 안 들어가고, 잔액은 그대로 둔다).
+    """
+    if db.get(m.CardTransaction, "ctx_s01"):
+        return
+    today = date.today()
+    raw = [("스타벅스 강남점", 6_500, 8), ("쿠팡이츠", 23_000, 11), ("GS25 편의점", 4_800, 14),
+           ("카카오T 택시", 12_400, 16), ("올리브영", 31_000, 19), ("동네 소고기집", 48_000, 23)]
+    n = 0
+    for back in (3, 4, 5):
+        first = _month_ago(today, back)
+        for merchant, amount, day in raw:
+            n += 1
+            db.add(m.CardTransaction(id=f"ctx_s{n:02d}", card_id="card_002", kind="approval", merchant=merchant,
+                                     amount=amount, occurred_at=datetime(first.year, first.month, day, 13)))
+    outflows = [("월세 이체", "transfer_out", 500_000, 2), ("친구 정산", "transfer_out", 35_000, 3), ("ATM 출금", "withdraw", 100_000, 4)]
+    primary = db.get(m.Account, "acc_001")
+    for i, (who, kind, amount, day) in enumerate(outflows, 1):
+        if day <= today.day:
+            db.add(m.AccountTransaction(id=f"atx_s{i:02d}", account_id="acc_001", kind=kind, amount=amount,
+                                        balance_after=primary.balance if primary else 0, counterparty=who,
+                                        memo="가데이터", occurred_at=datetime(today.year, today.month, day, 15)))
+    db.commit()
+
+
 def seed(db: Session) -> None:
     if db.get(m.Member, DEMO_MEMBER_ID):
         _ensure_planned_outflows(db)
+        _ensure_demo_history(db)
+        _ensure_demo_sync(db)
         return
     today = date.today()
     month = today.strftime("%Y-%m")
@@ -151,3 +219,5 @@ def seed(db: Session) -> None:
         db.add_all(_schedule(no, start, amount, months, rate))
     db.commit()
     _ensure_planned_outflows(db)
+    _ensure_demo_history(db)
+    _ensure_demo_sync(db)

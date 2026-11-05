@@ -96,3 +96,26 @@ def stream_text(system: str, user_text: str, *, timeout_default: float = 6.0, te
         raise
     except Exception as e:
         raise LlmUnavailable(type(e).__name__) from None
+
+
+def generate_json_image(system: str, image_b64: str, mime: str, schema: dict, *, timeout_default: float = 20.0) -> dict:
+    """이미지 한 장(base64)과 지시를 보내고 schema 모양의 JSON 을 받는다. 어떤 실패든 LlmUnavailable."""
+    key, model, timeout = _settings(timeout_default)
+    body = json.dumps({
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"inlineData": {"mimeType": mime, "data": image_b64}}]}],
+        "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json", "responseSchema": schema,
+                             "thinkingConfig": {"thinkingBudget": 0}},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        GEMINI_URL.format(model=model), data=body, method="POST",
+        headers={"Content-Type": "application/json", "x-goog-api-key": key},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            data = json.loads(res.read().decode("utf-8"))
+        return json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
+    except urllib.error.HTTPError as e:
+        raise LlmUnavailable(f"HTTP {e.code}") from None
+    except Exception as e:
+        raise LlmUnavailable(type(e).__name__) from None

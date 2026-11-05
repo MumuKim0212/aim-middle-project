@@ -19,18 +19,19 @@ from .gemini import LlmUnavailable, generate_json
 log = logging.getLogger("ledger.nlu")
 
 CATEGORIES = ["배달", "외식", "장보기", "쇼핑", "교통", "생활", "기타"]
-INTENTS = ["purchase", "balance", "budget", "last", "prev2", "record", "week", "category", "chat"]
+INTENTS = ["purchase", "balance", "budget", "last", "prev2", "record", "income", "week", "category", "daily", "query", "chat"]
 MAX_AMOUNT = 100_000_000
 
 
 @dataclass(frozen=True)
 class Understanding:
-    # purchase | balance | budget | last | prev2 | record(쓴 돈 기록) | week(이번 주) | category(분류별 합계) | chat(잡담·불명확)
+    # purchase | balance | budget | last | prev2 | record(쓴 돈 기록) | week(이번 주) | category(분류별 합계) | daily(오늘 쓸 수 있는 돈) | query(그 밖의 가계부 조회·집계) | chat(잡담·불명확)
     intent: str
     amount: int | None
     category: str | None  # 문장에 카테고리 말이 없으면 None (직전 질문의 것을 이어받는다)
     source: str = "rules"  # rules | llm
     days_ago: int = 0  # record 일 때 며칠 전에 쓴 돈인지(오늘 0, 어제 1)
+    hint: str | None = None  # record 일 때 사용처로 쓸 말("교육비", "치킨" 등). 없으면 분류 이름
 
 
 # ───────────── 규칙 기반 ─────────────
@@ -56,10 +57,30 @@ _PURCHASE_HINT = re.compile(r"돼|될까|되나|되냐|시켜|사도|살까|먹�
 
 
 # "어제 치킨 2만원 썼어"처럼 이미 쓴 돈을 말하는 문장(과거형). 물어보는 말투(돼?·괜찮아?·?)가 섞이면 기록이 아니다.
-_RECORD_HINT = re.compile(r"썼|샀|먹었|시켰|결제했|긁었|질렀|나갔|지출했|냈")
+_RECORD_HINT = re.compile(r"썼|샀|먹었|시켰|결제했|긁었|질렀|나갔|지출했|냈|등록|기록|추가|넣어|적어|입력")
+# "등록했어?" 처럼 방금 기록한 게 반영됐는지 되묻는 말(금액 없이)
+# "응 등록해" 처럼 방금 얘기한 금액을 기록해 달라는 명령(금액 없이)
+_RECORD_COMMAND = re.compile(r"(등록|기록|추가|입력|저장)\s*(해|할게|하자|좀|부탁)|넣어|적어")
+_RECORD_CONFIRM = re.compile(r"(등록|기록|저장|반영|입력)\s*(했|됐|된|해뒀|돼)")
 _ASKING = re.compile(r"돼|될까|되나|되냐|괜찮|가능|\?|\？|얼마나|어때")
+# 돈이 들어온 이야기(수입). 금액이 있고 물어보는 말투가 아니면 수입 기록이다.
+_INCOME_WORDS = ["월급", "급여", "용돈", "보너스", "상여", "환급", "이자", "부수입", "수입", "입금", "알바비", "페이"]
+_INCOME_HINT = re.compile(r"월급|급여|용돈|보너스|상여|환급|이자|부수입|수입|입금|알바비|들어왔|받았|벌었")
+# 정해 둔 의도에 안 맞지만 가계부 숫자를 묻는 말("금요일에 제일 많이 썼어?", "작년보다 늘었어?") → 자유 조회
+_QUERY_ASK = re.compile(r"얼마|몇|가장|제일|평균|합계|총|비교|순위|최대|최소|언제|어느|요일|많이|적게|늘었|줄었|보여|알려")
+_QUERY_TOPIC = re.compile(r"썼|쓴|지출|소비|결제|사용|수입|예산|거래|배달|외식|장보|쇼핑|교통|생활|카드|목표|저축|월급|입금")
+_DAILY_HINT = re.compile(r"(오늘|하루).*(쓸 수|써도 되는|얼마까지|얼마 쓸|얼마나 쓸)|쓸 수 있는\s*(돈|금액)")
 _WEEK_HINT = re.compile(r"이번\s*주|주간|일주일")
 _SUM_HINT = re.compile(r"얼마|썼|쓴|지출|합계|총")
+
+
+def income_source(text: str) -> str:
+    """수입 이름: '월급', '용돈' 처럼 문장에 나온 말, 없으면 '수입'."""
+    return next((w for w in _INCOME_WORDS if w in text), "수입")
+
+
+def is_record_command(text: str) -> bool:
+    return bool(_RECORD_COMMAND.search(text)) and not _RECORD_CONFIRM.search(text)
 
 
 def parse_days_ago(text: str) -> int:
@@ -79,9 +100,17 @@ def classify(text: str, amount: int | None) -> str:
         return "last"
     if re.search(r"잔액|통장|계좌", text):
         return "balance"
+    if amount is None and _DAILY_HINT.search(text):
+        return "daily"
     if re.search(r"예산|얼마 남", text) and amount is None:
         return "budget"
+    if amount is not None and _INCOME_HINT.search(text) and not _ASKING.search(text):
+        return "income"
     if amount is not None and _RECORD_HINT.search(text) and not _ASKING.search(text):
+        return "record"
+    if amount is None and _INCOME_HINT.search(text) and not _ASKING.search(text) and "얼마" not in text:
+        return "income"  # "월급 들어왔어" — 금액을 되묻는다
+    if amount is None and (_RECORD_CONFIRM.search(text) or _RECORD_COMMAND.search(text)):
         return "record"
     if amount is None and _WEEK_HINT.search(text) and not _PURCHASE_HINT.search(text):
         return "week"
@@ -89,6 +118,8 @@ def classify(text: str, amount: int | None) -> str:
         return "category"
     if amount is not None or _PURCHASE_HINT.search(text):
         return "purchase"
+    if amount is None and _QUERY_ASK.search(text) and _QUERY_TOPIC.search(text):
+        return "query"
     return "chat"  # 인사·잡담·무슨 말인지 모를 때는 억지로 가계부 질문으로 끼워 맞추지 않는다
 
 
@@ -99,20 +130,35 @@ _CATEGORY_WORDS = {
     "장보기": ["마트", "장보", "편의점", "식재료"],
     "쇼핑": ["옷", "신발", "쿠팡", "올리브영"],
     "교통": ["택시", "버스", "지하철", "주유", "기름"],
+    "생활": ["교육", "학원", "병원", "약국", "통신", "구독", "관리비", "월세", "공과금", "보험", "미용", "세탁"],
 }
 
 
-def find_category(text: str) -> str | None:
+def find_category_hint(text: str) -> tuple[str | None, str | None]:
+    """(분류, 사용처로 쓸 말). 분류 이름이 직접 나오면 사용처 말은 None, 흔한 말로 찾았으면 그 말."""
     named = next((c for c in CATEGORIES if c in text), None)
     if named:
-        return named
-    return next((c for c, words in _CATEGORY_WORDS.items() if any(w in text for w in words)), None)
+        return named, None
+    for c, words in _CATEGORY_WORDS.items():
+        for w in words:
+            if w in text:
+                # "교육비" 처럼 뒤에 붙은 '비'까지 사용처로 쓴다
+                end = text.index(w) + len(w)
+                return c, text[text.index(w):end + 1] if text[end:end + 1] == "비" else w
+    return None, None
+
+
+def find_category(text: str) -> str | None:
+    return find_category_hint(text)[0]
 
 
 def understand_rules(text: str) -> Understanding:
     amount = parse_amount(text)
     intent = classify(text, amount)
-    return Understanding(intent, amount, find_category(text), "rules", parse_days_ago(text) if intent == "record" else 0)
+    cat, hint = find_category_hint(text)
+    if intent == "income":
+        hint = income_source(text)
+    return Understanding(intent, amount, cat, "rules", parse_days_ago(text) if intent in ("record", "income") else 0, hint)
 
 
 # ───────────── Gemini ─────────────
@@ -125,11 +171,14 @@ intent (하나만):
 - chat     : 인사, 잡담, 욕, 시비, 의미 없는 글자, 가계부와 상관없는 말, 무슨 뜻인지 알 수 없는 말.
              잔액·예산·지출을 묻는 말이 분명하지 않으면 억지로 다른 의도로 고르지 말고 chat.
 - balance  : 계좌 잔액, 통장에 얼마 있는지, 카드값 빼고 얼마 남는지를 묻는다.
-- budget   : 이번 달 남은 예산을 묻는다(결제 금액 이야기가 없을 때).
+- budget   : 이번 달 남은 예산을 묻는다(월 예산, 분류별 예산 모두. "배달 말고 다른 예산은?" 같은 말도. 결제 금액 이야기가 없을 때).
 - last     : 지난달(저번 달)에 얼마 썼는지 묻는다.
 - prev2    : 지지난달(두 달 전)에 얼마 썼는지 묻는다.
+- income   : 돈이 들어왔다고 알려 준다("월급 300만원 들어왔어", "5만원 용돈 받았어", "5만원 수입으로 등록해"). 금액이 있어야 한다.
 - record   : 이미 쓴 돈을 알려 준다("어제 치킨 2만원 썼어", "오늘 점심 8천원 결제했어"). 금액이 있어야 한다.
 - week     : 이번 주에 얼마 썼는지 묻는다.
+- daily    : 오늘(하루) 얼마까지 쓸 수 있는지 묻는다.
+- query    : 가계부 지출·수입·예산을 조회하거나 집계하는 질문인데 위 어느 것에도 딱 맞지 않는다(요일별, 순위, 평균, 기간 비교 등).
 - category : 이번 달에 특정 분류(배달·외식 등)에 얼마 썼는지 묻는다.
 
 amount: 문장에 적힌 결제 금액을 원 단위 정수로. '2만 원'=20000, '삼만원'=30000, '이만 오천 원'=25000, '3천 원'=3000.
@@ -186,8 +235,11 @@ def understand(text: str) -> Understanding:
         else:
             # 과거형으로 쓴 돈을 말한 문장(기록)과 '이번 주'는 규칙이 더 확실하다. 값을 등록하는 일이라 LLM 추측에 맡기지 않는다.
             rule = understand_rules(text)
-            if rule.intent in ("record", "week"):
-                return Understanding(rule.intent, rule.amount, rule.category, "rules", rule.days_ago)
+            if rule.intent in ("record", "income", "week"):
+                return Understanding(rule.intent, rule.amount, rule.category, "rules", rule.days_ago, rule.hint)
+            # LLM 이 문장만 보고 잡담이라 했어도 규칙이 분명한 질문(예산·잔액·지난달 등)으로 읽었으면 규칙을 따른다
+            if llm.intent == "chat" and rule.intent not in ("chat", "purchase"):
+                return Understanding(rule.intent, None, rule.category, "rules")
             # 규칙이 금액을 확실히 읽어냈으면 규칙 값을 쓴다(숫자는 코드가 더 정확하다)
             rule_amount = parse_amount(text)
             intent = llm.intent
@@ -200,5 +252,5 @@ def understand(text: str) -> Understanding:
             amount = rule_amount if rule_amount is not None else llm.amount
             if intent != "purchase":
                 amount = None  # 금액은 결제 가능 여부를 물을 때만 의미가 있다
-            return Understanding(intent, amount, llm.category, "llm")
+            return Understanding(intent, amount, llm.category or rule.category, "llm", 0, rule.hint)
     return understand_rules(text)

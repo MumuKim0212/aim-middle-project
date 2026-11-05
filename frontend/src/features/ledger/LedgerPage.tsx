@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { won } from '../../format'
-import { checkPayment, fetchChat, fetchSettings, fetchSummary, newChat, saveSettings, streamChat, type Mode, type Summary } from './api'
+import { ApiError, checkPayment, deleteGoal, fetchChat, fetchSettings, fetchSummary, newChat, saveGoal, saveSettings, streamChat, type Mode, type Summary } from './api'
 import AnswerCard from './AnswerCard'
 import HistoryTab from './HistoryTab'
 import {
   ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_TITLE, STAT_LABEL, WARNING_TITLE,
-  answerFor, forecastText, metrics, paymentFeedback, rewardBody, riskText, warningLevelLabel, type Entry,
+  MILESTONES, answerFor, dailyText, forecastText, goalText, metrics, paymentFeedback, rewardBody, riskText, warningLevelLabel, type Entry,
 } from './copy'
 import './ledger.css'
 
@@ -22,7 +23,6 @@ const HERO_IMAGE: Partial<Record<Mode, string>> = {
   basic: '/ledger/bank-glass.webp',
   kind: '/ledger/cute-pig.webp',
 }
-const FLOW_CATEGORIES = ['배달', '쇼핑', '생활', '장보기']
 const ROAST_LEVELS = [
   { v: 1, label: '순한맛' },
   { v: 2, label: '보통' },
@@ -46,7 +46,11 @@ export default function LedgerPage() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [initial, setInitial] = useState<Entry | null>(null)
   const [chats, setChats] = useState<Partial<Record<Mode, Entry[]>>>({}) // 모드마다 대화가 따로다
-  const [tab, setTab] = useState<Tab>('summary')
+  // 탭은 주소(/ledger, /ledger/chat, /ledger/history)가 정한다. 메뉴에서 바로 그 탭으로 들어올 수 있게.
+  const { tab: tabParam } = useParams()
+  const navigate = useNavigate()
+  const tab: Tab = tabParam === 'chat' ? 'chat' : tabParam === 'history' ? 'history' : 'summary'
+  const setTab = (t: Tab) => navigate(t === 'summary' ? '/ledger' : `/ledger/${t}`)
   const [question, setQuestion] = useState('')
   const [roastLevel, setRoastLevel] = useState(2) // 싸가지 모드 욕설 강도
   const [live, setLive] = useState<Live | null>(null)
@@ -121,6 +125,16 @@ export default function LedgerPage() {
     setInitial({ text: sampleText(s), intent: 'purchase', amount: s.examples.typical, category: s.examples.category, check: chk }) // 첫 답변도 새 수치로 다시 판정
   }
 
+  // 카드·계좌에서 새로 생긴 내역이 자동으로 반영되게, 화면으로 돌아오거나 1분마다 요약을 다시 불러온다
+  useEffect(() => {
+    if (!summary) return
+    const refresh = () => { if (!document.hidden && !live) void reloadSummary().catch(() => undefined) }
+    const timer = window.setInterval(refresh, 60_000)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!summary, live])
+
   const changeMode = (md: Mode) => {
     if (live) return // 답변을 만드는 중에는 모드를 바꾸지 않는다(답변이 엉뚱한 모드 대화에 붙지 않게)
     setModeState(md)
@@ -151,7 +165,7 @@ export default function LedgerPage() {
         onReset: () => setLive((l) => (l ? { ...l, target: '', shown: '' } : l)), // 다시 쓰는 중: 스피너로 돌아간다
         onDone: (entry) => {
           setLive((l) => (l ? { ...l, final: entry } : l))
-          if (entry.recorded) void reloadSummary().catch(() => undefined) // 대화로 지출을 기록했으면 요약 숫자도 새로
+          if (entry.recorded || entry.income) void reloadSummary().catch(() => undefined) // 대화로 지출을 기록했으면 요약 숫자도 새로
         },
       })
     } catch (e) {
@@ -186,12 +200,17 @@ export default function LedgerPage() {
 
       <div className="lg-modebar">
         <span>가계부 말투 · 화면 모드</span>
+        <div className="lg-modesrow">
         <div className="lg-modes" role="group" aria-label="모드 선택">
-          {MODES.map((k) => (
-            <button key={k} type="button" aria-pressed={mode === k} disabled={!!live} onClick={() => changeMode(k)}>
-              {MODE_LABEL[k]}
-            </button>
-          ))}
+            {MODES.map((k) => (
+              <button key={k} type="button" aria-pressed={mode === k} disabled={!!live} onClick={() => changeMode(k)}>
+                {MODE_LABEL[k]}
+              </button>
+            ))}
+          </div>
+          {tab === 'chat' && (
+            <button type="button" className="lg-newchat" disabled={!!live || entries.length === 0} onClick={startNewChat}>＋ 새 대화</button>
+          )}
         </div>
         {mode === 'roast' && (
           <div className="lg-level" role="group" aria-label="욕설 강도">
@@ -212,6 +231,7 @@ export default function LedgerPage() {
             mode={mode} summary={summary} level={level}
             answer={live ? { label: ANSWER_LABEL[mode], text: live.shown, busy: true, typing: live.shown !== '' } : { ...answerOf(mode, current, summary), busy: false, typing: false }}
             onAsked={ask}
+            reload={reloadSummary}
             goHistory={() => setTab('history')}
           />
         </>
@@ -220,10 +240,7 @@ export default function LedgerPage() {
       {tab === 'chat' && (
         <section className="lg-content">
           <div className="lg-panel">
-            <div className="lg-panelhead">
-              <h2>가계부에 물어보기</h2>
-              <button type="button" className="lg-newchat" disabled={!!live || entries.length === 0} onClick={startNewChat}>＋ 새 대화</button>
-            </div>
+            <h2>가계부에 물어보기</h2>
             <p>
               아래 입력창에서 금액과 항목을 말해 봐. “지난달엔?”, “그럼 1만 원은?”처럼 이어서 물어볼 수도 있어.
             </p>
@@ -329,13 +346,14 @@ function Hero({ mode, ratio }: { mode: Mode; ratio: number }) {
 }
 
 function SummaryTab({
-  mode, summary, level, answer, onAsked, goHistory,
+  mode, summary, level, answer, onAsked, reload, goHistory,
 }: {
   mode: Mode
   summary: Summary
   level: Summary['risk']['level']
   answer: { label: string; text: string; busy: boolean; typing: boolean }
   onAsked: (text: string, opts?: { stay?: boolean }) => Promise<void>
+  reload: () => Promise<void>
   goHistory: () => void
 }) {
   const m = metrics(summary)
@@ -400,6 +418,17 @@ function SummaryTab({
       </div>
 
       <section className="lg-insight">
+        {summary.daily && (
+          <div className={summary.daily.left < 0 ? 'lg-daily over' : 'lg-daily'}>
+            <small>오늘 쓸 수 있는 돈</small>
+            <strong>{won(Math.max(0, summary.daily.left))}</strong>
+            <div className="lg-progress" role="progressbar" aria-label="오늘 사용 한도" aria-valuenow={Math.min(100, Math.round((summary.daily.todaySpent / Math.max(1, summary.daily.allowance)) * 100))} aria-valuemin={0} aria-valuemax={100}>
+              <i style={{ width: `${Math.min(100, Math.round((summary.daily.todaySpent / Math.max(1, summary.daily.allowance)) * 100))}%` }} />
+            </div>
+            <div className="sub"><span>오늘 쓴 돈 <b>{won(summary.daily.todaySpent)}</b></span><span>하루 기준 <b>{won(summary.daily.allowance)}</b></span></div>
+            <p>{dailyText(mode, summary.daily)}</p>
+          </div>
+        )}
         {summary.forecast && forecastText(mode, summary.forecast, m.budget) && (
           <p className="lg-forecast">{forecastText(mode, summary.forecast, m.budget)}</p>
         )}
@@ -417,6 +446,8 @@ function SummaryTab({
         <p>{riskText(mode, level, m)}</p>
         {mode !== 'kind' && rewardBlock}
       </section>
+
+      <GoalCard mode={mode} summary={summary} reload={reload} />
 
       <details className="lg-fold" key={mode}>
       <summary><span>결제 전 확인</span> <small>금액 넣고 확인</small></summary>
@@ -442,21 +473,20 @@ function SummaryTab({
 
       <div className="lg-flow">
       <div className="lg-head">
-        <h2>지출 흐름</h2>
+        <h2>분류별 예산</h2>
         <button type="button" onClick={goHistory}>예산·계좌 설정 ›</button>
       </div>
       <div className="lg-panel">
-        <div className="lg-muted">
-          배달 {won(m.delivery)} / {won(m.deliveryBudget)} ({m.deliveryRatio}%)
-        </div>
-        {FLOW_CATEGORIES.map((c) => {
-          const spent = summary.categories.find((x) => x.category === c)?.spent ?? 0
-          const width = Math.min(100, Math.round((spent / Math.max(1, m.spent)) * 100))
+        {summary.categories.length === 0 && <div className="lg-muted">이번 달 지출이 아직 없어.</div>}
+        {summary.categories.map((c) => {
+          // 예산이 있으면 예산 대비 사용률, 없으면 이번 달 전체 지출에서 차지하는 비중
+          const width = Math.min(100, c.budget ? c.ratio ?? 0 : Math.round((c.spent / Math.max(1, m.spent)) * 100))
+          const tone = c.over ? 'over' : (c.ratio ?? 0) >= 80 ? 'hot' : ''
           return (
-            <div className="lg-line" key={c}>
-              <span>{c}</span>
-              <div className="lg-minibar"><i style={{ width: `${width}%` }} /></div>
-              <b>{won(spent)}</b>
+            <div className="lg-line" key={c.category}>
+              <span>{c.category}</span>
+              <div className={`lg-minibar ${tone}`}><i style={{ width: `${width}%` }} /></div>
+              <b>{won(c.spent)}{c.budget ? <small> / {won(c.budget)}</small> : null}</b>
             </div>
           )
         })}
@@ -466,9 +496,85 @@ function SummaryTab({
   )
 }
 
+/** 이번 달 저축 목표: 만들기·수정·삭제와 진행 막대(결제 전 확인에서 보류로 막은 금액) */
+function GoalCard({ mode, summary, reload }: { mode: Mode; summary: Summary; reload: () => Promise<void> }) {
+  const goal = summary.goal
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState('')
+  const [target, setTarget] = useState('')
+  const [msg, setMsg] = useState('')
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    const v = Number(target.replace(/[^\d]/g, ''))
+    if (!name.trim() || v <= 0) return setMsg('목표 이름과 금액을 입력해 줘.')
+    try {
+      await saveGoal(name.trim(), v)
+      setEditing(false)
+      setMsg('')
+      await reload()
+    } catch (err) {
+      setMsg(err instanceof ApiError ? '저장하지 못했어.' : '저장하지 못했어.')
+    }
+  }
+
+  if (!goal && !editing) {
+    return <button type="button" className="lg-goal empty" onClick={() => { setName(''); setTarget(''); setEditing(true) }}>＋ 이번 달 저축 목표 세우기</button>
+  }
+  if (editing) {
+    return (
+      <form className="lg-goal" onSubmit={(e) => void save(e)}>
+        <div className="lg-fields">
+          <label className="lg-field">목표 이름
+            <input value={name} maxLength={30} placeholder="예: 여행 자금" onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="lg-field">목표 금액
+            <input type="number" min={1} value={target} placeholder="예: 100000" onChange={(e) => setTarget(e.target.value)} />
+          </label>
+        </div>
+        <div className="lg-goalacts">
+          <button type="submit" className="lg-action">저장</button>
+          <button type="button" onClick={() => setEditing(false)}>취소</button>
+        </div>
+        {msg && <p className="lg-feedback" role="status">{msg}</p>}
+      </form>
+    )
+  }
+  return (
+    <section className="lg-goal">
+      <div className="top">
+        <strong>🎯 {goal!.name}</strong>
+        <span>
+          <button type="button" onClick={() => { setName(goal!.name); setTarget(String(goal!.target)); setEditing(true) }}>수정</button>
+          <button type="button" onClick={() => void deleteGoal().then(reload)}>삭제</button>
+        </span>
+      </div>
+      <div className="lg-progress" role="progressbar" aria-label="저축 목표 달성률" aria-valuenow={goal!.ratio} aria-valuemin={0} aria-valuemax={100}>
+        <i style={{ width: `${goal!.ratio}%` }} />
+      </div>
+      <div className="lg-miles" aria-label="달성 단계">
+        {MILESTONES.map((p) => <span key={p} className={goal!.ratio >= p ? 'on' : ''}>{goal!.ratio >= p ? '✓' : ''} {p}%</span>)}
+      </div>
+      <div className="sub">
+        <span>보류로 막은 돈 <b>{won(goal!.saved)}</b></span>
+        <span>목표 <b>{won(goal!.target)}</b> ({goal!.ratio}%)</span>
+      </div>
+      <div className="sub">
+        <span>이번 주 목표 <b>{won(goal!.weeklyTarget)}</b></span>
+        <span>이번 주 막은 돈 <b>{won(goal!.weekSaved)}</b></span>
+      </div>
+      <p className="lg-goalmsg">{goalText(mode, goal!.ratio)}</p>
+    </section>
+  )
+}
+
 /** 예산·카드대금 알림. 서버 요약에서 바로 계산한다(80% 도달, 예산 초과, 카드대금 3일 이내). */
 function Alerts({ summary: s }: { summary: Summary }) {
   const items: { key: string; text: string; tone: 'warn' | 'bad' }[] = []
+  for (const c of s.categories) {
+    if (c.over) items.push({ key: `over-${c.category}`, text: `${c.category} 예산을 넘겼어요.`, tone: 'bad' })
+    else if (c.ratio !== null && c.ratio >= 80) items.push({ key: `hot-${c.category}`, text: `${c.category} 예산의 ${c.ratio}%를 썼어요.`, tone: 'warn' })
+  }
   if (s.budget.set) {
     if (s.budget.remaining <= 0) items.push({ key: 'over', text: '이번 달 월 예산을 모두 썼어요.', tone: 'bad' })
     else if (s.budget.ratio >= 80) items.push({ key: 'eighty', text: `월 예산의 ${s.budget.ratio}%를 썼어요.`, tone: 'warn' })

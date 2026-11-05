@@ -34,6 +34,7 @@ erDiagram
     members ||..o{ planned_outflows : "member_id"
     members ||..o{ payment_attempts : "member_id"
     members ||..|| ledger_settings : "member_id"
+    members ||..o{ ledger_goals : "member_id"
     members ||..o{ chat_sessions : "member_id"
     members ||..o{ ledger_tx_category : "member_id"
 
@@ -244,6 +245,13 @@ erDiagram
         varchar40 member_id PK
         varchar8 mode "roast|basic|kind|numbers"
         smallint roast_level
+    }
+    ledger_goals {
+        varchar40 id PK
+        varchar40 member_id
+        varchar7 month "YYYY-MM, 회원당 월 1건"
+        varchar30 name
+        bigint target_amount
     }
     chat_sessions {
         varchar40 id PK

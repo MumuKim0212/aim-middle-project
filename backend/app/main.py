@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from . import models as m
 from .db import SessionLocal, engine, get_db
 from .deps import current_member
+from . import ledger_query
 from .ledger import router as ledger_router
 from .seed import seed
 
@@ -16,6 +17,7 @@ from .seed import seed
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     m.Base.metadata.create_all(engine)
+    ledger_query.setup(engine)  # 자유 질문용 읽기 전용 역할(권한이 없으면 자유 질문만 꺼진다)
     with SessionLocal() as db:
         seed(db)
     yield

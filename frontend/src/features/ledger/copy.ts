@@ -138,6 +138,65 @@ export function answerFor(mode: Mode, e: Entry, s: Summary): string {
     }[mode]
   }
 
+  if (e.intent === 'query') {
+    const q = e.query
+    if (!q || !q.ok) {
+      return {
+        roast: '그건 아직 계산 못 해. 이번 달 분류별 지출이나 이번 주 지출 같은 걸 물어봐.',
+        basic: '그 질문은 아직 계산하지 못했습니다. 이번 달 분류별 지출이나 이번 주 지출처럼 물어봐 주세요.',
+        kind: '그건 아직 계산하지 못했어. 이번 달 분류별 지출이나 이번 주 지출은 알려줄 수 있어!',
+        numbers: '계산 불가 / 대체 질문: 분류별 지출, 이번 주 지출',
+      }[mode]
+    }
+    if (q.rows.length === 0) {
+      return { roast: '해당하는 내역이 없어.', basic: '해당하는 내역이 없습니다.', kind: '해당하는 내역이 없어!', numbers: '조회 결과 0건' }[mode]
+    }
+    return {
+      roast: `${q.basis || '조회했어.'} 결과는 아래 표를 봐.`,
+      basic: `${q.basis || '조회했습니다.'} 결과는 아래 표와 같습니다.`,
+      kind: `${q.basis || '찾아봤어.'} 결과는 아래 표에 있어!`,
+      numbers: `조회 ${q.total}건 / ${q.basis}`,
+    }[mode]
+  }
+
+  if (e.intent === 'income') {
+    const r = e.income
+    if (!r) {
+      return {
+        roast: e.incomeError ? '수입 기록 못 했어. 대표계좌부터 확인해.' : '얼마 들어왔는지 말해. 금액 없으면 못 적어.',
+        basic: e.incomeError ? '수입을 기록하지 못했습니다. 대표계좌를 확인해 주세요.' : '들어온 금액을 알려주시면 수입으로 기록해 드릴게요.',
+        kind: e.incomeError ? '수입을 기록하지 못했어. 대표계좌를 한 번 확인해 줄래?' : '얼마 들어왔어? 알려주면 내가 적어 둘게!',
+        numbers: e.incomeError ? '기록 실패 / 대표계좌 확인 필요' : '금액 필요. 예: 월급 3,000,000원',
+      }[mode]
+    }
+    return {
+      roast: `${r.when} ${r.source} ${won(r.amount)} 들어왔네. 적어 놨으니까 쓸 데 생각하고 써.`,
+      basic: `${r.when} ${r.source} ${won(r.amount)}을 수입으로 기록했습니다.`,
+      kind: `${r.when} ${r.source} ${won(r.amount)} 들어왔구나! 잘 적어 뒀어.`,
+      numbers: `수입 기록 완료 / ${r.when} / ${r.source} ${won(r.amount)}`,
+    }[mode]
+  }
+
+  if (e.intent === 'daily') {
+    const d = s.daily
+    if (!d) {
+      return {
+        roast: '예산부터 정해. 그래야 오늘 얼마 쓸지 말해 주지.',
+        basic: '월 예산을 먼저 설정해 주세요. 그러면 하루 사용 가능 금액을 계산해 드립니다.',
+        kind: '월 예산을 먼저 정해 줘! 그러면 하루에 얼마 쓸 수 있는지 알려줄게.',
+        numbers: '월 예산 미설정 / 계산 불가',
+      }[mode]
+    }
+    const over = d.left < 0
+    const left = Math.max(0, d.left)
+    return {
+      roast: over ? `오늘 이미 ${won(d.todaySpent)} 썼고 하루 기준 ${won(d.allowance)} 넘겼어. 그만 써.` : `오늘은 ${won(left)}까지만 써. 하루 기준이 ${won(d.allowance)}이야.`,
+      basic: over ? `오늘 ${won(d.todaySpent)}을 사용해 하루 기준 ${won(d.allowance)}을 넘었습니다.` : `오늘은 ${won(left)}까지 사용할 수 있습니다. 하루 기준 금액은 ${won(d.allowance)}입니다.`,
+      kind: over ? `오늘 ${won(d.todaySpent)} 써서 하루 기준 ${won(d.allowance)}을 넘었어. 내일은 조금만 아껴 보자!` : `오늘은 ${won(left)}까지 쓸 수 있어. 하루 기준은 ${won(d.allowance)}이야.`,
+      numbers: `오늘 사용 ${won(d.todaySpent)} / 하루 기준 ${won(d.allowance)} / 잔여 ${won(left)}${over ? ' / 상태 초과' : ''}`,
+    }[mode]
+  }
+
   if (e.intent === 'week' && e.week) {
     const w = e.week
     const more = w.delta >= 0
@@ -170,11 +229,13 @@ export function answerFor(mode: Mode, e: Entry, s: Summary): string {
   }
 
   if (e.intent === 'budget') {
+    const cb = s.categories.filter((c) => c.budget !== null && c.remaining !== null)
+    const list = (sep: string) => cb.map((c) => `${c.category} ${won(c.remaining ?? 0)}`).join(sep)
     return {
-      roast: `남은 예산 ${won(m.remaining)}. 배달엔 ${won(m.deliveryRemaining)}밖에 안 남았어.`,
-      basic: `이번 달 남은 예산은 ${won(m.remaining)}이며 배달 예산은 ${won(m.deliveryRemaining)} 남았습니다.`,
-      kind: `이번 달 ${won(m.remaining)} 남았어. 배달은 ${won(m.deliveryRemaining)} 남았으니 조금만 조심하자.`,
-      numbers: `월 잔여 ${won(m.remaining)} / 배달 잔여 ${won(m.deliveryRemaining)} / 사용률 ${m.ratio}%`,
+      roast: `남은 예산 ${won(m.remaining)}.${cb.length ? ` ${list(', ')} 남았어.` : ''}`,
+      basic: `이번 달 남은 예산은 ${won(m.remaining)}입니다.${cb.length ? ` 분류별로는 ${list(', ')} 남았습니다.` : ''}`,
+      kind: `이번 달 ${won(m.remaining)} 남았어.${cb.length ? ` ${list(', ')} 남았으니 조금만 조심하자.` : ''}`,
+      numbers: `월 잔여 ${won(m.remaining)}${cb.length ? ` / ${cb.map((c) => `${c.category} 잔여 ${won(c.remaining ?? 0)}`).join(' / ')}` : ''} / 사용률 ${m.ratio}%`,
     }[mode]
   }
 
@@ -264,4 +325,29 @@ export const STAT_LABEL: Record<Mode, { saved: string; streak: string }> = {
   basic: { saved: '보류로 막은 결제', streak: '무지출 연속' },
   kind: { saved: '참아 낸 금액', streak: '무지출 스탬프' },
   numbers: { saved: '보류 합계', streak: '무지출 일수' },
+}
+
+/** 오늘 쓸 수 있는 돈 카드의 한마디 */
+export function dailyText(mode: Mode, d: NonNullable<Summary['daily']>): string {
+  const over = d.left < 0
+  return {
+    roast: over ? '오늘 한도 넘었어. 지갑 닫아.' : '오늘은 이만큼만 써. 넘기면 알지?',
+    basic: over ? '오늘 한도를 넘었습니다. 내일 기준이 조금 줄어듭니다.' : `남은 ${d.daysLeft}일에 맞춰 계산한 오늘의 사용 한도입니다.`,
+    kind: over ? '조금 넘었어. 내일 같이 맞춰 보자!' : '이 정도면 오늘도 잘 해낼 수 있어!',
+    numbers: `남은 일수 ${d.daysLeft} / 오늘 한도 기준`,
+  }[mode]
+}
+
+export const MILESTONES = [25, 50, 75, 100] as const
+
+/** 저축 목표 달성률에 따른 응원. 단계마다 말투가 다르다. */
+export function goalText(mode: Mode, ratio: number): string {
+  const step = ratio >= 100 ? 4 : ratio >= 75 ? 3 : ratio >= 50 ? 2 : ratio >= 25 ? 1 : 0
+  const t: Record<Mode, string[]> = {
+    roast: ['아직 시작도 못 했네. 한 번만 참아 봐.', '25% 찍었다. 겨우 그거 가지고 뿌듯해하지 마.', '절반 넘겼네. 여기서 무너지면 비웃을 거야.', '75%. 다 왔으니까 마지막에 지르지 마.', '목표 달성. 이번엔 인정해 준다.'],
+    basic: ['목표를 향해 시작해 보세요.', '목표의 25%를 달성했습니다.', '목표의 절반을 넘겼습니다.', '목표의 75%를 달성했습니다. 거의 다 왔습니다.', '이번 달 저축 목표를 달성했습니다.'],
+    kind: ['오늘 한 번만 참아 보자. 시작이 반이야!', '벌써 25%! 잘하고 있어.', '절반 넘었어! 대단해!', '75%야! 조금만 더 힘내자.', '목표 달성! 정말 잘했어! 🎉'],
+    numbers: ['달성률 0%', '달성률 25% 이상', '달성률 50% 이상', '달성률 75% 이상', '달성률 100% / 목표 달성'],
+  }
+  return t[mode][step]
 }

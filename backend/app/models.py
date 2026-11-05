@@ -327,6 +327,19 @@ class LedgerSettings(Base):
     updated_at: Mapped[datetime] = ts_updated()
 
 
+class LedgerGoal(Base):
+    """월 저축 목표. 모은 돈은 저장하지 않고 조회 시 계산한다(결제 전 확인에서 보류로 막은 금액)."""
+    __tablename__ = "ledger_goals"
+    id: Mapped[str] = pk("lgl")
+    member_id: Mapped[str] = mapped_column(String(40))
+    month: Mapped[str] = mapped_column(String(7))  # YYYY-MM
+    name: Mapped[str] = mapped_column(String(30))
+    target_amount: Mapped[int] = mapped_column(Money)
+    created_at: Mapped[datetime] = ts_created()
+    __table_args__ = (UniqueConstraint("member_id", "month", name="uq_goal_member_month"),
+                      CheckConstraint("target_amount > 0", name="ck_goal_target"))
+
+
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id: Mapped[str] = pk("chs")
