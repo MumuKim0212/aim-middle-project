@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { won } from '../../format'
 import { ApiError, checkPayment, deleteGoal, fetchChat, fetchSettings, fetchSummary, newChat, saveGoal, saveSettings, streamChat, type Mode, type Summary } from './api'
 import AnswerCard from './AnswerCard'
+import Guide from './Guide'
 import HistoryTab from './HistoryTab'
 import {
   ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_TITLE, STAT_LABEL, WARNING_TITLE,
@@ -56,6 +57,7 @@ export default function LedgerPage() {
   const [live, setLive] = useState<Live | null>(null)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [guide, setGuide] = useState(false) // 사용법 창
 
   useEffect(() => {
     fetchSummary()
@@ -196,7 +198,14 @@ export default function LedgerPage() {
             {t.label}
           </button>
         ))}
+        <button type="button" className="lg-help" aria-label="가계부 사용법" onClick={() => setGuide(true)}>?</button>
       </nav>
+      {guide && (
+        <Guide
+          onClose={() => setGuide(false)}
+          onTry={(t) => { setGuide(false); setQuestion(t); setTab('chat'); window.setTimeout(() => inputRef.current?.focus(), 80) }}
+        />
+      )}
 
       <div className="lg-modebar">
         <span>가계부 말투 · 화면 모드</span>
