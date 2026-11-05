@@ -15,8 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import create_engine, text
 
-ADMIN_URL = "postgresql+psycopg://aimbank:aimbank@localhost:5433/postgres"
-TEST_URL = "postgresql+psycopg://aimbank:aimbank@localhost:5433/cardtest"
+ADMIN_URL = "postgresql+psycopg://aimbank:aimbank@localhost:5432/postgres"
+TEST_URL = "postgresql+psycopg://aimbank:aimbank@localhost:5432/cardtest"
 BASE = "http://127.0.0.1:8001/api/v1"
 fails: list[str] = []
 
