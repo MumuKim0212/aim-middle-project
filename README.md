@@ -37,10 +37,11 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 |---|---|
 | **회원·인증** | 회원가입 5단계, 아이디·비밀번호 로그인(5회 실패 10분 잠금), 간편비밀번호 6자리 + 기기 등록 쿠키, 30분 세션, 2차 인증, 비밀번호·간편비밀번호 변경, 로그아웃 |
 | **가계부** | 요약, 자연어 물어보기(4가지 말투), 소비 내역(달력·추이·예산 설정), 지출·수입 기록, 카드 거래 자동 분류 |
+| **카드** | 내 카드 목록·상세, 이용내역(필터·페이지 나누기), 결제 예정 금액, 정지·해제·분실 신고, 카드 신청(신용·체크, 중복 신청 방지), 해지. 쓰기 동작은 간편비밀번호 재확인(S-08 팝업) 뒤에 실행 |
 | **홈** | `GET /api/home` — 계좌 총액, 보유 카드·이번 달 사용액, 가계부 예산 사용률, 내 대출 잔액·다음 납입일, 대출 상품 목록. 하단 탭·햄버거 메뉴 |
 
 - `GET /api/health`
-- 계좌·카드·대출 화면은 담당자별 빈 페이지입니다 (카드는 `feature/card-impl` 브랜치에 구현돼 있고 아직 합치지 않았습니다).
+- 계좌·대출 화면은 담당자별 빈 페이지입니다.
 
 ## 실행
 
@@ -95,7 +96,8 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
 | `/auth/pin/setup`, `/auth/pin/verify` | 간편비밀번호 설정 · 2차 인증 | 필요 |
 | `/me`, `/me/password`, `/me/pin` | 내 정보 · 비밀번호 변경 · 간편비밀번호 변경 | 필요 |
 | `/ledger`, `/ledger/chat`, `/ledger/history` | 가계부 요약 · 물어보기 · 소비 내역 | 필요 |
-| `/accounts`, `/cards`, `/loans` | 각 담당자 화면(빈 페이지) | 필요 |
+| `/cards`, `/cards/:id`, `/cards/transactions`, `/cards/billing`, `/cards/apply` 등 | 카드 | 필요 |
+| `/accounts`, `/loans` | 각 담당자 화면(빈 페이지) | 필요 |
 
 로그인이 필요한 API 는 모두 `Depends(current_user)`(`backend/app/auth/deps.py`) 하나로 막고, 모든 조회는 `user.id` 로 걸러서 남의 데이터는 404 로 답합니다. 오류 응답은 `{"code", "message"}` 모양입니다. 이체 같은 중요 동작 직전에는 `/auth/pin/verify` 를 거치고 서버는 `pin_verified(request)` 로 5분간 통과 여부를 확인합니다.
 
@@ -112,11 +114,17 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
     python tests/test_ledger_nlu.py          # 질문 해석 문장 세트
     python tests/test_ledger_query.py        # 자유 질문 SQL 검사(위험한 쿼리 거부)
     python tests/test_ledger_categorize.py   # 카드 거래 자동 분류 규칙
+    python tests/test_card_cycles.py         # 카드 결제 주기·한도 계산
 
 인증 시나리오(가입·잠금·접근 제어)는 **시험용 DB** 로 서버를 띄워서 돌립니다(DB 를 바꾸는 시나리오가 있습니다).
 
     DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_authtest python -m uvicorn app.main:app --port 8002
     python tests/test_auth_flow.py http://127.0.0.1:8002
+
+카드 API 시나리오(조회·정지·신청·해지)는 임시 DB(`cardtest`)와 임시 서버(8001)를 스스로 띄우고 끝나면 지웁니다. PostgreSQL 이 떠 있어야 합니다.
+
+    cd backend
+    python -m tests.card_api_scenarios
 
 ## 문서
 
@@ -131,4 +139,4 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
 ## 아직 없는 것
 
 - 휴대폰 번호 수정(AUTH-06), 자연어 인증 의도("로그아웃 해줘" 등)와 로그인 전 대화 처리
-- 계좌·카드·대출 화면(담당자 구현 대기). 카드 구현(`feature/card-impl`)은 합칠 때 `member_id` → `user_id`, 세션 인증(`current_user`), 간편비밀번호 재확인(`pin_verified`)으로 바꿔야 합니다 (docs/common/공통.md 11.1)
+- 계좌·대출 화면(담당자 구현 대기). 카드의 결제 계좌 목록(`GET /api/accounts`)은 아직 문자열 ID(`acc_001`)를 쓰는 지금의 계좌 모델 기준이고, 계좌 파트가 숫자 ID로 바꿀 때 함께 맞춥니다

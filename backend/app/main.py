@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models as m
+from .cards import ApiError, api_error_response, internal_error_response, router as cards_router
 from .db import SessionLocal, engine, get_db
 from .auth.deps import current_user
 from .auth.router import me_router, router as auth_router
@@ -71,6 +72,9 @@ app.add_middleware(
     same_site="lax",
     https_only=False,
 )
+app.include_router(cards_router)
+app.add_exception_handler(ApiError, api_error_response)
+app.add_exception_handler(Exception, internal_error_response)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -165,7 +169,8 @@ def home(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
         select(m.Card).where(m.Card.user_id == user.id, m.Card.status != "terminated")
         .order_by(m.Card.issued_at)
     ).all()
-    card_ids = [c.id for c in cards]
+    # 사용액은 해지된 카드의 거래도 센다(가계부 화면과 같은 기준)
+    card_ids = list(db.scalars(select(m.Card.id).where(m.Card.user_id == user.id)))
     approved = cancelled = 0
     if card_ids:
         sums = dict(db.execute(

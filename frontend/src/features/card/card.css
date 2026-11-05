@@ -1,0 +1,42 @@
+/* Tailwind theme + utilities only (no preflight) so Home/Layout/styles.css are not restyled. */
+@import "tailwindcss/theme.css" layer(theme);
+/* Utilities stay unlayered: styles.css has unlayered `a`/`ul` rules that would beat layered utilities. */
+@import "tailwindcss/utilities.css" source(none);
+@source "./";
+
+/* Brand colors are estimated from docs/references/메인.png; replace with official values. */
+@theme {
+  --color-brand: #0a6fc2;
+  --color-brand-dark: #1a3a9f;
+  --color-brand-light: #4aa3e8;
+  --color-navy: #1f2547;
+  --color-indigo: #4b37d6;
+  --color-sky: #5ea6e4;
+  --color-pill-active: #ededff;
+  --color-pill-active-border: #9a9aee;
+  --color-status-suspended: #b45309;
+  --color-status-lost: #b91c1c;
+  --color-status-terminated: #6b7280;
+  --color-warning: #b91c1c;
+}
+
+/* Scoped subset of Tailwind preflight. :where() keeps specificity at 0 so utilities still win. */
+.card-feature {
+  /* app-main already pads 14px 16px; card pages pad themselves */
+  margin: -14px -16px 0;
+  line-height: 1.5;
+}
+:where(.card-feature) :where(*, ::before, ::after, ::backdrop) {
+  margin: 0;
+  padding: 0;
+  border: 0 solid;
+}
+:where(.card-feature) :where(h1, h2, h3, h4) { font-size: inherit; font-weight: inherit; }
+:where(.card-feature) :where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+  background-color: transparent;
+  letter-spacing: inherit;
+}
+:where(.card-feature) :where(dl, dd) { margin: 0; }
+:where(.card-feature) :where(svg, img) { display: block; }

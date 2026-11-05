@@ -1,5 +1,5 @@
 """개발용 시드 데이터. 카드 기획서 기준 데이터(user_id 1, acc_001/002, card_001/002)를 따른다."""
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -8,6 +8,8 @@ from . import models as m
 from .auth.security import hash_secret
 
 DEMO_USER_ID = 1  # user1 (김하나)
+# 가계부 데모 거래는 카드 시드(card/00-api-common.md 10절)의 숫자를 흔들지 않도록 해지된 카드에 붙인다. 가계부는 카드 상태와 상관없이 사용자의 모든 카드 거래를 읽는다.
+LEDGER_DEMO_CARD = "card_005"
 
 
 def _schedule(contract_no: str, start: date, amount: int, months: int, rate: float):
@@ -24,6 +26,60 @@ def _schedule(contract_no: str, start: date, amount: int, months: int, rate: flo
             contract_no=contract_no, seq=seq, due_date=due,
             principal=pay, interest=interest, balance=balance))
     return rows
+
+
+KST = timezone(timedelta(hours=9))
+
+
+def _kst(y: int, mo: int, d: int, hh: int = 12, mm: int = 0) -> datetime:
+    return datetime(y, mo, d, hh, mm, tzinfo=KST)
+
+
+def _ensure_cards(db: Session) -> None:
+    """카드 기획서 00-api-common.md 10절의 나머지 카드·거래(카드 3~5, user2의 카드 900, 거래). 이미 있으면 건너뛴다.
+
+    카드 1·2와 계좌는 seed() 가 만든다. 거래에는 가계부 분류를 넣지 않는다(가계부가 사용처 이름으로 자동 분류한다).
+    """
+    if db.get(m.Card, "card_900"):
+        return
+
+    def card(id_, user_id, type_, last4, expiry, issued, acc, masked, **kw):
+        product = "prod_credit_01" if type_ == "credit" else "prod_debit_01"
+        return m.Card(id=id_, user_id=user_id, product_id=product, name="AIM 신용카드" if type_ == "credit" else "AIM 체크카드",
+                      type=type_, number_last4=last4, expiry=expiry, issued_at=issued, payment_account_id=acc,
+                      payment_bank_name="AIM Bank", payment_account_masked=masked, **kw)
+
+    db.add_all([
+        card("card_003", DEMO_USER_ID, "credit", "3333", "09/30", date(2025, 9, 20), "acc_001", "****4821",
+             payment_day=10, credit_limit=1_000_000, status="suspended", suspended_at=_kst(2026, 10, 30, 14, 5)),
+        card("card_004", DEMO_USER_ID, "credit", "4444", "01/31", date(2026, 1, 5), "acc_001", "****4821",
+             payment_day=25, credit_limit=500_000, status="lost", lost_at=_kst(2026, 10, 20, 11, 30),
+             lost_reason="lost"),
+        card("card_005", DEMO_USER_ID, "debit", "5555", "08/29", date(2024, 8, 30), "acc_001", "****4821",
+             debit_per_tx=1_000_000, debit_per_day=3_000_000,
+             status="terminated", terminated_at=_kst(2026, 8, 30, 10)),
+        card("card_900", 2, "debit", "9000", "05/30", date(2025, 5, 1), "acc_101", "****0101",
+             debit_per_tx=1_000_000, debit_per_day=3_000_000),
+    ])
+    db.flush()
+
+    # (id, card, 일시, 가맹점, 금액, 할부)
+    approvals = [
+        ("tx_205", "card_002", _kst(2026, 8, 10, 15, 40), "삼성전자", 900_000, 3),
+        ("tx_201", "card_002", _kst(2026, 9, 12, 13, 10), "이마트", 120_000, 0),
+        ("tx_202", "card_002", _kst(2026, 10, 5, 12, 20), "쿠팡", 300_000, 0),
+        ("tx_203", "card_002", _kst(2026, 10, 18, 9, 5), "스타벅스 강남점", 12_000, 0),
+        ("tx_206", "card_002", _kst(2026, 10, 30, 19, 30), "현대백화점", 600_000, 2),
+        ("tx_207", "card_002", _kst(2026, 11, 2, 8, 10), "GS25", 8_000, 0),
+        ("tx_401", "card_004", _kst(2026, 10, 15, 20), "올리브영", 45_000, 0),
+    ] + [(f"tx_1{n:02d}", "card_001", _kst(2026, 10, n), f"편의점 {n:02d}호점", n * 1_000, 0) for n in range(1, 31)]
+    for id_, card_id, when, merchant, amount, inst in approvals:
+        db.add(m.CardTransaction(id=id_, card_id=card_id, kind="approval", occurred_at=when, merchant=merchant,
+                                 amount=amount, installment_months=inst))
+    db.flush()
+    db.add(m.CardTransaction(id="tx_204", card_id="card_002", kind="cancel", occurred_at=_kst(2026, 10, 22, 10, 15),
+                             merchant="스타벅스 강남점", amount=12_000, original_id="tx_203"))
+    db.commit()
 
 
 def _month_ago(d: date, n: int) -> date:
@@ -72,7 +128,7 @@ def _ensure_demo_history(db: Session) -> None:
         for merchant, amount, cat, day in recurring + extra[back]:
             n += 1
             id_ = f"ctx_d{n:02d}"
-            db.add(m.CardTransaction(id=id_, card_id="card_002", kind="approval", merchant=merchant, amount=amount,
+            db.add(m.CardTransaction(id=id_, card_id=LEDGER_DEMO_CARD, kind="approval", merchant=merchant, amount=amount,
                                      occurred_at=datetime(first.year, first.month, day, 12)))
             db.flush()
             db.add(m.LedgerTxCategory(card_transaction_id=id_, user_id=DEMO_USER_ID, category=cat))
@@ -105,7 +161,7 @@ def _ensure_demo_sync(db: Session) -> None:
             n += 1
             # 달마다 금액을 조금씩 달리해서 '고정지출'로 잡히지 않게 한다(고정지출은 넷플릭스·통신요금·헬스장 가데이터가 맡는다)
             varied = int(amount * (1 + 0.25 * ((back + k) % 3))) // 100 * 100
-            db.add(m.CardTransaction(id=f"ctx_s{n:02d}", card_id="card_002", kind="approval", merchant=merchant,
+            db.add(m.CardTransaction(id=f"ctx_s{n:02d}", card_id=LEDGER_DEMO_CARD, kind="approval", merchant=merchant,
                                      amount=varied, occurred_at=datetime(first.year, first.month, day, 13)))
     outflows = [("월세 이체", "transfer_out", 500_000, 2), ("친구 정산", "transfer_out", 35_000, 3), ("ATM 출금", "withdraw", 100_000, 4)]
     primary = db.get(m.Account, "acc_001")
@@ -163,6 +219,7 @@ def _ensure_user4(db: Session) -> None:
 def seed(db: Session) -> None:
     if db.get(m.User, DEMO_USER_ID):
         _ensure_user4(db)
+        _ensure_cards(db)
         _ensure_planned_outflows(db)
         _ensure_demo_history(db)
         _ensure_demo_sync(db)
@@ -200,6 +257,7 @@ def seed(db: Session) -> None:
                payment_day=25, credit_limit=3_000_000),
     ])
     db.flush()
+    _ensure_cards(db)  # 카드 3~5, 900과 카드 거래 (가계부 데모 거래가 카드 5를 참조한다)
     # 가계부 시안(가계부_4가지_모드_체험.html)의 예시 데이터와 같은 값.
     # 이번 달 612,000원 = 생활 331,000 + 쇼핑 200,000 + 배달 81,000
     prev, prev2 = _month_ago(today, 1), _month_ago(today, 2)
@@ -215,7 +273,7 @@ def seed(db: Session) -> None:
         ("ctx_009", date(prev2.year, prev2.month, 22), "지지난달 배달", 80_000, "배달"),
     ]
     for id_, day, merchant, amount, cat in txs:
-        db.add(m.CardTransaction(id=id_, card_id="card_002", kind="approval",
+        db.add(m.CardTransaction(id=id_, card_id=LEDGER_DEMO_CARD, kind="approval",
                                  occurred_at=datetime.combine(day, datetime.min.time()).replace(hour=12),
                                  merchant=merchant, amount=amount))
     db.flush()
