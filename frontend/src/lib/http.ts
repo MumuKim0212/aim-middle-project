@@ -1,12 +1,24 @@
 // API 호출 공통 래퍼(기획서 6.1): 쿠키 세션을 보내고, 401/403 이면 로그인·간편비밀번호 설정 화면으로 보낸다.
-export type ApiErrorBody = { code?: string; message?: string; field?: string; remaining?: number; until?: string; detail?: string }
+export type FieldError = { field: string; reason?: string; message?: string }
+// 오류 응답 모양: { code, message, details? } (공통.md 5장). 추가 값은 details 안에 있다.
+export type ApiErrorBody = {
+  code?: string
+  message?: string
+  details?: { fields?: FieldError[]; until?: string; remainingAttempts?: number }
+  detail?: string
+}
+
+/** VALIDATION_FAILED 의 첫 필드 오류(없으면 undefined). */
+export function firstFieldError(body: ApiErrorBody): FieldError | undefined {
+  return body.details?.fields?.[0]
+}
 
 export class ApiFail extends Error {
   constructor(public status: number, public body: ApiErrorBody) {
     super(body.message || body.code || `HTTP ${status}`)
   }
   get code() {
-    return this.body.code ?? this.body.detail
+    return this.body.code
   }
 }
 
@@ -20,10 +32,10 @@ export function safeNext(next: string | null | undefined): string | null {
 function onAuthFailure(status: number, body: ApiErrorBody) {
   const path = location.pathname
   if (path.startsWith('/login') || path.startsWith('/signup')) return
-  if (status === 401 && (body.code === 'login_required' || body.code === 'session_expired')) {
+  if (status === 401 && (body.code === 'LOGIN_REQUIRED' || body.code === 'SESSION_EXPIRED')) {
     const next = encodeURIComponent(path + location.search)
-    location.assign(`/login?next=${next}${body.code === 'session_expired' ? '&expired=1' : ''}`)
-  } else if (status === 403 && body.code === 'pin_setup_required' && !path.startsWith('/auth/pin/setup')) {
+    location.assign(`/login?next=${next}${body.code === 'SESSION_EXPIRED' ? '&expired=1' : ''}`)
+  } else if (status === 403 && body.code === 'PIN_SETUP_REQUIRED' && !path.startsWith('/auth/pin/setup')) {
     location.assign('/auth/pin/setup')
   }
 }

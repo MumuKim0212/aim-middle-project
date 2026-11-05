@@ -37,8 +37,8 @@ export default function PinSetup() {
       nav(safeNext(params.get('next')) ?? (change ? '/me' : '/home'), { replace: true })
     } catch (x) {
       const b = x instanceof ApiFail ? x.body : {}
-      if (b.code === 'pin_invalid' || b.code === 'current_secret_invalid') redo(b.message ?? '현재 간편비밀번호가 맞지 않아요.', 'current')
-      else if (b.code === 'pin_locked') { await refresh(); nav('/login', { replace: true }) }
+      if (b.code === 'PIN_MISMATCH' || b.code === 'CURRENT_PASSWORD_INVALID') redo(b.message ?? '현재 간편비밀번호가 맞지 않아요.', 'current')
+      else if (b.code === 'PIN_LOCKED') { await refresh(); nav('/login', { replace: true }) }
       else redo(b.message ?? '설정하지 못했어요. 다시 입력해 주세요.', 'new')
     } finally {
       setBusy(false)

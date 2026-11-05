@@ -1,7 +1,7 @@
 # AIM Bank 모바일 웹 — 가계부 · 회원/인증 (`feature/ledger-app`)
 
 은행 모바일 웹서비스 팀 프로젝트 중 **가계부**와 **회원·인증**을 담은 브랜치입니다.
-FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 우선, 430px 프레임).
+FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 우선, 420px 프레임).
 
 <img src="docs/screenshots/home.jpg" alt="메인 페이지" width="260">
 
@@ -28,7 +28,7 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 
 ## 실행
 
-1. DB (PostgreSQL 16, 호스트 포트 5433)
+1. DB (PostgreSQL 16, 호스트 포트 5432)
 
        docker compose up -d
 
@@ -54,7 +54,7 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 
 | 이름 | 설명 |
 |---|---|
-| `DATABASE_URL` | 기본 `postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank` |
+| `DATABASE_URL` | 기본 `postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank` |
 | `SESSION_SECRET` | 세션 쿠키 서명 키. 비워 두면 개발용 기본값을 쓰니 **배포 전에 꼭 지정** |
 | `LEDGER_NLU` | `rules`(키 없이 규칙 해석만) / `llm`(Gemini 먼저, 실패하면 규칙) |
 | `GEMINI_API_KEY` | 가계부 자연어·영수증·자유 질문에 쓰는 키. 없어도 나머지는 동작 |
@@ -66,6 +66,7 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 | `user1` (김하나) | `Test1234!` | `482915` | 기본 시연용. 가계부·카드·대출 데이터 포함 |
 | `user2` (이두리) | `Test5678!` | `739204` | 타인 데이터 접근 차단 테스트용 |
 | `user3` (박세나) | `Test9012!` | 없음 | 첫 로그인 → 간편비밀번호 설정 흐름 테스트용 |
+| `user4` (최아란) | `Test3456!` | `264817` | 만 19세 미만(2008-06-01). 카드 신청 자격 테스트용 |
 
 ## 화면
 
@@ -97,7 +98,7 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 
 인증 시나리오(가입·잠금·접근 제어)는 **시험용 DB** 로 서버를 띄워서 돌립니다(DB 를 바꾸는 시나리오가 있습니다).
 
-    DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank_authtest python -m uvicorn app.main:app --port 8002
+    DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_authtest python -m uvicorn app.main:app --port 8002
     python tests/test_auth_flow.py http://127.0.0.1:8002
 
 ## 문서

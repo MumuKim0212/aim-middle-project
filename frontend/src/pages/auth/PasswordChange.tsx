@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiFail, callJson } from '../../lib/http'
+import { ApiFail, callJson, firstFieldError } from '../../lib/http'
 
 /** 비밀번호 변경(S-06): 현재 비밀번호 확인 → 새 비밀번호(가입 때와 같은 규칙). 성공하면 내 정보로 돌아간다. */
 export default function PasswordChange() {
@@ -21,7 +21,9 @@ export default function PasswordChange() {
       nav('/me', { replace: true, state: { flash: '비밀번호를 변경했어요.' } })
     } catch (x) {
       const b = x instanceof ApiFail ? x.body : {}
-      setErr({ field: b.field, message: b.message ?? '변경하지 못했어요. 잠시 후 다시 해 주세요.' })
+      const fe0 = firstFieldError(b)
+      const field = fe0?.field ?? (b.code === 'CURRENT_PASSWORD_INVALID' ? 'currentPassword' : undefined)
+      setErr({ field, message: fe0?.message ?? b.message ?? '변경하지 못했어요. 잠시 후 다시 해 주세요.' })
     } finally {
       setBusy(false)
     }

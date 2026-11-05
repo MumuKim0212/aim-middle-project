@@ -25,7 +25,7 @@ export default function PinVerify() {
       nav(safeNext(params.get('next')) ?? '/', { replace: true })
     } catch (x) {
       const b = x instanceof ApiFail ? x.body : {}
-      if (b.code === 'pin_locked') { await refresh(); return nav('/login', { replace: true }) }
+      if (b.code === 'PIN_LOCKED') { await refresh(); return nav('/login', { replace: true }) }
       setMsg(b.message ?? '확인하지 못했어요.')
       setReset((n) => n + 1)
     } finally {

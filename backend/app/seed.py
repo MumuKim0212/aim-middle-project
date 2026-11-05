@@ -123,6 +123,7 @@ SEED_USERS = [
     (1, "user1", "Test1234!", "김하나", date(1990, 5, 15), "01012345678", "482915"),
     (2, "user2", "Test5678!", "이두리", date(1992, 8, 3), "01023456789", "739204"),
     (3, "user3", "Test9012!", "박세나", date(1995, 12, 20), "01034567890", None),  # 간편비밀번호 미설정
+    (4, "user4", "Test3456!", "최아란", date(2008, 6, 1), "01045678901", "264817"),  # 만 19세 미만(카드 신청 자격 테스트, 공통.md 7.1)
 ]
 
 
@@ -138,10 +139,30 @@ def _seed_users(db: Session) -> None:
     db.add(m.Account(id="acc_101", user_id=2, bank_name="AIM Bank", account_no_enc="enc:110-777-100101",
                      account_masked="****0101", balance=300_000, purpose="general", is_primary=True))
     db.add(m.AccountPinState(account_id="acc_101"))
+    db.add(m.Account(id="acc_104", user_id=4, bank_name="AIM Bank", account_no_enc="enc:1002-123-454010",
+                     account_masked="****4010", balance=100_000, purpose="general", is_primary=True))
+    db.add(m.AccountPinState(account_id="acc_104"))
+
+
+def _ensure_user4(db: Session) -> None:
+    """공통.md 7.1: user4(최아란)와 그의 저축예금(7.2의 계좌 6). 이미 시드된 DB 에도 한 번만 넣는다."""
+    if db.get(m.User, 4):
+        return
+    now = datetime.now().astimezone()
+    _, login_id, pw, name, birth, phone, pin = SEED_USERS[3]
+    db.add(m.User(id=4, login_id=login_id, password_hash=hash_secret(pw), name=name, birth_date=birth, phone=phone,
+                  simple_pin_hash=hash_secret(pin), pin_set_at=now))
+    db.flush()
+    db.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users))"))
+    db.add(m.Account(id="acc_104", user_id=4, bank_name="AIM Bank", account_no_enc="enc:1002-123-454010",
+                     account_masked="****4010", balance=100_000, purpose="general", is_primary=True))
+    db.add(m.AccountPinState(account_id="acc_104"))
+    db.commit()
 
 
 def seed(db: Session) -> None:
     if db.get(m.User, DEMO_USER_ID):
+        _ensure_user4(db)
         _ensure_planned_outflows(db)
         _ensure_demo_history(db)
         _ensure_demo_sync(db)

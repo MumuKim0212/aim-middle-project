@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from .. import models as m
 from ..db import get_db
 from . import security, validators as v
-from .deps import PIN_VERIFIED_SECONDS, api_error, current_user, current_user_any
+from .deps import PIN_VERIFIED_SECONDS, api_error, current_user, current_user_any, validation_error
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 me_router = APIRouter(prefix="/api", tags=["auth"])
@@ -99,8 +99,13 @@ class SignupStepIn(BaseModel):
     data: dict
 
 
-def _fail(field: str, message: str):
-    return api_error(422, "validation", message, field=field)
+def _fail(field: str, reason: str, message: str):
+    return validation_error(field, reason, message)
+
+
+def _pw_reason(msg: str) -> str:
+    """check_password 가 돌려준 문구를 오류코드.md 6절의 reason 으로 바꾼다."""
+    return "CONTAINS_LOGIN_ID" if msg == v.MSG_PW_HAS_ID else "PASSWORD_RULE"
 
 
 def _login_id_taken(db: Session, login_id: str) -> bool:
@@ -110,27 +115,27 @@ def _login_id_taken(db: Session, login_id: str) -> bool:
 def _validate_step(db: Session, step: int, d: dict) -> None:
     if step == 1:
         if not (d.get("termsService") and d.get("termsPrivacy")):
-            raise _fail("terms", v.MSG_TERMS)
+            raise _fail("terms", "MUST_BE_TRUE", v.MSG_TERMS)
     elif step == 2:
         if msg := v.check_login_id(str(d.get("loginId", ""))):
-            raise _fail("loginId", msg)
+            raise _fail("loginId", "INVALID_FORMAT", msg)
         if _login_id_taken(db, str(d["loginId"])):
-            raise _fail("loginId", v.MSG_ID_TAKEN)
+            raise _fail("loginId", "ALREADY_TAKEN", v.MSG_ID_TAKEN)
     elif step == 3:
         pw, pw2 = str(d.get("password", "")), str(d.get("passwordConfirm", ""))
         if msg := v.check_password(pw, str(d.get("loginId", ""))):
-            raise _fail("password", msg)
+            raise _fail("password", _pw_reason(msg), msg)
         if pw != pw2:
-            raise _fail("passwordConfirm", v.MSG_PW_MISMATCH)
+            raise _fail("passwordConfirm", "MISMATCH", v.MSG_PW_MISMATCH)
     elif step == 4:
         if msg := v.check_name(str(d.get("name", ""))):
-            raise _fail("name", msg)
+            raise _fail("name", "INVALID_FORMAT", msg)
         if msg := v.check_birth(str(d.get("birthDate", ""))):
-            raise _fail("birthDate", msg)
+            raise _fail("birthDate", "UNDER_AGE" if msg == v.MSG_BIRTH_AGE else "INVALID_FORMAT", msg)
         if msg := v.check_phone(str(d.get("phone", ""))):
-            raise _fail("phone", msg)
+            raise _fail("phone", "INVALID_FORMAT", msg)
     else:
-        raise api_error(400, "invalid_step", "알 수 없는 단계입니다.")
+        raise _fail("step", "INVALID_ENUM", "알 수 없는 단계입니다.")
 
 
 @router.post("/signup/validate")
@@ -154,7 +159,7 @@ def signup(body: dict, request: Request, db: Session = Depends(get_db)):
         db.commit()
     except IntegrityError:  # 동시에 같은 아이디로 가입한 경우
         db.rollback()
-        raise _fail("loginId", v.MSG_ID_TAKEN) from None
+        raise _fail("loginId", "ALREADY_TAKEN", v.MSG_ID_TAKEN) from None
     _start_session(request, user, "password")
     return {"user": _user_out(user), "pinSetupRequired": True, "next": "/auth/pin/setup"}
 
@@ -172,20 +177,20 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     user = db.scalar(select(m.User).where(m.User.login_id == v.norm_login_id(body.loginId)))
     if user is None:
         security.check_secret(body.password, security.hash_secret("dummy-password"))  # 응답 시간 차이로 아이디 유무가 드러나지 않게
-        raise api_error(401, "invalid_credentials", GENERIC_LOGIN_FAIL)
+        raise api_error(401, "INVALID_CREDENTIALS", GENERIC_LOGIN_FAIL)
     now = _now()
     if user.locked_until and user.locked_until <= now:  # 잠금이 풀렸으면 카운트를 새로 센다
         user.failed_login_count, user.locked_until = 0, None
     if user.locked_until and user.locked_until > now:
         hhmm = user.locked_until.astimezone(KST).strftime("%H:%M")
-        raise api_error(423, "login_locked", f"비밀번호를 5회 이상 잘못 입력해 10분간 로그인할 수 없습니다. ({hhmm} 이후 가능)",
+        raise api_error(423, "LOGIN_LOCKED", f"비밀번호를 5회 이상 잘못 입력해 10분간 로그인할 수 없습니다. ({hhmm} 이후 가능)",
                         until=user.locked_until.isoformat())
     if not security.check_secret(body.password, user.password_hash):
         user.failed_login_count += 1
         if user.failed_login_count >= LOGIN_FAIL_LIMIT:
             user.locked_until = now + timedelta(minutes=LOGIN_LOCK_MINUTES)
         db.commit()
-        raise api_error(401, "invalid_credentials", GENERIC_LOGIN_FAIL)
+        raise api_error(401, "INVALID_CREDENTIALS", GENERIC_LOGIN_FAIL)
     user.failed_login_count, user.locked_until, user.last_login_at = 0, None, now
     db.commit()
     _start_session(request, user, "password")
@@ -216,16 +221,21 @@ class PinIn(BaseModel):
     pin: str
 
 
-def _bad_pin_response(db: Session, user: m.User):
-    """간편비밀번호가 틀렸을 때(간편 로그인·2차 인증 공용): 횟수를 올리고 5회면 잠근다."""
+def _pin_format_ok(pin: str) -> bool:
+    return pin.isascii() and pin.isdigit() and len(pin) == 6
+
+
+def _bad_pin_response(db: Session, user: m.User, status: int = 403):
+    """간편비밀번호가 틀렸을 때(간편 로그인·2차 인증 공용): 횟수를 올리고 5회면 잠근다.
+    PIN_MISMATCH 의 HTTP 상태는 로그인 전 인증(/pin/login)이 401, 로그인 후 확인(/pin/verify, /pin/setup)이 403이다."""
     user.pin_failed_count += 1
     if user.pin_failed_count >= PIN_FAIL_LIMIT:
         user.pin_locked_until = FAR_FUTURE
         db.commit()
-        return api_error(423, "pin_locked", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 로그인해 주세요.")
+        return api_error(423, "PIN_LOCKED", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 로그인해 주세요.")
     db.commit()
     left = PIN_FAIL_LIMIT - user.pin_failed_count
-    return api_error(401, "pin_invalid", f"간편비밀번호가 틀렸습니다. 남은 횟수 {left}회", remaining=left)
+    return api_error(status, "PIN_MISMATCH", f"간편비밀번호가 틀렸습니다. 남은 횟수 {left}회", remainingAttempts=left)
 
 
 @router.post("/pin/login")
@@ -234,11 +244,13 @@ def pin_login(body: PinIn, request: Request, response: Response, db: Session = D
     user = db.get(m.User, dev.user_id) if dev else None
     if dev is None or user is None or not user.simple_pin_hash:
         response.delete_cookie(DEVICE_COOKIE, path="/")
-        raise api_error(401, "device_invalid", "등록된 기기가 아닙니다. 아이디와 비밀번호로 로그인해 주세요.")
+        raise api_error(401, "DEVICE_INVALID", "등록된 기기가 아닙니다. 아이디와 비밀번호로 로그인해 주세요.")
     if user.pin_locked_until and user.pin_locked_until > _now():
-        raise api_error(423, "pin_locked", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 로그인해 주세요.")
-    if not (body.pin.isdigit() and len(body.pin) == 6 and security.check_secret(body.pin, user.simple_pin_hash)):
-        raise _bad_pin_response(db, user)
+        raise api_error(423, "PIN_LOCKED", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 로그인해 주세요.")
+    if not _pin_format_ok(body.pin):  # 형식 오류는 틀린 횟수에 넣지 않는다(5.4)
+        raise validation_error("pin", "INVALID_FORMAT", "숫자 6자리를 입력해 주세요.")
+    if not security.check_secret(body.pin, user.simple_pin_hash):
+        raise _bad_pin_response(db, user, 401)
     now = _now()
     user.pin_failed_count, user.last_login_at = 0, now
     dev.last_used_at, dev.expires_at = now, now + timedelta(days=DEVICE_DAYS)  # 슬라이딩 90일
@@ -254,7 +266,7 @@ def pin_login(body: PinIn, request: Request, response: Response, db: Session = D
 def device_register(request: Request, response: Response, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """'이 기기에서 간편 로그인을 사용할까요?'에 '예'라고 한 경우."""
     if not user.simple_pin_hash:
-        raise api_error(409, "pin_required", "간편비밀번호를 먼저 설정해 주세요.")
+        raise api_error(403, "PIN_SETUP_REQUIRED", "간편비밀번호를 먼저 설정해 주세요.")
     _issue_device(request, response, db, user)
     return {"ok": True}
 
@@ -284,17 +296,23 @@ def pin_setup(body: PinSetupIn, request: Request, response: Response, user: m.Us
               db: Session = Depends(get_db)):
     first_time = bool(request.session.get("pin_setup_required"))  # 가입 직후·미설정·잠김 → 건너뛸 수 없는 설정
     if not first_time and user.simple_pin_hash:  # 이미 쓰는 사람이 바꾸려면 현재 값을 먼저 확인
+        if user.pin_locked_until and user.pin_locked_until > _now():
+            raise api_error(423, "PIN_LOCKED", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 다시 로그인해 주세요.")
         if body.currentPin is not None:
+            if not _pin_format_ok(body.currentPin):
+                raise validation_error("currentPin", "INVALID_FORMAT", "숫자 6자리를 입력해 주세요.")
             if not security.check_secret(body.currentPin, user.simple_pin_hash):
                 raise _bad_pin_response(db, user)
-        elif body.currentPassword is None or not security.check_secret(body.currentPassword, user.password_hash):
-            raise api_error(401, "current_secret_invalid", "현재 간편비밀번호 또는 비밀번호가 올바르지 않습니다.")
-    if not (body.pin.isdigit() and len(body.pin) == 6):
-        raise api_error(422, "validation", "숫자 6자리를 입력해 주세요.", field="pin")
+        elif body.currentPassword is None:
+            raise validation_error("currentPin", "REQUIRED", "현재 간편비밀번호를 입력해 주세요.")
+        elif not security.check_secret(body.currentPassword, user.password_hash):
+            raise api_error(403, "CURRENT_PASSWORD_INVALID", "현재 비밀번호가 올바르지 않습니다.")
+    if not _pin_format_ok(body.pin):
+        raise validation_error("pin", "INVALID_FORMAT", "숫자 6자리를 입력해 주세요.")
     if body.pin != body.pinConfirm:
-        raise api_error(422, "validation", "두 번 입력한 번호가 다릅니다.", field="pinConfirm")
+        raise validation_error("pinConfirm", "MISMATCH", "두 번 입력한 번호가 다릅니다.")
     if v.weak_pin(body.pin, user.birth_date):
-        raise api_error(422, "validation", "사용할 수 없는 번호입니다.", field="pin")
+        raise validation_error("pin", "PIN_TOO_SIMPLE", "사용할 수 없는 번호입니다.")
     user.simple_pin_hash = security.hash_secret(body.pin)
     user.pin_set_at, user.pin_failed_count, user.pin_locked_until = _now(), 0, None
     db.commit()
@@ -306,9 +324,13 @@ def pin_setup(body: PinSetupIn, request: Request, response: Response, user: m.Us
 @router.post("/pin/verify")
 def pin_verify(body: PinIn, request: Request, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """이체 등 중요 동작 직전 2차 인증. 로그인에 쓰는 6자리를 그대로 쓰고, 틀린 횟수도 같이 센다(R9)."""
+    if not user.simple_pin_hash:
+        raise api_error(403, "PIN_SETUP_REQUIRED", "간편비밀번호를 먼저 설정해 주세요.")
     if user.pin_locked_until and user.pin_locked_until > _now():
-        raise api_error(423, "pin_locked", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 다시 로그인해 주세요.")
-    if not (body.pin.isdigit() and len(body.pin) == 6 and security.check_secret(body.pin, user.simple_pin_hash)):
+        raise api_error(423, "PIN_LOCKED", "간편비밀번호가 잠겼습니다. 아이디와 비밀번호로 다시 로그인해 주세요.")
+    if not _pin_format_ok(body.pin):  # 형식 오류는 틀린 횟수에 넣지 않는다(5.4)
+        raise validation_error("pin", "INVALID_FORMAT", "숫자 6자리를 입력해 주세요.")
+    if not security.check_secret(body.pin, user.simple_pin_hash):
         raise _bad_pin_response(db, user)
     user.pin_failed_count = 0
     db.commit()
@@ -333,19 +355,20 @@ def password_change(body: PasswordChangeIn, request: Request, user: m.User = Dep
     now = _now()
     if user.locked_until and user.locked_until > now:
         hhmm = user.locked_until.astimezone(KST).strftime("%H:%M")
-        raise api_error(423, "login_locked", f"비밀번호를 5회 이상 잘못 입력해 잠겼습니다. ({hhmm} 이후 가능)")
+        raise api_error(423, "LOGIN_LOCKED", f"비밀번호를 5회 이상 잘못 입력해 잠겼습니다. ({hhmm} 이후 가능)",
+                        until=user.locked_until.isoformat())
     if not security.check_secret(body.currentPassword, user.password_hash):
         user.failed_login_count += 1
         if user.failed_login_count >= LOGIN_FAIL_LIMIT:
             user.locked_until = now + timedelta(minutes=LOGIN_LOCK_MINUTES)
         db.commit()
-        raise api_error(401, "current_password_invalid", "현재 비밀번호가 올바르지 않습니다.", field="currentPassword")
+        raise api_error(403, "CURRENT_PASSWORD_INVALID", "현재 비밀번호가 올바르지 않습니다.")
     if msg := v.check_password(body.newPassword, user.login_id):
-        raise _fail("newPassword", msg)
+        raise _fail("newPassword", _pw_reason(msg), msg)
     if body.newPassword != body.newPasswordConfirm:
-        raise _fail("newPasswordConfirm", v.MSG_PW_MISMATCH)
+        raise _fail("newPasswordConfirm", "MISMATCH", v.MSG_PW_MISMATCH)
     if security.check_secret(body.newPassword, user.password_hash):
-        raise _fail("newPassword", "현재 비밀번호와 같은 비밀번호는 사용할 수 없습니다.")
+        raise _fail("newPassword", "SAME_AS_CURRENT", "현재 비밀번호와 같은 비밀번호는 사용할 수 없습니다.")
     user.password_hash = security.hash_secret(body.newPassword)
     user.failed_login_count, user.locked_until = 0, None
     if body.revokeOtherDevices:  # 이 브라우저의 등록만 남기고 나머지 기기 등록을 해제

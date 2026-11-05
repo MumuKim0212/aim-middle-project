@@ -20,7 +20,7 @@ def _settings(timeout_default: float) -> tuple[str, str, float]:
     key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if not key:
         raise LlmUnavailable("no key")
-    model = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
+    model = (os.getenv("GEMINI_MODEL") or "gemini-3.6-flash").strip()
     try:
         timeout = float(os.getenv("GEMINI_TIMEOUT_SEC") or timeout_default)
     except ValueError:

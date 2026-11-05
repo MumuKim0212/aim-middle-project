@@ -53,7 +53,7 @@ function PinLogin({ dev, notice, onOther, onFallback }: { dev: DeviceInfo; notic
       await after()
     } catch (x) {
       const b = x instanceof ApiFail ? x.body : {}
-      if (b.code === 'pin_locked' || b.code === 'device_invalid') return onFallback(b.message ?? '아이디와 비밀번호로 로그인해 주세요.')
+      if (b.code === 'PIN_LOCKED' || b.code === 'DEVICE_INVALID') return onFallback(b.message ?? '아이디와 비밀번호로 로그인해 주세요.')
       setMsg(b.message ?? '로그인하지 못했어요.')
       setReset((n) => n + 1)
     } finally {

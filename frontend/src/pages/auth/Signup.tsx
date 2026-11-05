@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
-import { ApiFail, callJson } from '../../lib/http'
+import { ApiFail, callJson, firstFieldError } from '../../lib/http'
 
 type Form = {
   termsService: boolean; termsPrivacy: boolean; marketing: boolean
@@ -16,6 +16,14 @@ const TOTAL = 5
 const TITLES = ['약관에 동의해 주세요', '사용할 아이디를 입력해 주세요', '비밀번호를 만들어 주세요', '기본 정보를 입력해 주세요', '입력한 내용을 확인해 주세요']
 
 /** 회원가입 5단계(/signup/1 ~ /signup/5). 입력값은 이 화면에만 있고, 마지막 "가입하기"에서야 서버에 저장된다(F-08). */
+/** 최종 검증에서 걸린 필드가 속한 가입 단계. */
+function signupStepOf(field: string): number {
+  if (field === 'terms') return 1
+  if (field === 'loginId') return 2
+  if (field === 'password' || field === 'passwordConfirm') return 3
+  return 4
+}
+
 export default function Signup() {
   const { step: raw } = useParams()
   const step = Number(raw)
@@ -48,8 +56,9 @@ export default function Signup() {
       }
     } catch (x) {
       const b = x instanceof ApiFail ? x.body : {}
-      setErr({ field: b.field, message: b.message ?? '처리하지 못했어요. 잠시 후 다시 해 주세요.' })
-      if (step === TOTAL && b.field) nav(`/signup/${b.field === 'loginId' ? 2 : 4}`) // 최종 검증에서 걸리면 해당 단계로
+      const fe0 = firstFieldError(b)
+      setErr({ field: fe0?.field, message: fe0?.message ?? b.message ?? '처리하지 못했어요. 잠시 후 다시 해 주세요.' })
+      if (step === TOTAL && fe0) nav(`/signup/${signupStepOf(fe0.field)}`) // 최종 검증에서 걸리면 해당 단계로
     } finally {
       setBusy(false)
     }

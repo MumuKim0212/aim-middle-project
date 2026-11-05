@@ -125,7 +125,7 @@ async function send(url: string, method: string, body?: unknown): Promise<Respon
   })
   if (!res.ok) {
     const d = await res.json().catch(() => ({}))
-    throw new ApiError(typeof d.detail === 'string' ? d.detail : `HTTP_${res.status}`)
+    throw new ApiError(typeof d.detail === 'string' ? d.detail : typeof d.code === 'string' ? d.code : `HTTP_${res.status}`)
   }
   return res
 }

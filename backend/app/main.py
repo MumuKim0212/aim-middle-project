@@ -2,9 +2,11 @@ from contextlib import asynccontextmanager
 from datetime import date
 
 import os
+import re
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -31,9 +33,31 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIM Bank API", version="0.1.0", lifespan=lifespan)
+ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+# 개발 중에는 Vite 포트가 바뀔 수 있어(5173, 5174 …) 로컬 호스트의 어떤 포트든 우리 출처로 본다. 배포 때는 ALLOWED_ORIGINS_EXTRA 에 실제 출처를 쓴다.
+_LOCAL_ORIGIN = re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$")
+_EXTRA_ORIGINS = [o.strip() for o in (os.getenv("ALLOWED_ORIGINS_EXTRA") or "").split(",") if o.strip()]
+
+
+def _origin_ok(origin: str, own: str) -> bool:
+    return origin == own or origin in ALLOWED_ORIGINS or origin in _EXTRA_ORIGINS or bool(_LOCAL_ORIGIN.match(origin))
+
+
+@app.middleware("http")
+async def origin_check(request: Request, call_next):
+    """CSRF 방어(공통.md 3장, R7): 쓰기 요청에 Origin 이 있으면 우리 출처와 같아야 하고, 다르면 403 ORIGIN_NOT_ALLOWED.
+    Origin 이 없는 요청(브라우저 밖 클라이언트, 테스트)은 통과시킨다. 쿠키는 SameSite=Lax 이다."""
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        own = f"{request.url.scheme}://{request.headers.get('host', '')}"
+        if origin and not _origin_ok(origin, own):
+            return JSONResponse({"code": "ORIGIN_NOT_ALLOWED", "message": "허용되지 않은 출처의 요청입니다."}, status_code=403)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
@@ -51,11 +75,25 @@ app.add_middleware(
 
 @app.exception_handler(StarletteHTTPException)
 async def api_error_handler(request, exc):
-    """인증 오류는 {"code", "message"} 모양으로 돌려준다(기획서 6.1). 기존 문자열 오류는 그대로 둔다."""
+    """오류는 {"code", "message", "details"?} 모양(공통.md 5장). 가계부의 기존 문자열 오류(detail)는 그대로 둔다."""
     d = exc.detail
     if isinstance(d, dict) and "code" in d:
-        return JSONResponse({**d, "detail": d["code"]}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+        return JSONResponse(d, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+    if exc.status_code == 405:
+        return JSONResponse({"code": "METHOD_NOT_ALLOWED", "message": "허용하지 않는 요청 방식입니다.", "detail": d},
+                            status_code=405, headers=getattr(exc, "headers", None))
     return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request, exc: RequestValidationError):
+    """요청 본문 형식 오류는 400 VALIDATION_FAILED + details.fields 로 돌려준다(422 를 쓰지 않는다)."""
+    fields = []
+    for e in exc.errors():
+        loc = [str(x) for x in e.get("loc", ()) if x not in ("body", "query", "path")]
+        reason = "REQUIRED" if e.get("type") == "missing" else "INVALID_FORMAT"
+        fields.append({"field": ".".join(loc) or "body", "reason": reason})
+    return JSONResponse({"code": "VALIDATION_FAILED", "message": "입력값을 확인해 주세요.", "details": {"fields": fields}}, status_code=400)
 
 
 app.include_router(auth_router)
