@@ -17,6 +17,12 @@ export type Summary = {
   }[]
   /** 예시 금액도 DB 에서 계산해서 내려온다(질문 칩·입력칸 예시·시뮬레이션 버튼) */
   examples: { category: string; typical: number; large: number }
+  /** 이번 달 소비 속도로 본 월말 예측(이번 달이 아니면 null) */
+  forecast: { dailyAvg: number; projected: number; runOutDay: number | null; daysLeft: number; over: boolean } | null
+  /** 결제 전 확인에서 보류가 나온 이번 달 시도 */
+  saved: { heldCount: number; heldAmount: number }
+  /** 오늘까지 이어진 무지출 일수 */
+  streak: number
   account: { id: string; bankName: string; masked: string } | null
   balance: {
     current: number
@@ -122,8 +128,11 @@ export const saveBudget = (total: number, categories: Record<string, number>) =>
 export const savePlanned = (id: string, amount: number) => send(`/api/ledger/planned-outflows/${id}`, 'PUT', { amount })
 
 // ───────── 물어보기(대화) ─────────
-export type Intent = 'purchase' | 'balance' | 'budget' | 'last' | 'prev2' | 'chat'
+export type Intent = 'purchase' | 'balance' | 'budget' | 'last' | 'prev2' | 'record' | 'week' | 'category' | 'chat'
 export type History = { month: string; spent: number; delta: number; topName: string; topAmount: number }
+export type Recorded = { id: string; amount: number; category: string; date: string; when: string }
+export type Week = { from: string; to: string; spent: number; prevSpent: number; hasPrev: boolean; delta: number; topName: string; topAmount: number }
+export type CatSpent = { category: string; spent: number; budget: number | null; remaining: number | null }
 /** 서버가 해석·계산한 질문 한 건. 답변 문장은 모드(말투)에 따라 화면에서 만든다. */
 export type Entry = {
   id?: string
@@ -133,6 +142,11 @@ export type Entry = {
   category: string
   check?: Check | null
   history?: History | null
+  /** 대화로 입력한 지출(등록된 경우) / 등록하지 못한 사유 */
+  recorded?: Recorded | null
+  recordError?: string | null
+  week?: Week | null
+  catSpent?: CatSpent | null
   /** LLM 이 쓴 답변(서버 검증 통과분)을 모드별로. 화면은 현재 모드의 것만 쓰고, 없으면 현재 모드의 템플릿 문장을 쓴다. */
   answers?: Partial<Record<Mode, { text: string; source: string }>>
 }

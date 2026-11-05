@@ -224,7 +224,7 @@
 .lg-duo .lg-budget strong { margin: 4px 0 8px; font-size: 19px; }
 .lg-duo .sub { flex-direction: column; gap: 2px; font-size: 9.5px; }
 .lg-warning { margin-top: 8px; padding: 12px 13px; }
-.lg-warning .lg-reward { margin: 8px 0 0; padding: 8px 0 0; border: 0; border-top: 1px dashed currentColor; background: transparent; color: inherit; opacity: 0.9; }
+.lg-warning .lg-reward { margin: 10px 0 0; padding: 9px 0 0; border: 0; border-radius: 0; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); background: transparent; color: inherit; opacity: 0.9; }
 .lg-warning .lg-reward b { color: inherit; }
 .lg-fold { margin-top: 8px; }
 .lg-fold > summary { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); font-size: 13px; font-weight: 850; cursor: pointer; list-style: none; }
@@ -284,3 +284,17 @@
 .lg[data-mode='numbers'] .lg-cal button small { font-size: 8px; letter-spacing: -0.06em; }
 .lg[data-mode='roast'] .lg-cal button { border-radius: 2px; }
 .lg[data-mode='kind'] .lg-cal button { border-radius: 14px; }
+
+/* 알림 · 예측 · 보류/무지출 */
+.lg-alerts { display: grid; gap: 6px; margin-bottom: 8px; }
+.lg-alerts p { margin: 0; padding: 8px 11px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 6px; font-size: 11px; font-weight: 750; }
+.lg-alerts p.bad { border-color: #d54d44; color: var(--alert-ink); background: var(--alert); }
+.lg-insight { margin-top: 8px; }
+.lg-forecast { margin: 0 0 7px; padding: 0 2px; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.5; }
+.lg-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lg-chips span { display: grid; gap: 2px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); }
+.lg-chips small { color: var(--muted); font-size: 9.5px; font-weight: 800; }
+.lg-chips b { font-size: 14px; letter-spacing: -0.04em; }
+.lg-chips i { color: var(--muted); font-size: 9.5px; font-style: normal; }
+.lg[data-mode='roast'] .lg-summary .lg-insight { order: 3; }
+.lg[data-mode='numbers'] .lg-chips span, .lg[data-mode='roast'] .lg-chips span { border-radius: 0; }

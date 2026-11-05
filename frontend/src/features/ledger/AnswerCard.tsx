@@ -28,6 +28,21 @@ export default function AnswerCard({ entry: e, summary: s, text }: { entry: Entr
       ['전월 대비', `${h.delta >= 0 ? '+' : '−'}${won(Math.abs(h.delta))}`, h.delta > 0 ? 'bad' : undefined],
       ['가장 많이 쓴 항목', `${h.topName} ${won(h.topAmount)}`],
     ]
+  } else if (e.intent === 'record' && e.recorded) {
+    const r = e.recorded
+    badge = { label: '기록 완료', held: false }
+    rows = [['날짜', r.when], ['분류', r.category], ['금액', won(r.amount)], ['남은 월 예산', won(m.remaining)]]
+  } else if (e.intent === 'week' && e.week) {
+    const w = e.week
+    rows = [
+      ['이번 주 지출', won(w.spent)],
+      ['가장 많이 쓴 항목', `${w.topName} ${won(w.topAmount)}`],
+    ]
+    if (w.hasPrev) rows.push(['지난주 같은 기간 대비', `${w.delta >= 0 ? '+' : '−'}${won(Math.abs(w.delta))}`, w.delta > 0 ? 'bad' : undefined])
+  } else if (e.intent === 'category' && e.catSpent) {
+    const c = e.catSpent
+    rows = [[`이번 달 ${c.category} 지출`, won(c.spent)]]
+    if (c.budget !== null) rows.push([`${c.category} 예산`, won(c.budget)], ['남은 예산', won(c.remaining ?? 0), (c.remaining ?? 0) < 0 ? 'bad' : undefined])
   } else if (e.intent === 'balance') {
     rows = [['계좌 잔액', won(m.balance)], ['카드대금 반영 후 예상', won(m.projected)]]
   } else if (e.intent === 'budget') {

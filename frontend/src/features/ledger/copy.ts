@@ -120,6 +120,46 @@ export function answerFor(mode: Mode, e: Entry, s: Summary): string {
     }[mode]
   }
 
+  if (e.intent === 'record') {
+    const r = e.recorded
+    if (!r) {
+      return {
+        roast: e.recordError ? '기록 못 했어. 카드부터 확인해.' : '얼마 썼는지 말해. 금액 없으면 기록 못 해.',
+        basic: e.recordError ? '지출을 기록하지 못했습니다. 사용 중인 카드를 확인해 주세요.' : '쓴 금액을 알려주시면 기록해 드릴게요.',
+        kind: e.recordError ? '기록하지 못했어. 카드를 한 번 확인해 줄래?' : '얼마 썼는지 알려줘. 내가 적어 둘게!',
+        numbers: e.recordError ? '기록 실패 / 카드 확인 필요' : '금액 필요. 예: 어제 치킨 20,000원',
+      }[mode]
+    }
+    return {
+      roast: `${r.when} ${r.category} ${won(r.amount)} 썼네. 적어 놨으니까 다음엔 참아.`,
+      basic: `${r.when} ${r.category} ${won(r.amount)} 지출을 기록했습니다.`,
+      kind: `${r.when} ${r.category} ${won(r.amount)} 썼구나. 잘 적어 뒀어!`,
+      numbers: `기록 완료 / ${r.when} / ${r.category} ${won(r.amount)}`,
+    }[mode]
+  }
+
+  if (e.intent === 'week' && e.week) {
+    const w = e.week
+    const more = w.delta >= 0
+    return {
+      roast: `이번 주 ${won(w.spent)} 썼어. 제일 많이 샌 곳은 ${w.topName} ${won(w.topAmount)}.`,
+      basic: `이번 주 지출은 ${won(w.spent)}입니다. 가장 많이 쓴 항목은 ${w.topName} ${won(w.topAmount)}입니다.${w.hasPrev ? ` 지난주 같은 기간보다 ${won(Math.abs(w.delta))} ${more ? '많습니다' : '적습니다'}.` : ''}`,
+      kind: `이번 주에는 ${won(w.spent)} 썼어. 가장 큰 항목은 ${w.topName}이야.${w.hasPrev ? (more ? ' 지난주보다 조금 늘었어.' : ' 지난주보다 아꼈네, 잘했어!') : ''}`,
+      numbers: `이번 주 지출 ${won(w.spent)} / 최대 항목 ${w.topName} ${won(w.topAmount)}${w.hasPrev ? ` / 지난주 대비 ${more ? '+' : '-'}${won(Math.abs(w.delta))}` : ''}`,
+    }[mode]
+  }
+
+  if (e.intent === 'category' && e.catSpent) {
+    const c = e.catSpent
+    const left = c.remaining
+    return {
+      roast: `이번 달 ${c.category}에 ${won(c.spent)} 썼어.${left === null ? '' : left < 0 ? ` 예산 ${won(-left)} 넘겼고.` : ` 예산은 ${won(left)} 남았어.`}`,
+      basic: `이번 달 ${c.category} 지출은 ${won(c.spent)}입니다.${left === null ? '' : left < 0 ? ` 예산을 ${won(-left)} 초과했습니다.` : ` 예산은 ${won(left)} 남았습니다.`}`,
+      kind: `이번 달 ${c.category}에는 ${won(c.spent)} 썼어.${left === null ? '' : left < 0 ? ` 예산을 ${won(-left)} 넘겼으니 조금만 조절해 보자.` : ` 예산이 ${won(left)} 남았으니 괜찮아!`}`,
+      numbers: `${c.category} 지출 ${won(c.spent)}${c.budget === null ? '' : ` / 예산 ${won(c.budget)} / 잔여 ${won(left ?? 0)}`}`,
+    }[mode]
+  }
+
   if (e.intent === 'balance') {
     return {
       roast: `계좌 ${won(m.balance)} 보여도 다 네 돈 아니야. 카드값 빼면 ${won(m.projected)} 남아.`,
@@ -189,4 +229,39 @@ export function paymentFeedback(c: Check): { blocked: boolean; text: string } {
         ? lim <= 0 ? '카드대금 반영 후 예상 잔액이 없습니다.' : `카드대금 반영 후 예상 잔액 ${won(lim)}을 넘습니다.`
         : lim <= 0 ? `${c.category} 예산을 이미 초과했습니다.` : `${c.category} 예산 잔여 ${won(lim)}을 넘습니다.`
   return { blocked: true, text: `결제 보류 · ${why} 실제 카드 결제는 진행되지 않았습니다.` }
+}
+
+/** 요약 탭의 소진 예측 한 줄. 서버가 계산한 값(forecast)만 말투를 입혀 쓴다. */
+export function forecastText(mode: Mode, f: NonNullable<Summary['forecast']>, budget: number): string | null {
+  if (budget <= 0) return null
+  if (f.over) {
+    return {
+      roast: '이미 예산 다 썼어. 더 쓰면 그냥 빚이야.',
+      basic: '이번 달 예산을 이미 모두 사용했습니다.',
+      kind: '이번 달 예산을 다 썼어. 남은 날은 같이 아껴 보자!',
+      numbers: '예산 소진 / 상태 초과',
+    }[mode]
+  }
+  if (f.runOutDay !== null) {
+    const d = f.runOutDay
+    return {
+      roast: `지금 속도면 ${d}일에 예산 바닥. 정신 차려.`,
+      basic: `현재 속도라면 ${d}일에 월 예산을 모두 사용합니다.`,
+      kind: `이 속도면 ${d}일쯤 예산이 다 찰 것 같아. 조금만 조절해 볼까?`,
+      numbers: `소진 예상일 ${d}일 / 월말 예상 지출 ${won(f.projected)}`,
+    }[mode]
+  }
+  return {
+    roast: `월말 예상 ${won(f.projected)}. 이대로면 겨우 버텨.`,
+    basic: `월말 예상 지출은 ${won(f.projected)}으로 예산 안에서 마무리됩니다.`,
+    kind: `월말까지 ${won(f.projected)} 쓸 것 같아. 예산 안이라 잘하고 있어!`,
+    numbers: `월말 예상 지출 ${won(f.projected)} / 예산 내`,
+  }[mode]
+}
+
+export const STAT_LABEL: Record<Mode, { saved: string; streak: string }> = {
+  roast: { saved: '참아서 막은 돈', streak: '안 쓴 날 연속' },
+  basic: { saved: '보류로 막은 결제', streak: '무지출 연속' },
+  kind: { saved: '참아 낸 금액', streak: '무지출 스탬프' },
+  numbers: { saved: '보류 합계', streak: '무지출 일수' },
 }

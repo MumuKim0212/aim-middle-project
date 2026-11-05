@@ -4,8 +4,8 @@ import { checkPayment, fetchChat, fetchSettings, fetchSummary, newChat, saveSett
 import AnswerCard from './AnswerCard'
 import HistoryTab from './HistoryTab'
 import {
-  ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_TITLE, WARNING_TITLE,
-  answerFor, metrics, paymentFeedback, rewardBody, riskText, warningLevelLabel, type Entry,
+  ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_TITLE, STAT_LABEL, WARNING_TITLE,
+  answerFor, forecastText, metrics, paymentFeedback, rewardBody, riskText, warningLevelLabel, type Entry,
 } from './copy'
 import './ledger.css'
 
@@ -149,7 +149,10 @@ export default function LedgerPage() {
       await streamChat(text, mode, roastLevel, {
         onDelta: (t) => setLive((l) => (l ? { ...l, target: l.target + t } : l)),
         onReset: () => setLive((l) => (l ? { ...l, target: '', shown: '' } : l)), // 다시 쓰는 중: 스피너로 돌아간다
-        onDone: (entry) => setLive((l) => (l ? { ...l, final: entry } : l)),
+        onDone: (entry) => {
+          setLive((l) => (l ? { ...l, final: entry } : l))
+          if (entry.recorded) void reloadSummary().catch(() => undefined) // 대화로 지출을 기록했으면 요약 숫자도 새로
+        },
       })
     } catch (e) {
       setLive(null)
@@ -371,6 +374,8 @@ function SummaryTab({
 
       {mode === 'kind' && <section className="lg-cheer">{rewardBlock}</section>}
 
+      <Alerts summary={summary} />
+
       <div className="lg-duo">
       <section className="lg-account">
         <small>대표계좌 · {summary.account ? `${summary.account.bankName} ${summary.account.masked}` : '없음'}</small>
@@ -393,6 +398,16 @@ function SummaryTab({
         </div>
       </section>
       </div>
+
+      <section className="lg-insight">
+        {summary.forecast && forecastText(mode, summary.forecast, m.budget) && (
+          <p className="lg-forecast">{forecastText(mode, summary.forecast, m.budget)}</p>
+        )}
+        <div className="lg-chips">
+          <span><small>{STAT_LABEL[mode].streak}</small><b>{summary.streak}일</b></span>
+          <span><small>{STAT_LABEL[mode].saved}</small><b>{won(summary.saved.heldAmount)}</b><i>{summary.saved.heldCount}번</i></span>
+        </div>
+      </section>
 
       <section className="lg-warning">
         <div className="top">
@@ -448,6 +463,27 @@ function SummaryTab({
       </div>
       </div>
     </section>
+  )
+}
+
+/** 예산·카드대금 알림. 서버 요약에서 바로 계산한다(80% 도달, 예산 초과, 카드대금 3일 이내). */
+function Alerts({ summary: s }: { summary: Summary }) {
+  const items: { key: string; text: string; tone: 'warn' | 'bad' }[] = []
+  if (s.budget.set) {
+    if (s.budget.remaining <= 0) items.push({ key: 'over', text: '이번 달 월 예산을 모두 썼어요.', tone: 'bad' })
+    else if (s.budget.ratio >= 80) items.push({ key: 'eighty', text: `월 예산의 ${s.budget.ratio}%를 썼어요.`, tone: 'warn' })
+  }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  for (const p of s.balance.planned) {
+    const d = Math.round((new Date(p.dueDate + 'T00:00:00').getTime() - today.getTime()) / 86_400_000)
+    if (d >= 0 && d <= 3) items.push({ key: p.id, text: `${p.type === 'card_bill' ? '카드대금' : '예정 출금'} ${won(p.amount)}이 ${d === 0 ? '오늘' : `${d}일 뒤`} 나가요.`, tone: 'warn' })
+  }
+  if (items.length === 0) return null
+  return (
+    <div className="lg-alerts" role="status">
+      {items.map((i) => <p key={i.key} className={i.tone}>{i.text}</p>)}
+    </div>
   )
 }
 

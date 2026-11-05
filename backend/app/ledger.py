@@ -21,7 +21,7 @@ member_id 는 인증 세션(current_member)에서만 얻는다.
 """
 import json
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -101,6 +101,50 @@ def _examples(db: Session, member_id: str, budget_remaining: int, budget_set: bo
     return {"category": "배달", "typical": typical, "large": large}
 
 
+def _forecast(spent: int, total: int, month: str) -> dict | None:
+    """이번 달 소비 속도로 월말 지출과 예산 소진일을 예측한다. 이번 달이 아니면 None."""
+    today = date.today()
+    if month != this_month():
+        return None
+    first, nxt = month_range(month)
+    days_in_month = (nxt - first).days
+    avg = spent / today.day if today.day else 0
+    projected = int(round(avg * days_in_month))
+    over = total > 0 and spent >= total
+    run_out = None
+    if total > 0 and not over and avg > 0 and projected > total:
+        run_out = min(days_in_month, -(-total // max(1, int(avg))))  # 올림
+        run_out = max(run_out, min(days_in_month, today.day + 1))
+    return {"dailyAvg": int(round(avg)), "projected": projected, "runOutDay": run_out,
+            "daysLeft": days_in_month - today.day, "over": over}
+
+
+def _saved(db: Session, member_id: str, start: date) -> dict:
+    """결제 전 확인에서 '보류'가 나온 이번 달 시도: 횟수와 합계 금액."""
+    count, total = db.execute(
+        select(func.count(m.PaymentAttempt.id), func.coalesce(func.sum(m.PaymentAttempt.amount), 0))
+        .where(m.PaymentAttempt.member_id == member_id, m.PaymentAttempt.result == "held",
+               m.PaymentAttempt.created_at >= datetime.combine(start, time.min))
+    ).one()
+    return {"heldCount": int(count), "heldAmount": int(total)}
+
+
+def _streak(db: Session, member_id: str) -> int:
+    """오늘부터 거꾸로 세는 무지출 연속 일수(카드 승인이 없는 날). 오늘 쓴 게 있으면 0."""
+    since = date.today() - timedelta(days=60)
+    rows = db.execute(
+        select(m.CardTransaction.occurred_at)
+        .join(m.Card, m.Card.id == m.CardTransaction.card_id)
+        .where(m.Card.member_id == member_id, m.CardTransaction.kind == "approval",
+               m.CardTransaction.occurred_at >= datetime.combine(since, time.min))).all()
+    spent_days = {r[0].date() for r in rows}
+    n, day = 0, date.today()
+    while day >= since and day not in spent_days:
+        n += 1
+        day -= timedelta(days=1)
+    return n
+
+
 def build_summary(db: Session, member_id: str, month: str) -> dict:
     start, end = month_range(month)
     spent_by_cat = category_spent(db, member_id, start, end)
@@ -158,6 +202,9 @@ def build_summary(db: Session, member_id: str, month: str) -> dict:
                  "hotCategories": [c["category"] for c in (over_cat + [h for h in hot_cat if h not in over_cat])]},
         "categories": categories,
         "examples": _examples(db, member_id, remaining, budget is not None),
+        "forecast": _forecast(spent, total, month),
+        "saved": _saved(db, member_id, start),
+        "streak": _streak(db, member_id) if month == this_month() else 0,
         "account": None if not primary else {
             "id": primary.id, "bankName": primary.bank_name, "masked": primary.account_masked},
         "balance": {
@@ -266,6 +313,28 @@ def _history(db: Session, member_id: str, back: int) -> dict:
 REASON_KO = {"MONTH_BUDGET": "월 예산", "BALANCE": "예상 잔액"}
 
 
+def _week(db: Session, member_id: str) -> dict:
+    """이번 주(월요일~오늘) 지출과 지난주 같은 기간 대비."""
+    today = date.today()
+    start = today - timedelta(days=today.weekday())
+    end = today + timedelta(days=1)
+    cur = category_spent(db, member_id, start, end)
+    prior = sum(category_spent(db, member_id, start - timedelta(days=7), end - timedelta(days=7)).values())
+    top = max(cur.items(), key=lambda kv: kv[1], default=(None, 0))
+    spent = sum(cur.values())
+    return {"from": start.isoformat(), "to": today.isoformat(), "spent": spent, "prevSpent": prior,
+            "hasPrev": prior != 0, "delta": spent - prior,
+            "topName": top[0] if top[1] > 0 else "없음", "topAmount": max(top[1], 0)}
+
+
+def _cat_spent(db: Session, member_id: str, category: str) -> dict:
+    """이번 달 한 분류의 지출과 그 분류 예산(없으면 None)."""
+    s = build_summary(db, member_id, this_month())
+    row = next((c for c in s["categories"] if c["category"] == category), None)
+    return {"category": category, "spent": row["spent"] if row else 0,
+            "budget": row["budget"] if row else None, "remaining": row["remaining"] if row else None}
+
+
 def _entry(msg: m.ChatMessage, replies: list[m.ChatMessage] | None = None) -> dict:
     ctx = msg.context_json or {}
     # 같은 질문에 모드마다 답변이 있을 수 있다(모드를 바꿔 다시 물어본 경우). 모드별로 가장 최근 것을 담는다.
@@ -278,6 +347,8 @@ def _entry(msg: m.ChatMessage, replies: list[m.ChatMessage] | None = None) -> di
         "id": msg.id, "text": msg.content, "intent": msg.intent,
         "amount": ctx.get("amount"), "category": ctx.get("category", DEFAULT_CATEGORY),
         "check": ctx.get("check"), "history": ctx.get("history"),
+        "recorded": ctx.get("recorded"), "recordError": ctx.get("recordError"),
+        "week": ctx.get("week"), "catSpent": ctx.get("catSpent"),
         # LLM 이 쓴 답변(검증 통과분)을 모드별로. 화면은 현재 모드의 것만 쓰고, 없으면 현재 모드의 템플릿 문장을 쓴다.
         "answers": answers,
     }
@@ -301,6 +372,32 @@ def _answer_facts(intent: str, text: str, ctx: dict, s: dict) -> dict:
         }
         if hist.get("hasPrior"):  # 비교할 전달 자료가 있을 때만 증감을 말하게 한다
             facts["전월 대비 증감(+는 더 씀)"] = hist["delta"]
+        return facts
+    if intent == "record":
+        rec = ctx.get("recorded")
+        if not rec:  # 금액이 없거나 기록에 실패
+            return {"verdict": "info", "질문": "지출 기록", "금액 필요": ctx.get("recordError") is None,
+                    "기록 실패": ctx.get("recordError") is not None}
+        facts = {
+            "verdict": "info", "질문": "지출 기록", "기록한 금액": rec["amount"], "분류": rec["category"],
+            "날짜": rec["when"], "기록 후 월 예산 남은 금액": b["remaining"],
+        }
+        cr = next((c for c in s["categories"] if c["category"] == rec["category"] and c["budget"] is not None), None)
+        if cr:
+            facts[f"기록 후 {rec['category']} 예산 남은 금액"] = cr["remaining"]
+        return facts
+    if intent == "week" and ctx.get("week"):
+        w = ctx["week"]
+        facts = {"verdict": "info", "질문": "이번 주 지출", "이번 주 전체 지출": w["spent"],
+                 "가장 많이 쓴 분류": w["topName"], "그 분류 지출액": w["topAmount"]}
+        if w["hasPrev"]:
+            facts["지난주 같은 기간 대비 증감(+는 더 씀)"] = w["delta"]
+        return facts
+    if intent == "category" and ctx.get("catSpent"):
+        c = ctx["catSpent"]
+        facts = {"verdict": "info", "질문": f"이번 달 {c['category']} 지출", "분류": c["category"], "분류 지출": c["spent"]}
+        if c["budget"] is not None:
+            facts.update({f"{c['category']} 예산": c["budget"], f"{c['category']} 예산 남은 금액": c["remaining"]})
         return facts
     if intent == "balance":
         return {
@@ -426,9 +523,23 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
                          .order_by(m.ChatMessage.created_at.desc(), m.ChatMessage.id.desc()))
         category = (last.context_json or {}).get("category", DEFAULT_CATEGORY) if last else DEFAULT_CATEGORY
 
+    if u.intent == "record":  # 쓴 돈을 기록할 때는 직전 질문의 분류를 이어받지 않는다(말이 없으면 기타)
+        category = u.category or UNCATEGORIZED
     ctx: dict = {"amount": u.amount, "category": category, "nlu": u.source, "mode": mode}
     if u.intent == "purchase" and u.amount is not None:
         ctx["check"] = judge_payment(db, member_id, u.amount, category, record=False)
+    if u.intent == "record" and u.amount is not None:
+        day = date.today() - timedelta(days=u.days_ago)
+        try:
+            tx = create_tx(db, member_id, day, f"{category} · 대화 입력", category, u.amount)
+            when = "오늘" if u.days_ago == 0 else "어제" if u.days_ago == 1 else f"{u.days_ago}일 전"
+            ctx["recorded"] = {"id": tx.id, "amount": u.amount, "category": category, "date": day.isoformat(), "when": when}
+        except HTTPException as e:
+            ctx["recordError"] = str(e.detail)
+    if u.intent == "week":
+        ctx["week"] = _week(db, member_id)
+    if u.intent == "category":
+        ctx["catSpent"] = _cat_spent(db, member_id, u.category or category)
     if u.intent in ("last", "prev2"):
         ctx["history"] = _history(db, member_id, 1 if u.intent == "last" else 2)
 
@@ -642,31 +753,36 @@ class TxIn(BaseModel):
     amount: int = Field(gt=0, le=100_000_000)
 
 
-@router.post("/transactions", status_code=201)
-def add_transaction(body: TxIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
-    merchant = body.merchant.strip()
+def create_tx(db: Session, member_id: str, day: date, merchant: str, category: str, amount: int) -> m.CardTransaction:
+    """카드 지출 한 건을 기록한다(화면 입력과 대화 입력이 같이 쓴다). 실패하면 HTTPException."""
+    merchant = merchant.strip()
     if not merchant:
         raise HTTPException(400, "INVALID_MERCHANT")
-    if body.category not in CATEGORIES:
+    if category not in CATEGORIES:
         raise HTTPException(400, "INVALID_CATEGORY")
-    if body.date > date.today():
+    if day > date.today():
         raise HTTPException(400, "FUTURE_DATE")  # 미래 날짜는 기록할 수 없다 (시안과 동일)
     # 기록할 카드: 사용 중인 카드 중 신용카드를 우선한다
     card = db.scalar(
-        select(m.Card).where(m.Card.member_id == member.id, m.Card.status == "active")
+        select(m.Card).where(m.Card.member_id == member_id, m.Card.status == "active")
         .order_by(case((m.Card.type == "credit", 0), else_=1), m.Card.issued_at)
     )
     if not card:
         raise HTTPException(409, "NO_ACTIVE_CARD")
     tx = m.CardTransaction(
-        card_id=card.id, kind="approval", merchant=merchant, amount=body.amount, installment_months=0,
-        occurred_at=datetime.combine(body.date, time(12, 0)))
+        card_id=card.id, kind="approval", merchant=merchant, amount=amount, installment_months=0,
+        occurred_at=datetime.combine(day, time(12, 0)))
     db.add(tx)
     db.flush()
-    db.add(m.LedgerTxCategory(card_transaction_id=tx.id, member_id=member.id, category=body.category, source="user"))
-    _adjust_card_bill(db, member.id, card, body.date, body.amount)
+    db.add(m.LedgerTxCategory(card_transaction_id=tx.id, member_id=member_id, category=category, source="user"))
+    _adjust_card_bill(db, member_id, card, day, amount)
     db.commit()
-    return {"id": tx.id}
+    return tx
+
+
+@router.post("/transactions", status_code=201)
+def add_transaction(body: TxIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    return {"id": create_tx(db, member.id, body.date, body.merchant, body.category, body.amount).id}
 
 
 @router.delete("/transactions/{tx_id}", status_code=204)
