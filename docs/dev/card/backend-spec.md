@@ -9,8 +9,8 @@
 
 ## 1. 전제
 
-- 언어·프레임워크는 아직 정하지 않았다. 관계형 DB를 쓰고, SQL은 PostgreSQL을 기준으로 쓴다 (MySQL에서도 같은 구조로 만들 수 있는 수준으로만 표기한다).
-- 카드·계좌·회원은 **같은 서버의 모듈**이라고 가정한다. 서비스를 나누는 경우는 5절을 따른다.
+- 스택은 FastAPI + PostgreSQL이다 ([공통 기획서 1장](../../common/공통.md)). SQL은 PostgreSQL을 기준으로 쓴다 (MySQL에서도 같은 구조로 만들 수 있는 수준으로만 표기한다).
+- 카드·계좌·인증은 **한 서버(모놀리스)의 모듈**이다. 파트 사이 호출은 HTTP가 아니라 같은 프로세스의 함수 호출이다 (5절).
 - 시간: DB에는 UTC `TIMESTAMPTZ`로 저장하고, 날짜 경계·"오늘" 계산은 `Asia/Seoul`(KST)로 한다. 현재 시각은 `Clock`을 주입받아 쓴다 (테스트에서 바꾸기 위해).
 
 ## 2. DB 설계
@@ -21,10 +21,11 @@
 |------|------|
 | 금액 | `BIGINT`(원). 소수 없음 |
 | 날짜 / 일시 | `DATE` / `TIMESTAMPTZ` |
-| ID | `VARCHAR(40)`. 접두어 + 정렬 가능한 ID(ULID 등). 예: `card_01J...`. 같은 종류 ID끼리 사전순 = 생성순이어야 커서 정렬이 안정적이다 |
+| ID | 카드 파트 자체 ID는 `VARCHAR(40)`. 접두어 + 정렬 가능한 ID(ULID 등). 예: `card_01J...`. 같은 종류 ID끼리 사전순 = 생성순이어야 커서 정렬이 안정적이다 |
+| 사용자·계좌 ID | `BIGINT` (`users.id`, 계좌 `id`). JSON은 숫자 ([공통 기획서 6장](../../common/공통.md)) |
 | 문자열 enum | `VARCHAR` + `CHECK`. DB enum 타입은 쓰지 않는다 |
 | 공통 컬럼 | `created_at TIMESTAMPTZ NOT NULL`, 수정이 있는 테이블은 `updated_at TIMESTAMPTZ NOT NULL` |
-| 외래 키 | 카드 도메인 안에서는 FK를 건다. 회원·계좌 도메인 참조(`member_id`, `payment_account_id`)는 다른 담당 소유라 **논리 참조**로 둔다 |
+| 외래 키 | 카드 도메인 안에서는 FK를 건다. 사용자·계좌 도메인 참조(`user_id`, `payment_account_id`)는 다른 담당 소유라 **논리 참조**로 둔다 (`BIGINT` 값만 저장하고 FK·`ON DELETE` 규칙은 두지 않는다) |
 
 ### 2.2 테이블 한눈에 보기
 
@@ -34,7 +35,7 @@ card_products 1 ── * cards 1 ── * card_status_history
                       └ 1 ── * card_transactions (취소는 original_id로 승인 거래를 가리킴)
 
 card_applications (신청 기록) ── result_card_id → cards
-card_issue_quota   (회원·종류별 락 대상)
+card_issue_quota   (사용자·종류별 락 대상)
 idempotency_keys   (카드 신청 멱등성)
 ```
 
@@ -53,7 +54,7 @@ idempotency_keys   (카드 신청 멱등성)
 | 컬럼 | 타입 | NULL | 설명 |
 |------|------|:----:|------|
 | `id` | VARCHAR(40) | X | PK |
-| `member_id` | VARCHAR(40) | X | 소유 회원 (논리 참조) |
+| `user_id` | BIGINT | X | 소유 회원 (`users.id`, 논리 참조) |
 | `product_id` | VARCHAR(40) | X | FK → `card_products` |
 | `name` | VARCHAR(50) | X | 발급 시점의 상품명 (스냅샷) |
 | `type` | VARCHAR(6) | X | `credit` \| `debit` |
@@ -61,7 +62,7 @@ idempotency_keys   (카드 신청 멱등성)
 | `expiry` | CHAR(5) | X | `MM/YY` |
 | `status` | VARCHAR(12) | X | `active` \| `suspended` \| `lost` \| `terminated` |
 | `issued_at` | DATE | X | 발급일 (KST) |
-| `payment_account_id` | VARCHAR(40) | X | 결제 계좌 (논리 참조) |
+| `payment_account_id` | BIGINT | X | 결제 계좌 (계좌 `id`, 논리 참조) |
 | `payment_bank_name` | VARCHAR(30) | X | 결제 계좌 은행명 (스냅샷) |
 | `payment_account_masked` | VARCHAR(20) | X | 마스킹 계좌 번호 (스냅샷) |
 | `payment_day` | SMALLINT | O | 결제일 1~28 (신용만) |
@@ -75,7 +76,7 @@ idempotency_keys   (카드 신청 멱등성)
 | `terminated_reason` | VARCHAR(20) | O | `unused`, `benefit_complaint`, `other_card`, `lost_cleanup`, `other` (선택 입력이라 비어 있을 수 있음) |
 | `created_at` / `updated_at` | TIMESTAMPTZ | X | |
 
-**결제 계좌 스냅샷**: 은행명·마스킹 번호는 발급할 때 계좌 서비스에서 받아 카드에 함께 저장한다. 카드 목록·상세가 계좌 서비스를 매번 부르지 않게 하려는 것이다 (잔액만 03 청구 조회에서 실시간으로 가져온다). 계좌 번호와 은행명은 바뀌지 않는다고 본다. 계좌 해지·변경 정책은 이번 범위 밖이다.
+**결제 계좌 스냅샷**: 은행명·마스킹 번호는 발급할 때 `get_account`(5절)로 받아 카드에 함께 저장한다. 카드 목록·상세가 계좌 파트를 매번 부르지 않게 하려는 것이다 (잔액만 03 청구 조회에서 실시간으로 가져온다). 계좌 번호와 은행명은 바뀌지 않는다고 본다. 결제 계좌를 쓰는 해지 안 된 카드가 있으면 그 계좌는 해지할 수 없다 (`count_active_cards`, 5절). 계좌 변경 정책은 이번 범위 밖이다.
 
 **제약 (`CHECK`)**
 
@@ -93,8 +94,9 @@ idempotency_keys   (카드 신청 멱등성)
 
 **인덱스·유니크**
 
-- `UNIQUE (member_id, number_last4)` — 같은 회원의 모든 카드(해지 포함)에서 끝 4자리가 겹치지 않는다
-- `INDEX (member_id, status)` — 목록 조회, 보유 장수 계산
+- `UNIQUE (user_id, number_last4)` — 같은 회원의 모든 카드(해지 포함)에서 끝 4자리가 겹치지 않는다
+- `INDEX (user_id, status)` — 목록 조회, 보유 장수 계산
+- `INDEX (payment_account_id, status)` — `count_active_cards(account_id)` (5절)
 
 ### 2.5 `card_status_history` (상태 이력)
 
@@ -102,7 +104,7 @@ idempotency_keys   (카드 신청 멱등성)
 |------|------|:----:|------|
 | `id` | VARCHAR(40) | X | PK |
 | `card_id` | VARCHAR(40) | X | FK → `cards` |
-| `member_id` | VARCHAR(40) | X | 요청한 회원 |
+| `user_id` | BIGINT | X | 요청한 회원 (`users.id`, 논리 참조) |
 | `action` | VARCHAR(12) | X | `issue` \| `suspend` \| `resume` \| `report_lost` \| `terminate` |
 | `from_status` | VARCHAR(12) | O | 이전 상태. `issue`는 NULL |
 | `to_status` | VARCHAR(12) | X | 새 상태 |
@@ -141,10 +143,10 @@ idempotency_keys   (카드 신청 멱등성)
 | 컬럼 | 타입 | NULL | 설명 |
 |------|------|:----:|------|
 | `id` | VARCHAR(40) | X | PK |
-| `member_id` | VARCHAR(40) | X | |
+| `user_id` | BIGINT | X | `users.id` (논리 참조) |
 | `type` | VARCHAR(6) | X | `credit` \| `debit` |
 | `product_id` | VARCHAR(40) | X | FK → `card_products` |
-| `payment_account_id` | VARCHAR(40) | X | |
+| `payment_account_id` | BIGINT | X | 계좌 `id` (논리 참조) |
 | `payment_day` | SMALLINT | O | 신용만 |
 | `income_range` | VARCHAR(10) | O | 신용만. `none`, `lt_10m`, `10m_20m`, `20m_40m`, `40m_70m`, `gte_70m` |
 | `recipient` | VARCHAR(20) | X | |
@@ -160,25 +162,25 @@ idempotency_keys   (카드 신청 멱등성)
 | `result_card_id` | VARCHAR(40) | O | 승인일 때 FK → `cards` |
 | `requested_at` | TIMESTAMPTZ | X | |
 
-- 카드 비밀번호(`cardPin`)와 계좌 암호는 **저장하지 않는다**.
-- 인덱스 `(member_id, requested_at)`.
+- 카드 비밀번호(`cardPin`)는 **저장하지 않는다**. 카드 신청 요청에는 간편비밀번호가 없다 (본인 재확인은 세션, 4절).
+- 인덱스 `(user_id, requested_at)`.
 - 개인정보(수령인·연락처·주소) 보관 기간은 팀이 정한다. 제안: **거절된 신청은 90일 뒤 개인정보 컬럼을 비운다**(삭제 배치). 승인된 신청은 카드가 있는 동안 보관한다. 해지 후 보관 기간은 팀 합의가 필요하다.
 
 ### 2.8 `card_issue_quota` (신청 직렬화용 락 대상)
 
 | 컬럼 | 타입 | NULL | 설명 |
 |------|------|:----:|------|
-| `member_id` | VARCHAR(40) | X | PK의 일부 |
+| `user_id` | BIGINT | X | PK의 일부 |
 | `type` | VARCHAR(6) | X | PK의 일부 |
 
-- 회원·종류별로 한 행. 값은 없고 **행 락만 건다**. 처음 신청할 때 만든다 (`INSERT ... ON CONFLICT DO NOTHING`).
-- 카드가 아직 없는 회원에게도 락을 걸 수 있게 하려고 카드 테이블이 아니라 별도 테이블을 쓴다. 회원 테이블은 다른 담당 소유라 거기에 락을 걸 수 없다.
+- 회원·종류별로 한 행 (`PRIMARY KEY (user_id, type)`). 값은 없고 **행 락만 건다**. 처음 신청할 때 만든다 (`INSERT ... ON CONFLICT DO NOTHING`).
+- 카드가 아직 없는 회원에게도 락을 걸 수 있게 하려고 카드 테이블이 아니라 별도 테이블을 쓴다. `users` 테이블은 인증 담당 소유라 거기에 락을 걸 수 없다.
 
 ### 2.9 `idempotency_keys` (카드 신청 멱등성)
 
 | 컬럼 | 타입 | NULL | 설명 |
 |------|------|:----:|------|
-| `member_id` | VARCHAR(40) | X | PK의 일부 |
+| `user_id` | BIGINT | X | PK의 일부 |
 | `idem_key` | VARCHAR(36) | X | PK의 일부 (UUID 문자열) |
 | `fingerprint` | CHAR(64) | X | 요청 본문 지문 (4.3) |
 | `response_status` | SMALLINT | O | 항상 201. 처리 중에는 NULL |
@@ -187,17 +189,6 @@ idempotency_keys   (카드 신청 멱등성)
 | `expires_at` | TIMESTAMPTZ | X | 생성 + 24시간 |
 
 - 인덱스 `(expires_at)`. 만료 행은 매시간 삭제한다. 조회할 때 만료된 키는 없는 것으로 본다.
-
-### 2.10 참고: 계좌 도메인이 소유하는 테이블 (제안)
-
-카드 서버가 만들지 않는다. 계좌 암호 오류 횟수를 계좌 단위로 세려면 계좌 도메인에 아래와 같은 상태가 필요하다. 계좌 담당(김연준)과 합의한다.
-
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| `account_id` | VARCHAR(40) PK | |
-| `fail_count` | SMALLINT | 연속 오류 횟수 (0~4) |
-| `locked_until` | TIMESTAMPTZ NULL | 잠금 해제 시각 |
-| `updated_at` | TIMESTAMPTZ | |
 
 ## 3. 금액 계산 구현
 
@@ -257,7 +248,7 @@ usageRate  = min(1000, rate10) / 10.0               // 소수 첫째 자리
 1. 해지되지 않은 신용카드마다 다음 결제일을 구한다 (`T` 이후 당일 포함 가장 가까운 `D`일).
 2. 그 주기의 `B(P)`와 내역(`items`)을 만든다. `B(P) = 0`인 카드는 뺀다.
 3. `(결제일, 결제 계좌)`로 묶고 묶음 합계를 구한다. 정렬은 결제일 → `accountId`.
-4. 묶음마다 계좌 서비스에서 잔액을 가져온다 (계좌당 한 번). 실패하면 그 묶음만 `balanceStatus: "unavailable"`.
+4. 묶음마다 `get_account`(5절)로 잔액을 가져온다 (계좌당 한 번). 실패하면 그 묶음만 `balanceStatus: "unavailable"`.
 5. `thisMonthTotal` = `isCurrentMonth`인 묶음 합계. `nextPaymentDate` = 묶음 중 가장 빠른 결제일.
 - `items`의 `installment` 내역: 그 주기에 해당하는 회차만 넣고, 금액은 `piece(...)`다. 할부의 `occurredAt`은 원 승인 일시다.
 
@@ -271,19 +262,19 @@ usageRate  = min(1000, rate10) / 10.0               // 소수 첫째 자리
 
 ## 4. 동시성·트랜잭션
 
-DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 하는 동안 DB 락을 쥐지 않도록, **암호 검증은 트랜잭션 밖에서** 먼저 하고 그 뒤 짧은 트랜잭션에서 조건부로 갱신한다.
+DB는 `READ COMMITTED`를 가정한다. 본인 재확인은 세션 값을 읽는 `pin_verified(request)` 확인(비용이 작고 DB 락과 무관)뿐이므로, **트랜잭션 밖에서** 먼저 확인하고 그 뒤 짧은 트랜잭션에서 조건부로 갱신한다.
 
 ### 4.1 상태 변경 (정지·해제·분실·해지)
 
 1. 입력 검증 → 카드 조회(소유권 → `404`) → 상태 확인(`409`) → (해지만) 미결제 확인(`409`) — 모두 락 없이 읽기
-2. 계좌 암호 검증 (트랜잭션 밖)
+2. 본인 재확인 여부 확인: `pin_verified(request)` (세션 확인, 트랜잭션 밖). 거짓이면 `PinVerificationRequired` → `403 PIN_VERIFICATION_REQUIRED`, 카드는 바뀌지 않는다
 3. 트랜잭션 시작
    - 정지·해제·분실:
 
      ```sql
      UPDATE cards
         SET status = :to, suspended_at = :suspendedAt, lost_at = :lostAt, lost_reason = :lostReason, updated_at = :now
-      WHERE id = :id AND member_id = :member AND status IN (:allowed)
+      WHERE id = :id AND user_id = :user AND status IN (:allowed)
      ```
 
      갱신된 행이 0이면 카드를 다시 읽어 없으면 `404`, 있으면 `409 CARD_STATE_INVALID`(`currentStatus`, `allowedStatuses`)를 돌려준다.
@@ -291,15 +282,15 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
    - `card_status_history` 한 줄 추가
 4. 커밋
 
-2단계 뒤 3단계 사이에 상태가 바뀌면 조건부 갱신이 0행이 되어 `409`가 된다. 이때 계좌 암호는 이미 맞게 입력된 것이므로 오류 횟수는 0으로 되돌아간 상태다.
+1단계 뒤 3단계 사이에 상태가 바뀌면 조건부 갱신이 0행이 되어 `409`가 된다.
 
 ### 4.2 카드 신청 (3장 제한 + 멱등성)
 
-1. 락 없는 사전 검사: 입력 검증 → 멱등성 조회(저장된 응답이 있으면 재생, 본문이 다르면 `422`) → 결제 계좌 확인 → 신청 자격(나이) → 보유 장수(빠른 거절)
-2. 계좌 암호 검증 (트랜잭션 밖)
+1. 락 없는 사전 검사: 입력 검증 → 멱등성 조회(저장된 응답이 있으면 재생, 본문이 다르면 `422`) → 결제 계좌 확인(`get_account(user, paymentAccountId)`, 없음·타인·저축예금 아님·해지는 `404 ACCOUNT_NOT_FOUND`) → 신청 자격(`get_age(user) >= 19`) → 보유 장수(빠른 거절)
+2. 본인 재확인 여부 확인: `pin_verified(request)` (세션 확인, 트랜잭션 밖). 거짓이면 `PinVerificationRequired` → `403 PIN_VERIFICATION_REQUIRED`, 신청 기록·멱등성 행은 만들지 않는다
 3. 트랜잭션 시작
-   1. `INSERT INTO idempotency_keys (...)` (응답 컬럼은 NULL). 같은 `(member_id, idem_key)`가 이미 있으면 DB가 그 트랜잭션이 끝날 때까지 기다리게 하고, 끝난 뒤 저장된 응답을 읽어 그대로 돌려준다 (동시에 같은 키가 온 경우)
-   2. `card_issue_quota (member_id, type)` 행을 `INSERT ... ON CONFLICT DO NOTHING` 한 뒤 `SELECT ... FOR UPDATE`로 잠근다
+   1. `INSERT INTO idempotency_keys (...)` (응답 컬럼은 NULL). 같은 `(user_id, idem_key)`가 이미 있으면 DB가 그 트랜잭션이 끝날 때까지 기다리게 하고, 끝난 뒤 저장된 응답을 읽어 그대로 돌려준다 (동시에 같은 키가 온 경우)
+   2. `card_issue_quota (user_id, type)` 행을 `INSERT ... ON CONFLICT DO NOTHING` 한 뒤 `SELECT ... FOR UPDATE`로 잠근다
    3. 보유 장수를 다시 센다 (해지·분실 제외). 한도(3장)에 이미 도달했으면 롤백하고 `409 CARD_COUNT_LIMIT_EXCEEDED`
    4. 심사: 신용이면 소득 구간표로 승인·거절 결정
    5. `card_applications` 저장. 승인이면 `cards` 저장(번호 끝 4자리 생성, 6절), `card_status_history`(`issue`) 저장
@@ -315,28 +306,11 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
 - 요청 본문을 다음과 같이 정규화한 뒤 SHA-256(소문자 16진수)으로 만든다.
   1. 서버 기본값을 적용한다 (신용인데 `paymentDay`가 없으면 25) — 생략한 요청과 25로 보낸 요청은 같은 본문이다
   2. 문자열은 앞뒤 공백 제거 후 NFC 정규화
-  3. **`accountPin`, `cardPin`은 지문에서 뺀다** (지문에서 비밀번호가 역산되지 않게 하고, 비밀번호만 고친 재시도를 같은 요청으로 본다)
+  3. **`cardPin`은 지문에서 뺀다** (지문에서 비밀번호가 역산되지 않게 하고, 비밀번호만 고친 재시도를 같은 요청으로 본다)
   4. 키 이름을 사전순으로 정렬한 JSON으로 직렬화
 - 만료: 24시간. 만료된 키는 새 요청으로 처리한다.
 
-### 4.4 계좌 암호 오류 횟수 (계좌 도메인 구현 요구)
-
-- 오류 횟수 증가는 **카드 요청의 트랜잭션과 별도로 커밋**한다 (`REQUIRES_NEW`). 카드 쪽이 롤백돼도 증가가 남는다.
-- 증가는 계좌 행을 잠그고 한 번에 처리해 동시 오답이 정확히 센다:
-
-  ```sql
-  UPDATE account_pin_state
-     SET fail_count = fail_count + 1, updated_at = :now
-   WHERE account_id = :id
-  RETURNING fail_count
-  ```
-
-  `fail_count`가 5가 되면 같은 트랜잭션에서 `locked_until = now + 300초`, `fail_count = 0`으로 바꾸고 `LOCKED`를 돌려준다.
-- 잠금 판정: `now < locked_until` 이면 `LOCKED`(`retryAfterSeconds = ceil(locked_until − now)`). **`now ≥ locked_until` 이면 입력 가능**하다 (정확히 300초가 지난 시점부터).
-- 암호가 맞으면 `fail_count = 0`.
-- 형식 오류·앞 단계에서 걸린 요청은 이 함수를 호출하지 않으므로 횟수가 늘지 않는다.
-
-## 5. 서버 간 계약 (계좌·회원)
+## 5. 서버 간 계약 (계좌·인증)
 
 기획서 [00 7절](../../card/00-api-common.md#7-다른-담당에-요구하는-인터페이스)의 계약을 서버 코드 관점에서 정한다. 담당자와 합의해서 확정한다.
 
@@ -344,28 +318,55 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
 
 | 호출 | 입력 | 결과 | 카드 서버의 처리 |
 |------|------|------|------------------|
-| `getAccount(memberId, accountId)` | 회원 ID, 계좌 ID | `{ accountId, bankName, accountMasked, balance }`. 내 계좌가 아니거나 없으면 `NOT_FOUND` | 06: `404 ACCOUNT_NOT_FOUND`. 03: 잔액 조회 실패는 `balanceStatus: "unavailable"`로 내려주고 오류로 만들지 않는다 |
-| `listCardPaymentAccounts(memberId)` | 회원 ID | `[{ accountId, bankName, accountMasked }]` | 프론트가 REST(`GET /accounts?purpose=card_payment`)로 직접 호출한다. 카드 서버는 호출하지 않는다 |
-| `verifyAccountPin(memberId, accountId, pin)` | 회원 ID, 계좌 ID, 4자리 | `MATCH` \| `MISMATCH{remainingAttempts}` \| `LOCKED{retryAfterSeconds}`. 내 계좌가 아니면 `NOT_FOUND` | 4절·00 4.2의 표대로 `403`/`429`로 바꾼다 |
-| `getMember(memberId)` | 회원 ID | `{ birthDate \| null }` | 만 19세 확인. `null`이면 통과 |
+| `get_account(user, account_id)` (계좌 제공) | 세션 `user`, 계좌 ID(숫자) | `{ accountId, bankName, accountMasked, balance, productType, status }`. 내 계좌가 아니거나 없으면 `NOT_FOUND` | 06: `404 ACCOUNT_NOT_FOUND` (결제 계좌 후보가 아닌 내 계좌, 즉 저축예금이 아니거나 해지된 계좌도 같은 `404`. 아래 참고). 03: 잔액 조회 실패는 `balanceStatus: "unavailable"`로 내려주고 오류로 만들지 않는다 |
+| `GET /api/accounts?purpose=card_payment` (계좌 제공) | - | `{ items: [{ accountId, bankName, accountMasked }] }`. 본인의 active 저축예금만 | 프론트가 REST로 직접 호출한다. 카드 서버는 호출하지 않는다 |
+| `pin_verified(request)` (인증 제공) | 세션 `user` | `bool`. 5분 안에 `POST /api/auth/pin/verify`를 통과했으면 참 (세션 `pin_verified_at`) | 거짓이면 쓰기 함수가 `PinVerificationRequired`를 던진다 → `403 PIN_VERIFICATION_REQUIRED`. 4절 |
+| `get_age(user)` (인증 제공) | 세션 `user` | 만 나이(정수). `birthDate`는 NOT NULL이다 | 만 19세 확인: `get_age(user) >= 19` |
+| `count_active_cards(account_id)` (**카드 제공**) | 계좌 ID | 그 계좌를 결제 계좌로 쓰는 `terminated`가 아닌 카드 수 | 계좌 파트가 저축예금 해지(ACC-15) 때 0이 아니면 거부한다. 카드 서버는 호출하지 않는다 |
 
-- 카드 서버가 `verifyAccountPin`에 넘기는 `accountId`는 카드 기능의 결제 계좌이거나(신청 때는) 요청의 `paymentAccountId`다. `memberId`는 **토큰에서 서버가 뽑은 값**만 쓰고 요청 본문의 값은 믿지 않는다.
+- `user`는 **세션에서 `current_user`가 준 값**만 쓰고 요청 본문의 값은 받지 않는다.
+- 결제 계좌 후보 판정(저축예금이고 active)은 `get_account` 응답의 `productType`·`status`로 한다. 이 두 필드는 계좌.md에 아직 없어 계좌 담당이 추가해야 한다 (공통 기획서 8장, 11절).
+- `count_active_cards`는 `SELECT count(*) FROM cards WHERE payment_account_id = :id AND status <> 'terminated'`다. 일시정지·분실 카드도 센다 (해지되지 않았기 때문).
 
 ### 5.2 호출 방식과 장애 처리
 
-- 기본: 같은 프로세스의 서비스 인터페이스 호출. 서비스를 나누게 되면 REST로 바꾸고, 사용자 토큰을 그대로 넘기지 않고 **서비스 간 토큰 + `memberId` 헤더**를 쓴다.
-- 시간 제한: 연결 1초, 응답 3초.
-- 재시도: `verifyAccountPin`은 오류 횟수가 늘 수 있으므로 **재시도하지 않는다**. 조회(`getAccount`, `getMember`)는 1회까지 재시도한다.
-- 장애 시: `verifyAccountPin`·`getAccount`(06) 실패 → `503 ACCOUNT_SERVICE_UNAVAILABLE`, `getMember` 실패 → `503 MEMBER_SERVICE_UNAVAILABLE`. 둘 다 카드 상태와 오류 횟수를 바꾸지 않는다.
+- 호출: 같은 프로세스의 함수 호출이다. HTTP·서비스 간 토큰은 쓰지 않는다 (공통.md 1장).
+- 재시도: 조회(`get_account`, `get_age`)는 1회까지 재시도한다.
+- 장애 시: `get_account`(06) 호출이 실패하면 `503 ACCOUNT_SERVICE_UNAVAILABLE`, `get_age` 호출이 실패하면 `503 MEMBER_SERVICE_UNAVAILABLE`. 같은 프로세스의 모듈 호출이 예외를 던졌다는 뜻이다. 둘 다 카드 상태를 바꾸지 않는다.
+
+### 5.3 서비스 함수 계층
+
+REST 라우터와 자연어 에이전트의 도구([08-natural-language.md](../../card/08-natural-language.md))는 **같은 서비스 함수**를 부른다. 라우터는 `Depends(current_user)`로 받은 `user`를 넘기고, 자연어 도구는 서버가 세션에서 넣은 `user`를 넘긴다. 두 경로가 다른 규칙을 갖지 않는다. (표의 경로는 모두 `/api` 아래다.)
+
+| 함수 | 종류 | 대응 API |
+|------|------|----------|
+| `list_cards(user, ...)` | 조회 | `GET /cards` |
+| `get_card(user, card_id)` | 조회 | `GET /cards/{cardId}` |
+| `list_transactions(user, ...)` | 조회 | `GET /card-transactions` |
+| `get_transaction(user, transaction_id)` | 조회 | `GET /card-transactions/{id}` |
+| `get_billing_upcoming(user)` | 조회 | `GET /card-billing/upcoming` |
+| `get_limit(user, card_id)` | 조회 | `GET /cards/{cardId}/limit` |
+| `suspend_card(user, card_id)` | 쓰기 | `POST /cards/{cardId}/suspend` |
+| `resume_card(user, card_id)` | 쓰기 | `POST /cards/{cardId}/resume` |
+| `report_lost(user, card_id, reason)` | 쓰기 | `POST /cards/{cardId}/report-lost` |
+| `check_terminate(user, card_id)` | 조회 | `GET /cards/{cardId}/termination-check` |
+| `terminate_card(user, card_id, reason)` | 쓰기 | `POST /cards/{cardId}/terminate` |
+| `get_apply_eligibility(user, ...)` | 조회 | `GET /card-applications/eligibility` |
+| `apply_card(user, request, idempotency_key)` | 쓰기 | `POST /card-applications` |
+| `count_active_cards(account_id)` | 조회 | 계좌 파트가 호출 (REST 없음) |
+
+- 쓰기 함수(정지·해제·분실·해지·신청)는 스스로 `pin_verified(request)`를 부른다 (4절). 거짓이면 `PinVerificationRequired`를 던지고, 라우터가 `403 PIN_VERIFICATION_REQUIRED`(details 없음)로 바꾼다. 자연어 도구는 같은 예외를 `{ status: "pin_verification_required" }`로 바꾼다 (공통.md 9.2).
+- 함수는 소유권·상태·업무 검사를 하고 도메인 오류(`CARD_NOT_FOUND`, `CARD_STATE_INVALID` 등)를 던진다. HTTP 상태로 바꾸는 일은 라우터가, 자연어 응답으로 바꾸는 일은 도구가 맡는다.
+- `user`가 아닌 사용자 ID를 받는 함수는 만들지 않는다 (`count_active_cards`만 계좌 ID를 받는 예외).
 
 ## 6. 카드 번호·CVC·카드 비밀번호
 
 - **카드 전체 번호와 CVC는 만들지도 저장하지도 않는다.** 이번 범위에서 전체 번호가 필요한 기능이 없다 (화면은 끝 4자리만 쓴다). 서버는 끝 4자리(`number_last4`)만 생성한다.
   - `shortcut: 전체 번호·CVC 없음, 실물 카드 발급이나 결제 승인 연동이 생기면 전체 번호는 암호화 컬럼(KMS 키)으로 추가하고 CVC는 발급 응답에서 한 번만 쓰고 저장하지 않는다`
-- 끝 4자리 생성: 트랜잭션 안에서 4자리 난수를 만들고 `UNIQUE (member_id, number_last4)` 충돌이 나면 새 값으로 최대 10번 다시 만든다 (세이브포인트 사용). 모두 실패하면 `500`이다 (회원당 카드 이력이 1만 건에 가까워야 발생하므로 현실적으로 일어나지 않는다).
+- 끝 4자리 생성: 트랜잭션 안에서 4자리 난수를 만들고 `UNIQUE (user_id, number_last4)` 충돌이 나면 새 값으로 최대 10번 다시 만든다 (세이브포인트 사용). 모두 실패하면 `500`이다 (회원당 카드 이력이 1만 건에 가까워야 발생하므로 현실적으로 일어나지 않는다).
 - 유효기간: 발급일(KST)에서 5년 뒤의 `MM/YY`.
 - **`cardPin`은 저장하지 않는다.** 검증 후 버린다. `PIN_TOO_SIMPLE` 판정: 네 자리를 `d0 d1 d2 d3`라 할 때, 모두 같거나(`d0=d1=d2=d3`), 인접 자리 차이가 모두 `+1`이거나(`0123`, `1234`, `6789`), 모두 `-1`이다(`3210`, `4321`, `9876`). `7890`은 9→0이 차이 `-9`라서 단순하지 않다.
-- **`accountPin`은 저장하지 않고** 계좌 도메인의 검증 함수에만 넘긴다.
+- 카드 API는 **간편비밀번호를 받지 않는다.** 본인 재확인은 세션의 `pin_verified_at`을 `pin_verified(request)`로 확인하는 것뿐이다 (4절).
 
 ## 7. 요청 처리 세부 (형식 오류·검증·로그)
 
@@ -374,7 +375,7 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
 | 상황 | 응답 |
 |------|------|
 | 깨진 JSON, 본문 최상위가 객체가 아님 | `400 VALIDATION_FAILED`, `fields: [{ "field": "$", "reason": "INVALID_FORMAT" }]` |
-| 필드 타입이 틀림 (예: `accountPin`이 숫자 `1234`) | `400 VALIDATION_FAILED`, 해당 필드 `INVALID_FORMAT` |
+| 필드 타입이 틀림 (예: `cardPin`이 숫자 `1234`) | `400 VALIDATION_FAILED`, 해당 필드 `INVALID_FORMAT` |
 | 알 수 없는 필드 | **무시한다** (오류로 만들지 않는다) |
 | `Content-Type`이 JSON이 아님 | `415`, `code: "UNSUPPORTED_MEDIA_TYPE"` |
 | 없는 경로 | `404`, `code: "NOT_FOUND"` |
@@ -390,14 +391,14 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
 
 ### 7.3 로그와 개인정보
 
-- **본문을 로그에 남기지 않는 값**: `accountPin`, `cardPin`, `Authorization`, 이름, 전화번호, 주소, 생년월일.
+- **본문을 로그에 남기지 않는 값**: `cardPin`, 세션 쿠키(`Cookie`, `Set-Cookie`), 이름, 전화번호, 주소, 생년월일. 간편비밀번호는 어떤 로그에도 남기지 않는다 (공통.md 4장).
 - `Idempotency-Key`는 앞 8자만 로그에 남긴다. 잔액은 로그에 남기지 않는다.
 - 카드·신청 테이블의 SQL 바인드 파라미터 로그는 끈다.
 - 모든 요청에 `request_id`를 만들어(`X-Request-Id`) 오류 로그와 `card_status_history`에 남긴다.
 
 ## 8. 커서·정렬·페이지
 
-- **커서**: `{ t: occurred_at(epoch ms), id, f: 필터 지문, m: memberId, e: 만료(epoch ms) }`를 JSON → base64url로 만들고 서버 비밀키로 HMAC-SHA256 서명을 붙인다. 서명 불일치, 회원 불일치, 만료(24시간), 필터 지문 불일치는 모두 `400 INVALID_CURSOR`.
+- **커서**: `{ t: occurred_at(epoch ms), id, f: 필터 지문, u: userId, e: 만료(epoch ms) }`를 JSON → base64url로 만들고 서버 비밀키로 HMAC-SHA256 서명을 붙인다. 서명 불일치, 회원 불일치, 만료(24시간), 필터 지문 불일치는 모두 `400 INVALID_CURSOR`.
 - **필터 지문**: `SHA-256( {cardId, from, to, kind, merchant(소문자·trim 적용)} 를 키 순서대로 직렬화 )`.
 - **쿼리**: `WHERE (occurred_at, id) < (:t, :id) ... ORDER BY occurred_at DESC, id DESC LIMIT :limit + 1`. 한 건 더 읽어 다음 페이지가 있는지 판단한다.
 - **요약(`summary`)**: 같은 필터로 승인 합계·취소 합계·건수를 매 요청 집계한다 (기간 12개월 이내라 충분하다).
@@ -408,15 +409,25 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
 ## 9. 감사·보관
 
 - 상태 이력: 2.5절. 모든 상태 변경과 발급에 남긴다.
-- 계좌 암호 실패 이벤트(시각, 계좌, 결과, `request_id`)는 계좌 도메인에서 기록한다. 암호 값은 기록하지 않는다.
+- 간편비밀번호 확인 실패(오답 횟수·잠금)는 인증 파트가 `users.pin_failed_count`, `users.PIN_LOCKED_until`로 소유한다. 카드 서버는 기록하지 않는다.
 - 신청 개인정보 보관: 2.7절의 제안(거절 건 90일 뒤 비움)을 팀이 확정한다.
 - 멱등성 행 정리: 매시간 `expires_at < now` 삭제.
 
 ## 10. 데이터 적재·테스트 지원
 
-- **시드**: 기획서 [00 10절 기준 데이터](../../card/00-api-common.md#10-목업-데이터-기준표)(회원, 계좌, 카드, 거래)를 그대로 시드 코드·SQL로 옮긴다. 기준 데이터의 ID는 `card_001`처럼 사람이 읽는 문자열이어도 되며(`VARCHAR(40)`), 사전순 정렬만 위 8절 요구를 만족하면 된다.
+- **시드**: 기획서 [00 10절 기준 데이터](../../card/00-api-common.md#10-목업-데이터-기준표)(카드, 거래)를 그대로 시드 코드·SQL로 옮긴다. 카드·거래 ID는 `card_001`처럼 사람이 읽는 문자열이어도 되며(`VARCHAR(40)`), 사전순 정렬만 위 8절 요구를 만족하면 된다. 사용자·계좌는 [공통 기획서 7장](../../common/공통.md)의 공통 시드(id 고정)를 쓴다. 카드 시드는 그 id를 `user_id`, `payment_account_id`에 숫자로 넣는다.
+
+  | 기준 데이터 | 시드 |
+  |-------------|------|
+  | `member_001` ~ `member_004` | `users.id` 1 (user1 김하나) ~ 4 (user4 최아란, 만 19세 미만). user3은 간편비밀번호 미설정이라 먼저 S-07을 끝낸다 |
+  | `acc_001`, `acc_002` | 계좌 1 (저축예금, 잔액 1,500,000, `****1234`), 계좌 2 (저축예금, 500,000, `****5678`). 둘 다 user1 |
+  | (신규) | 계좌 3 (정기예금 3,000,000), 계좌 4 (정기적금 600,000). user1, 카드 결제 계좌가 될 수 없다 |
+  | `acc_900` | 계좌 5 (user2, 300,000, `****9000`) |
+  | `acc_401` | 계좌 6 (user4, 100,000, `****4010`) |
+
+  카드 소유: `card_001` ~ `card_005`는 `user_id = 1`, `card_900`은 `user_id = 2`. `payment_account_id`: `card_001`, `card_003`~`card_005` = 1, `card_002` = 2, `card_900` = 5. 결제 계좌 스냅샷의 은행명은 `AIM Bank`다. 이 값에서 `card_002`의 2026-11-25 청구액 900,000원은 계좌 2 잔액 500,000원보다 400,000원 많다 (03의 부족 금액).
 - **시계**: `Clock`을 주입한다. 테스트가 "오늘"을 `2026-11-04`로 두고, 03·05·07의 시나리오처럼 `2026-11-26`, `2027-02-01` 등으로 옮길 수 있어야 한다.
-- **계좌·회원 서비스 대역(fake)**: 잔액 설정, 계좌 암호 오답·잠금 상태 만들기, 장애 흉내(`503`)를 할 수 있게 만든다.
+- **계좌·인증 함수 대역(fake)**: 잔액 설정, `pin_verified(request)` 결과 정하기(통과 / 확인 이력 없음 / 5분 경과), 장애 흉내(`503`)를 할 수 있게 만든다.
 - **초기화**: 각 테스트는 기준 데이터에서 시작한다 (트랜잭션 롤백 또는 비우고 다시 적재).
 - **동시성 테스트**: 같은 카드에 정지 2건 동시(04 T22), 신용 신청 2건 동시(06 T40), 같은 `Idempotency-Key` 동시 2건.
 - 기획서의 테스트 시나리오(T-번호)를 통합 테스트로 옮기고, 계산 단위 테스트(03 T16~T19·T25~T27, 05 T11~T12)는 `computeCycles`의 단위 테스트로 만든다.
@@ -425,8 +436,8 @@ DB는 `READ COMMITTED`를 가정한다. 외부 호출(계좌 암호 검증)을 �
 
 | 항목 | 상대 | 내용 |
 |------|------|------|
-| 5.1 서버 간 계약 | 김연준(계좌), 로그인·회원 담당 | 함수 시그니처, 오류 매핑, 장애 시 동작 |
-| 2.10 `account_pin_state` | 김연준 | 계좌 도메인이 오류 횟수·잠금을 소유하고 4.4의 방식으로 구현 |
+| 5.1 서버 간 계약 | 김연준(계좌), 인증 담당 | `get_account`, `pin_verified`, `get_age`의 시그니처, 오류 매핑, 장애 시 동작 |
+| 5.1 `count_active_cards` | 김연준(계좌) | 저축예금 해지(ACC-15)에서 호출해 0이 아니면 거부 (공통.md 8장, 계좌.md에 아직 없음) |
+| 5.1 결제 계좌 후보 판정 | 김연준(계좌) | 저축예금이 아니거나 해지된 계좌를 카드 서버가 가려내는 방법. 제안: `get_account` 응답에 `productType`·`status`를 추가한다 (공통 기획서 8장) |
 | 2.6 할부 허용값 | 팀 | 0 또는 2~12개월 (개발 기본값) |
 | 2.7 개인정보 보관 | 팀 | 거절 신청 90일 뒤 비움 (제안), 해지 후 보관 기간 |
-| 로그인·회원 담당 | 팀 | `roles.md`에 로그인 담당이 없다. 토큰 발급·`members/me`를 누가 만드는지 정해야 한다 |

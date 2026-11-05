@@ -1,6 +1,6 @@
 # 5. 한도 조회
 
-[← 카드 기획서 개요](README.md) · 경로: `/card/limit` (카드 선택), `/card/:cardId/limit` (한도 화면)
+[← 카드 기획서 개요](README.md) · 경로: `/cards/limit` (카드 선택), `/cards/:cardId/limit` (한도 화면)
 
 ## 목적
 
@@ -18,14 +18,14 @@
 
 ## 화면 구성
 
-### 카드 선택 (`/card/limit`)
+### 카드 선택 (`/cards/limit`)
 
 - 카드 상세에서 들어오면 이 선택 화면을 거치지 않고 곧바로 그 카드의 한도 화면이 열린다.
-- 메뉴의 **한도 조회**로 들어오면 `/card/limit`에서 카드 선택 목록을 먼저 보여준다. 카드를 고르면 `/card/:cardId/limit`로 이동한다.
+- 메뉴의 **한도 조회**로 들어오면 `/cards/limit`에서 카드 선택 목록을 먼저 보여준다. 카드를 고르면 `/cards/:cardId/limit`로 이동한다.
 - 목록은 해지되지 않은 카드(`GET /cards`)다. 항목에는 카드 이름, 종류 뱃지, 끝 4자리, 상태 뱃지를 보여준다. 일시정지·분실 카드도 고를 수 있다.
 - 목록에 카드가 없으면 "조회할 수 있는 카드가 없습니다" 안내와 **카드 신청** 버튼을 보여준다.
 
-### 한도 화면 (`/card/:cardId/limit`)
+### 한도 화면 (`/cards/:cardId/limit`)
 
 | 카드 종류 | 표시 항목 |
 |-----------|-----------|
@@ -62,7 +62,7 @@
 
 공통 규칙은 [00-api-common.md](00-api-common.md), 이용 금액 계산은 [공통 6절](00-api-common.md#6-금액-계산-기준-공통)을 따른다. 예시는 [목업 기준표](00-api-common.md#10-목업-데이터-기준표) 값이다.
 
-### `GET /api/v1/cards/{cardId}/limit` — 한도 조회
+### `GET /api/cards/{cardId}/limit` — 한도 조회
 
 응답 `200` (신용카드 `card_002`, 오늘 2026-11-04)
 
@@ -106,7 +106,8 @@
 
 | HTTP | code | 언제 | `details` |
 |:----:|------|------|-----------|
-| 401 | `AUTH_REQUIRED` | 토큰 없음·만료 | - |
+| 401 | `LOGIN_REQUIRED` / `SESSION_EXPIRED` | 로그인 안 함 / 세션 만료 | - |
+| 403 | `PIN_SETUP_REQUIRED` | 간편비밀번호를 아직 설정하지 않음 | - |
 | 404 | `CARD_NOT_FOUND` | 없는 카드이거나 남의 카드 | - |
 | 409 | `CARD_STATE_INVALID` | 해지된 카드 | `currentStatus: "terminated"`, `allowedStatuses: ["active", "suspended", "lost"]` |
 
@@ -125,14 +126,14 @@
 
 ## 프론트 구현 메모
 
-- 라우트: `/card/limit` (카드 선택, 04와 공용 `CardPickerPage`), `/card/:cardId/limit` (한도 화면)
+- 라우트: `/cards/limit` (카드 선택, 04와 공용 `CardPickerPage`), `/cards/:cardId/limit` (한도 화면)
 - 컴포넌트: `LimitPage`, `CardSummaryHeader`, `CreditLimitPanel`(총 한도, 이용 금액, 잔여 한도, `UsageBar`), `DebitLimitPanel`
 - `UsageBar`는 `usageRate`를 그대로 폭(%)에 쓰고, 색만으로 상태를 전하지 않도록 퍼센트 숫자를 같이 보여준다. (`role="progressbar"`, `aria-valuenow`)
 - 한도 변경 버튼이나 입력창은 어디에도 두지 않는다.
 
 ## 테스트 시나리오
 
-특별한 말이 없으면 member_001, 오늘 2026-11-04.
+특별한 말이 없으면 user1(id 1), 오늘 2026-11-04.
 
 | ID | 구분 | 조건 | 동작 | 기대 결과 |
 |----|------|------|------|-----------|
@@ -142,7 +143,7 @@
 | T04 | API | `card_001` (체크) | 조회 | `credit: null`, `debit`: 1000000 / 3000000 |
 | T05 | API | `card_005` (해지) | 조회 | `409 CARD_STATE_INVALID`, `currentStatus: "terminated"` |
 | T06 | API | `card_900`, `card_999` | 조회 | `404 CARD_NOT_FOUND` |
-| T07 | API | 토큰 없음 | 조회 | `401 AUTH_REQUIRED` |
+| T07 | API | 로그인 안 함 / 세션 만료 | 조회 | `401 LOGIN_REQUIRED` / `401 SESSION_EXPIRED` |
 | T08 | API | 시계 2026-11-25 (결제일 당일), `card_002` | 조회 | `used: 1208000` (당일은 미결제) |
 | T09 | API | 시계 2026-11-26, `card_002` | 조회 | `used: 308000`, `remaining: 2692000`, `usageRate: 10.3` |
 | T10 | API | 시계 2027-02-01, `card_002` | 조회 | `used: 0`, `usageRate: 0` |
@@ -154,8 +155,8 @@
 | T16 | UI | `card_004` 한도 화면 | 진입 | 상단에 분실 뱃지, 값 정상 표시 |
 | T17 | UI | 모든 한도 화면 | 확인 | 한도를 바꾸는 버튼·입력이 없음 |
 | T18 | UI | `card_005` 주소로 직접 접근 | 진입 | "해지된 카드입니다" + 목록으로 버튼 |
-| T19 | UI | member_001 | 메뉴의 한도 조회 → `/card/limit` | 카드 선택 목록에 `card_001`~`card_004`(해지 `card_005` 제외), 일시정지·분실 카드도 선택 가능 |
-| T20 | UI | member_003 (카드 없음) | `/card/limit` | "조회할 수 있는 카드가 없습니다" + 카드 신청 버튼 |
+| T19 | UI | user1 | 메뉴의 한도 조회 → `/cards/limit` | 카드 선택 목록에 `card_001`~`card_004`(해지 `card_005` 제외), 일시정지·분실 카드도 선택 가능 |
+| T20 | UI | user3 (S-07 완료 후, 카드 없음) | `/cards/limit` | "조회할 수 있는 카드가 없습니다" + 카드 신청 버튼 |
 
 ## 완료 기준
 

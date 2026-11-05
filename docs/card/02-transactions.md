@@ -1,6 +1,6 @@
 # 2. 이용내역 조회
 
-[← 카드 기획서 개요](README.md) · 경로: `/card/transactions`
+[← 카드 기획서 개요](README.md) · 경로: `/cards/transactions`
 
 ## 목적
 
@@ -77,7 +77,7 @@
 
 공통 규칙은 [00-api-common.md](00-api-common.md)를 따른다. 예시는 [목업 기준표](00-api-common.md#10-목업-데이터-기준표) 값이다.
 
-### `GET /api/v1/card-transactions` — 이용내역 목록
+### `GET /api/card-transactions` — 이용내역 목록
 
 | 쿼리 | 타입 | 필수 | 설명 |
 |------|------|:----:|------|
@@ -122,7 +122,7 @@
 - 항목의 `cardType`(`credit` / `debit`)은 할부 표시 여부를 정하는 데 쓴다.
 - 항목의 `amount`는 항상 양수다. 화면에서 `kind`가 `cancel`이면 `-`를 붙여 보여준다.
 
-### `GET /api/v1/card-transactions/{transactionId}` — 거래 상세
+### `GET /api/card-transactions/{transactionId}` — 거래 상세
 
 취소 거래는 `original`(원 승인 거래 요약)을 함께 내려준다. 승인 거래는 `original: null`.
 
@@ -153,7 +153,8 @@
 |:----:|------|------|
 | 400 | `VALIDATION_FAILED` | 위 검증 실패 (`details.fields`에 필드별 사유, 여러 개면 모두 담음) |
 | 400 | `INVALID_CURSOR` | 커서가 깨졌거나, 이전 요청과 조회 조건(카드·기간·구분·가맹점)이 다름 |
-| 401 | `AUTH_REQUIRED` | 토큰 없음·만료 |
+| 401 | `LOGIN_REQUIRED` / `SESSION_EXPIRED` | 로그인하지 않았거나 세션 만료 (`details` 없음) |
+| 403 | `PIN_SETUP_REQUIRED` | 간편비밀번호를 아직 설정하지 않은 사용자 |
 | 404 | `CARD_NOT_FOUND` | `cardId`가 없거나 남의 카드 |
 | 404 | `TRANSACTION_NOT_FOUND` | 거래 상세에서 없는 거래이거나 남의 거래 |
 
@@ -184,7 +185,7 @@
 
 ## 프론트 구현 메모
 
-- 라우트: `/card/transactions` (카드 상세에서 올 때 `?cardId=card_002`)
+- 라우트: `/cards/transactions` (카드 상세에서 올 때 `?cardId=card_002`)
 - 컴포넌트: `TransactionsPage`, `TransactionFilter`, `TransactionSummary`, `TransactionGroup`(날짜별), `TransactionRow`, `TransactionDetailSheet`
 - 필터 상태는 주소의 쿼리스트링과 동기화해 새로고침·뒤로 가기에서 유지한다.
 - 기간 버튼 계산(오늘 = KST): 이번 달 = 이번 달 1일 ~ 오늘, 1개월 = 오늘 − 1개월 ~ 오늘, 3개월 = 오늘 − 3개월 ~ 오늘.
@@ -197,7 +198,7 @@
 
 | ID | 구분 | 조건 | 동작 | 기대 결과 |
 |----|------|------|------|-----------|
-| T01 | API | member_001 | `card_002`, 2026-10-01~10-31 조회 | 항목 4개, 순서 `tx_206`, `tx_204`, `tx_203`, `tx_202`, `summary` 912000 / 12000 / 900000 / 4, `nextCursor: null` |
+| T01 | API | user1 | `card_002`, 2026-10-01~10-31 조회 | 항목 4개, 순서 `tx_206`, `tx_204`, `tx_203`, `tx_202`, `summary` 912000 / 12000 / 900000 / 4, `nextCursor: null` |
 | T02 | API | 위와 같음 | `kind=cancel` 추가 | 항목 1개(`tx_204`), `approvalTotal: 0`, `cancelTotal: 12000`, `netTotal: -12000` |
 | T03 | API | 위와 같음 | `kind=approval` 추가 | 항목 3개, 취소 없음, `summary.cancelTotal: 0` |
 | T04 | API | 위와 같음 | `merchant=스타벅스` 추가 | 항목 2개(`tx_204`, `tx_203`) |
@@ -221,7 +222,7 @@
 | T22 | API | `GET /card-transactions/tx_204` | 상세 | `original.id: tx_203` |
 | T23 | API | `GET /card-transactions/tx_203` | 상세 | `original: null` |
 | T24 | API | `GET /card-transactions/tx_999` | 상세 | `404 TRANSACTION_NOT_FOUND` |
-| T25 | UI | member_001 | 이용내역 진입 (기본 조건) | 이번 달·전체 카드·전체 구분, `tx_207`만 표시 |
+| T25 | UI | user1 | 이용내역 진입 (기본 조건) | 이번 달·전체 카드·전체 구분, `tx_207`만 표시 |
 | T26 | UI | `card_002`, 10월 | 목록 확인 | 취소 건이 `-12,000원`과 취소 뱃지로 표시, 승인은 `12,000원` |
 | T27 | UI | 같은 화면 | 취소 건 클릭 | 원 승인(2026.10.18, 12,000원) 표시 |
 | T28 | UI | 필터 연속 변경 | 이전 요청이 나중에 도착 | 마지막으로 바꾼 조건의 결과만 보임 |

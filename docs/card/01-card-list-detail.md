@@ -1,6 +1,6 @@
 # 1. 내 카드 목록·상세
 
-[← 카드 기획서 개요](README.md) · 경로: `/card` (목록), `/card/:cardId` (상세)
+[← 카드 기획서 개요](README.md) · 경로: `/cards` (목록), `/cards/:cardId` (상세)
 
 ## 목적
 
@@ -14,9 +14,9 @@
 
 ## 화면 구성
 
-### 목록 (`/card`)
+### 목록 (`/cards`)
 
-- 상단: 제목 "내 카드", 카드 장수 (예: 3장), **카드 신청** 버튼 (→ [06-issuance.md](06-issuance.md), `/card/apply`). 해지된 카드는 장수에 포함하지 않는다 (분실 카드는 포함한다. 신청 가능 장수를 세는 기준([06](06-issuance.md))은 분실도 제외하므로 두 숫자가 다를 수 있다)
+- 상단: 제목 "내 카드", 카드 장수 (예: 3장), **카드 신청** 버튼 (→ [06-issuance.md](06-issuance.md), `/cards/apply`). 해지된 카드는 장수에 포함하지 않는다 (분실 카드는 포함한다. 신청 가능 장수를 세는 기준([06](06-issuance.md))은 분실도 제외하므로 두 숫자가 다를 수 있다)
 - 카드 목록 (세로 나열). 한 카드 항목에 표시할 것:
   - 카드 이름, 종류 뱃지(신용 / 체크), 번호 끝 4자리
   - 상태 뱃지: 일시정지, 분실, 해지 (정상이면 표시하지 않음)
@@ -24,7 +24,7 @@
 - 해지된 카드는 기본 목록에서 숨긴다. 목록 아래 **해지된 카드 보기**를 누르면 해지 뱃지와 함께 펼쳐진다 (해지가 없으면 이 줄 자체를 숨김)
 - 카드 항목을 누르면 상세로 이동
 
-### 상세 (`/card/:cardId`)
+### 상세 (`/cards/:cardId`)
 
 | 영역 | 내용 |
 |------|------|
@@ -64,7 +64,7 @@
 
 공통 규칙(인증, 오류 형식, 값 형식)은 [00-api-common.md](00-api-common.md)를 따른다. 예시는 [목업 기준표](00-api-common.md#10-목업-데이터-기준표) 값이다.
 
-### `GET /api/v1/cards` — 카드 목록
+### `GET /api/cards` — 카드 목록
 
 | 쿼리 | 타입 | 기본값 | 설명 |
 |------|------|--------|------|
@@ -73,7 +73,7 @@
 - 정렬: 상태 순(`active` → `suspended` → `lost`), 같은 상태는 `issuedAt` 내림차순. 해지된 카드는 마지막에 `terminatedAt` 내림차순.
 - `terminatedCount`: 해지된 카드의 총 수. `includeTerminated` 값과 관계없이 항상 내려준다 ("해지된 카드 보기" 표시 여부 판단용).
 
-응답 `200` (`includeTerminated=false`, member_001)
+응답 `200` (`includeTerminated=false`, user1)
 
 ```json
 {
@@ -87,7 +87,7 @@
 }
 ```
 
-### `GET /api/v1/cards/{cardId}` — 카드 상세
+### `GET /api/cards/{cardId}` — 카드 상세
 
 응답 `200` (신용카드 `card_002`)
 
@@ -100,7 +100,7 @@
   "expiry": "06/30",
   "status": "active",
   "issuedAt": "2025-06-01",
-  "paymentAccount": { "accountId": "acc_002", "bankName": "AIM Bank", "accountMasked": "****5678" },
+  "paymentAccount": { "accountId": 2, "bankName": "AIM Bank", "accountMasked": "****5678" },
   "paymentDay": 25,
   "limit": { "total": 3000000, "used": 1208000, "remaining": 1792000, "usageRate": 40.3 },
   "debitLimit": null,
@@ -131,14 +131,16 @@
 | HTTP | code | 언제 |
 |:----:|------|------|
 | 400 | `VALIDATION_FAILED` | `includeTerminated`가 `true`/`false`가 아님 (`reason: INVALID_FORMAT`) |
-| 401 | `AUTH_REQUIRED` | 토큰 없음·만료 |
+| 401 | `LOGIN_REQUIRED` / `SESSION_EXPIRED` | 로그인하지 않았거나 세션 만료 (`details` 없음) |
+| 403 | `PIN_SETUP_REQUIRED` | 간편비밀번호를 아직 설정하지 않은 사용자 |
 | 404 | `CARD_NOT_FOUND` | 없는 카드이거나 남의 카드 |
 
 ## 예외·오류 처리
 
 | 상황 | API 결과 | 화면 동작 |
 |------|----------|-----------|
-| 로그인 안 됨·토큰 만료 | `401` | 로그인 화면으로 이동, 로그인 후 돌아옴 |
+| 로그인 안 됨·세션 만료 | `401 LOGIN_REQUIRED` / `SESSION_EXPIRED` | `/login?next=<원래 경로>`로 이동, 로그인 후 돌아옴 |
+| 간편비밀번호 미설정 | `403 PIN_SETUP_REQUIRED` | 간편비밀번호 설정 화면(S-07)으로 이동 |
 | 없는 카드, 남의 카드, 주소를 직접 고쳐 접근 | `404 CARD_NOT_FOUND` | "카드를 찾을 수 없습니다" + 목록으로 버튼 |
 | 보유 카드 0장 | `200`, `items: []` | 빈 상태 + **카드 신청** 버튼 |
 | 해지된 카드만 있음 | `items: []`, `terminatedCount > 0` | 빈 상태 + 카드 신청 버튼 + "해지된 카드 보기" |
@@ -149,7 +151,7 @@
 
 ## 프론트 구현 메모
 
-- 라우트: `/card` (목록), `/card/:cardId` (상세)
+- 라우트: `/cards` (목록), `/cards/:cardId` (상세)
 - 컴포넌트: `CardListPage`, `CardListItem`, `StatusBadge`, `TerminatedCardsToggle`, `CardDetailPage`, `CardSummary`, `PaymentInfo`, `LimitInfo`, `ActionLinks`
 - 조회 캐시 키: `['cards', includeTerminated]`, `['card', cardId]`. 04·06·07의 쓰기가 성공하면 둘 다 무효화한다.
 - "해지된 카드 보기"를 처음 누를 때 `includeTerminated=true`로 다시 조회하고, 응답의 해지 카드만 아래 영역에 나눠 그린다. 장수 표시는 해지 제외 개수다.
@@ -159,25 +161,26 @@
 
 | ID | 구분 | 조건 | 동작 | 기대 결과 |
 |----|------|------|------|-----------|
-| T01 | API | member_001 | `GET /cards` | 순서 `card_002`, `card_001`, `card_003`, `card_004`, `terminatedCount: 1` |
-| T02 | API | member_001 | `GET /cards?includeTerminated=true` | 마지막 항목이 `card_005`, `terminatedAt` 값 있음 |
-| T03 | API | member_001 | `GET /cards/card_002` | `limit` 3,000,000 / 1,208,000 / 1,792,000 / `usageRate: 40.3`, `paymentDay: 25`, `debitLimit: null` |
-| T04 | API | member_001 | `GET /cards/card_001` | `paymentDay: null`, `limit: null`, `debitLimit` 있음 |
-| T05 | API | member_001 | `GET /cards/card_004` | `lostAt`, `lostReason: "lost"` 값 있음, `availableActions`는 `view_transactions`, `view_limit`, `terminate` |
-| T06 | API | member_001 | `GET /cards/card_005` | `200`, `availableActions: ["view_transactions"]` |
-| T07 | API | member_001 | `GET /cards/card_003` | `suspendedAt` 값 있음, `availableActions`에 `resume` 포함·`suspend` 없음 |
-| T08 | API | member_001 | `GET /cards/card_900` (남의 카드) | `404 CARD_NOT_FOUND` |
-| T09 | API | member_001 | `GET /cards/card_999` | `404 CARD_NOT_FOUND` |
-| T10 | API | 토큰 없음 | `GET /cards` | `401 AUTH_REQUIRED` |
-| T11 | API | member_001 | `GET /cards?includeTerminated=abc` | `400 VALIDATION_FAILED`, `INVALID_FORMAT` |
-| T12 | API | member_003 | `GET /cards` | `items: []`, `terminatedCount: 0` |
-| T13 | UI | member_001 | 목록 진입 | 장수 "4장", 카드 번호 끝 4자리만 표시, 해지 카드는 숨김 |
-| T14 | UI | member_001 | "해지된 카드 보기" 클릭 | `card_005`가 해지 뱃지와 함께 펼쳐짐 |
-| T15 | UI | member_001 | `card_002` 상세 | 한도 막대 40.3%, 결제일 "매월 25일", 정지·분실·한도·이용내역·해지 바로가기 |
-| T16 | UI | member_001 | `card_001` 상세 | 결제일·신용 한도 줄이 없음 |
-| T17 | UI | member_003 | 목록 진입 | 빈 상태와 카드 신청 버튼 |
+| T01 | API | user1 | `GET /cards` | 순서 `card_002`, `card_001`, `card_003`, `card_004`, `terminatedCount: 1` |
+| T02 | API | user1 | `GET /cards?includeTerminated=true` | 마지막 항목이 `card_005`, `terminatedAt` 값 있음 |
+| T03 | API | user1 | `GET /cards/card_002` | `limit` 3,000,000 / 1,208,000 / 1,792,000 / `usageRate: 40.3`, `paymentDay: 25`, `debitLimit: null` |
+| T04 | API | user1 | `GET /cards/card_001` | `paymentDay: null`, `limit: null`, `debitLimit` 있음 |
+| T05 | API | user1 | `GET /cards/card_004` | `lostAt`, `lostReason: "lost"` 값 있음, `availableActions`는 `view_transactions`, `view_limit`, `terminate` |
+| T06 | API | user1 | `GET /cards/card_005` | `200`, `availableActions: ["view_transactions"]` |
+| T07 | API | user1 | `GET /cards/card_003` | `suspendedAt` 값 있음, `availableActions`에 `resume` 포함·`suspend` 없음 |
+| T08 | API | user1 | `GET /cards/card_900` (남의 카드) | `404 CARD_NOT_FOUND` |
+| T09 | API | user1 | `GET /cards/card_999` | `404 CARD_NOT_FOUND` |
+| T10 | API | 로그인 안 함 (세션 없음) | `GET /cards` | `401 LOGIN_REQUIRED` |
+| T11 | API | user1 | `GET /cards?includeTerminated=abc` | `400 VALIDATION_FAILED`, `INVALID_FORMAT` |
+| T12 | API | user3 (S-07 완료 후) | `GET /cards` | `items: []`, `terminatedCount: 0` |
+| T13 | UI | user1 | 목록 진입 | 장수 "4장", 카드 번호 끝 4자리만 표시, 해지 카드는 숨김 |
+| T14 | UI | user1 | "해지된 카드 보기" 클릭 | `card_005`가 해지 뱃지와 함께 펼쳐짐 |
+| T15 | UI | user1 | `card_002` 상세 | 한도 막대 40.3%, 결제일 "매월 25일", 정지·분실·한도·이용내역·해지 바로가기 |
+| T16 | UI | user1 | `card_001` 상세 | 결제일·신용 한도 줄이 없음 |
+| T17 | UI | user3 (S-07 완료 후) | 목록 진입 | 빈 상태와 카드 신청 버튼 |
 | T18 | UI | 응답 지연 | 상세 진입 | 로딩 표시 후 값이 채워짐, 10초 넘으면 오류 상태 |
-| T19 | UI | member_001 | `card_004` (분실) 상세 | 안내 영역에 "분실 신고된 카드입니다", 신고 일시, 사유 "분실", 재발급 안내. 바로가기는 이용내역·한도 조회·카드 해지뿐 |
+| T19 | UI | user1 | `card_004` (분실) 상세 | 안내 영역에 "분실 신고된 카드입니다", 신고 일시, 사유 "분실", 재발급 안내. 바로가기는 이용내역·한도 조회·카드 해지뿐 |
+| T20 | API | user3 (간편비밀번호 미설정, S-07 전) | `GET /cards` | `403 PIN_SETUP_REQUIRED`, 화면은 S-07로 이동 |
 
 ## 완료 기준
 
