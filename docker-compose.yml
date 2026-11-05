@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: aimbank-db
+    environment:
+      POSTGRES_DB: aimbank
+      POSTGRES_USER: aimbank
+      POSTGRES_PASSWORD: aimbank
+      TZ: UTC
+    ports:
+      - "5433:5432"   # 로컬에 이미 5432 를 쓰는 DB 가 있어도 겹치지 않게 5433
+    volumes:
+      - aimbank-pg:/var/lib/postgresql/data
+volumes:
+  aimbank-pg:
