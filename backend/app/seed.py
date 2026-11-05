@@ -114,7 +114,7 @@ def seed(db: Session) -> None:
     db.flush()
     db.add_all([
         m.CategoryBudget(budget_id="bud_001", category="배달", amount=90_000),
-        m.LedgerSettings(member_id=DEMO_MEMBER_ID, mode="roast"),
+        m.LedgerSettings(member_id=DEMO_MEMBER_ID, mode="roast", roast_level=2),
     ])
 
     # 대출 상품 (화면 시안의 상품 목록)
