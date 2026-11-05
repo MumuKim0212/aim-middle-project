@@ -1,3 +1,4 @@
+import { apiFetch } from './lib/http'
 // GET /api/home 응답 타입 (backend/app/main.py 와 맞춘다)
 export type LoanProduct = {
   id: string
@@ -20,7 +21,7 @@ export type MyLoan = {
 }
 
 export type HomeData = {
-  member: { id: string; name: string }
+  user: { id: number; name: string }
   accounts: {
     totalBalance: number
     items: { id: string; bankName: string; masked: string; balance: number; primary: boolean }[]
@@ -42,7 +43,7 @@ export type HomeData = {
 }
 
 export async function fetchHome(): Promise<HomeData> {
-  const res = await fetch('/api/home')
+  const res = await apiFetch('/api/home')
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
