@@ -266,15 +266,20 @@ def _history(db: Session, member_id: str, back: int) -> dict:
 REASON_KO = {"MONTH_BUDGET": "월 예산", "BALANCE": "예상 잔액"}
 
 
-def _entry(msg: m.ChatMessage, reply: m.ChatMessage | None = None) -> dict:
+def _entry(msg: m.ChatMessage, replies: list[m.ChatMessage] | None = None) -> dict:
     ctx = msg.context_json or {}
-    rctx = (reply.context_json or {}) if reply else {}
+    # 같은 질문에 모드마다 답변이 있을 수 있다(모드를 바꿔 다시 물어본 경우). 모드별로 가장 최근 것을 담는다.
+    answers: dict[str, dict] = {}
+    for r in replies or []:
+        rmode = (r.context_json or {}).get("mode")
+        if rmode:
+            answers[rmode] = {"text": r.content, "source": (r.context_json or {}).get("source", "llm")}
     return {
         "id": msg.id, "text": msg.content, "intent": msg.intent,
         "amount": ctx.get("amount"), "category": ctx.get("category", DEFAULT_CATEGORY),
         "check": ctx.get("check"), "history": ctx.get("history"),
-        # LLM 이 쓴 답변(검증 통과분). 없으면 화면이 템플릿 문장을 쓴다.
-        "answer": {"text": reply.content, "mode": rctx.get("mode"), "source": rctx.get("source", "llm")} if reply else None,
+        # LLM 이 쓴 답변(검증 통과분)을 모드별로. 화면은 현재 모드의 것만 쓰고, 없으면 현재 모드의 템플릿 문장을 쓴다.
+        "answers": answers,
     }
 
 
@@ -337,26 +342,60 @@ def _answer_facts(intent: str, text: str, ctx: dict, s: dict) -> dict:
     return facts
 
 
-def _latest_session(db: Session, member_id: str) -> m.ChatSession | None:
-    return db.scalar(select(m.ChatSession).where(m.ChatSession.member_id == member_id)
-                     .order_by(m.ChatSession.created_at.desc(), m.ChatSession.id.desc()))
+def _mode_session(db: Session, member_id: str, mode: str) -> m.ChatSession | None:
+    """이 모드의 가장 최근 대화방. 모드는 방의 첫 메시지(context_json.mode)에 적어 두므로 테이블은 그대로다."""
+    sessions = db.scalars(select(m.ChatSession).where(m.ChatSession.member_id == member_id)
+                          .order_by(m.ChatSession.created_at.desc(), m.ChatSession.id.desc()).limit(40)).all()
+    for sess in sessions:
+        first = db.scalar(select(m.ChatMessage).where(m.ChatMessage.session_id == sess.id)
+                          .order_by(m.ChatMessage.created_at, m.ChatMessage.id))
+        if first and (first.context_json or {}).get("mode") == mode:
+            return sess
+    return None
+
+
+def _new_session(db: Session, member_id: str, mode: str) -> m.ChatSession:
+    """새 대화방. 빈 방은 모드를 알 수 없으니 첫 메시지로 모드 표시(role='system')를 남긴다."""
+    sess = m.ChatSession(member_id=member_id)
+    db.add(sess)
+    db.flush()
+    db.add(m.ChatMessage(session_id=sess.id, role="system", content="새 대화", context_json={"mode": mode}))
+    db.commit()
+    return sess
+
+
+def _body_mode(db: Session, member_id: str, mode: str | None) -> str:
+    settings = db.get(m.LedgerSettings, member_id)
+    return mode if mode in MODES else (settings.mode if settings else "basic")
 
 
 def _pair(rows: list[m.ChatMessage]) -> list[dict]:
     """시간순 메시지에서 사용자 질문마다 그 답변(assistant)을 짝지어 돌려준다."""
-    replies = {(r.context_json or {}).get("reply_to"): r for r in rows if r.role == "assistant"}
+    replies: dict[str, list[m.ChatMessage]] = {}
+    for r in rows:
+        if r.role == "assistant":
+            replies.setdefault((r.context_json or {}).get("reply_to"), []).append(r)
     return [_entry(r, replies.get(r.id)) for r in rows if r.role == "user"]
 
 
 def _recent_turns(db: Session, session_id: str) -> list[dict]:
     rows = db.scalars(select(m.ChatMessage).where(m.ChatMessage.session_id == session_id)
                       .order_by(m.ChatMessage.created_at.desc(), m.ChatMessage.id.desc()).limit(6)).all()
-    return [{"q": e["text"], **({"a": e["answer"]["text"]} if e["answer"] else {})} for e in _pair(list(reversed(rows)))]
+    # 직전 질문만 준다(후속 질문의 말이 이어지도록). 직전 답변 문장은 주지 않는다 — 모델이 그대로 베껴 쓴다.
+    return [{"q": e["text"]} for e in _pair(list(reversed(rows)))]
+
+
+def _already_said(db: Session, session_id: str, mode: str) -> list[str]:
+    """이 모드로 이미 한 답변(최근 3개). 같은 문장을 되풀이하지 않게 '반복 금지' 목록으로만 쓴다."""
+    rows = db.scalars(select(m.ChatMessage).where(m.ChatMessage.session_id == session_id, m.ChatMessage.role == "assistant")
+                      .order_by(m.ChatMessage.created_at.desc(), m.ChatMessage.id.desc()).limit(30)).all()
+    return [r.content for r in rows if (r.context_json or {}).get("mode") == mode][:3]
 
 
 @router.get("/chat")
-def get_chat(member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
-    session = _latest_session(db, member.id)
+def get_chat(mode: str | None = None, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    """이 모드의 대화만 돌려준다(모드마다 대화가 따로다)."""
+    session = _mode_session(db, member.id, _body_mode(db, member.id, mode))
     if not session:
         return {"entries": []}
     rows = db.scalars(select(m.ChatMessage).where(m.ChatMessage.session_id == session.id)
@@ -375,11 +414,8 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "EMPTY_TEXT")
-    session = _latest_session(db, member_id)
-    if not session:
-        session = m.ChatSession(member_id=member_id)
-        db.add(session)
-        db.flush()
+    mode = _body_mode(db, member_id, body.mode)
+    session = _mode_session(db, member_id, mode) or _new_session(db, member_id, mode)
     recent = _recent_turns(db, session.id)
 
     u = understand(text)
@@ -390,7 +426,7 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
                          .order_by(m.ChatMessage.created_at.desc(), m.ChatMessage.id.desc()))
         category = (last.context_json or {}).get("category", DEFAULT_CATEGORY) if last else DEFAULT_CATEGORY
 
-    ctx: dict = {"amount": u.amount, "category": category, "nlu": u.source}
+    ctx: dict = {"amount": u.amount, "category": category, "nlu": u.source, "mode": mode}
     if u.intent == "purchase" and u.amount is not None:
         ctx["check"] = judge_payment(db, member_id, u.amount, category, record=False)
     if u.intent in ("last", "prev2"):
@@ -401,11 +437,11 @@ def _prepare_turn(db: Session, member_id: str, body: ChatIn) -> dict:
     db.commit()  # 질문은 먼저 저장한다(답변을 만드는 도중 연결이 끊겨도 기록은 남는다)
 
     settings = db.get(m.LedgerSettings, member_id)
-    mode = body.mode if body.mode in MODES else (settings.mode if settings else "basic")
     level = body.roastLevel if body.roastLevel in (1, 2, 3) else (settings.roast_level if settings else 1)
     # 판정·숫자는 위에서 코드가 확정했다. LLM 은 이 사실을 현재 말투로 풀어 쓸 뿐이다.
     facts = _answer_facts(u.intent, text, ctx, build_summary(db, member_id, this_month()))
-    return {"session": session, "msg": msg, "mode": mode, "level": level, "recent": recent, "facts": facts}
+    said = _already_said(db, session.id, mode)
+    return {"session": session, "msg": msg, "mode": mode, "level": level, "recent": recent, "said": said, "facts": facts}
 
 
 def _save_reply(db: Session, t: dict, text: str) -> m.ChatMessage:
@@ -420,8 +456,22 @@ def _save_reply(db: Session, t: dict, text: str) -> m.ChatMessage:
 def ask(body: ChatIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
     """한 번에 답변을 돌려준다(스트리밍을 안 쓰는 호출용)."""
     t = _prepare_turn(db, member.id, body)
-    answer = generate_answer(t["facts"], t["mode"], t["level"], t["recent"])
-    return _entry(t["msg"], _save_reply(db, t, answer["text"]) if answer else None)
+    answer = generate_answer(t["facts"], t["mode"], t["level"], t["recent"], t["said"])
+    reply = _save_reply(db, t, answer["text"]) if answer else None
+    return _entry(t["msg"], [reply] if reply else None)
+
+
+class NewChatIn(BaseModel):
+    mode: str
+
+
+@router.post("/chat/new", status_code=201)
+def new_chat(body: NewChatIn, member: m.Member = Depends(current_member), db: Session = Depends(get_db)):
+    """이 모드의 대화를 새로 시작한다(다른 모드의 대화는 그대로다)."""
+    if body.mode not in MODES:
+        raise HTTPException(400, "INVALID_MODE")
+    _new_session(db, member.id, body.mode)
+    return {"entries": []}
 
 
 def _sse(event: str, data: dict) -> str:
@@ -448,13 +498,15 @@ def ask_stream(body: ChatIn, member: m.Member = Depends(current_member)):
             yield _sse("meta", _entry(t["msg"]))
             final = None
             if answer_enabled():
-                for ev, payload in stream_answer(t["facts"], t["mode"], t["level"], t["recent"]):
+                for ev, payload in stream_answer(t["facts"], t["mode"], t["level"], t["recent"], t["said"]):
                     if ev == "delta":
                         yield _sse("delta", {"t": payload})
+                    elif ev == "reset":
+                        yield _sse("reset", {})
                     elif ev == "final":
                         final = payload
             reply = _save_reply(db, t, final) if final else None
-            yield _sse("done", _entry(t["msg"], reply))
+            yield _sse("done", _entry(t["msg"], [reply] if reply else None))
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

@@ -64,9 +64,13 @@ _SYSTEM = """너는 은행 가계부 앱의 '답변 작성기'다. 아래 '사�
 6. needAmount 가 true 면 얼마를 쓸 건지 금액을 되물어라.
 7. 항목 이름과 값을 정확히 짝지어 써라. '월 예산'(전체)과 '분류 예산'(배달 예산 등), '전체 지출'과 '분류 지출'을 혼동하지 마라.
    사실에 '설정 없음'이라고 된 예산이나 사실에 없는 항목은 언급하지 마라.
-8. 사실에 '질문'이 '잡담 또는 의도 불명확'이면 숫자를 쓰지 말고, 말투를 지킨 채 한두 문장으로 대꾸한 뒤
-   잔액·예산·지난달 지출·결제 가능 여부를 물어보라고 가계부 쪽으로 이끌어라.
-9. recent 는 직전 대화다. 말이 자연스럽게 이어지도록만 참고하고, 거기 나온 숫자는 쓰지 마라.
+8. 사실에 '질문'이 '잡담 또는 의도 불명확'이면 숫자를 쓰지 말고, 사용자가 한 말에 말투를 지켜 직접 반응하라
+   (인사에는 인사, 시비에는 시비, 엉뚱한 말에는 엉뚱하다고, 칭찬에는 칭찬에 대한 반응). 한두 문장이면 충분하다.
+   가계부 얘기로 이끄는 것은 가끔만, 그것도 '잔액·예산·지난달 지출·결제 가능 여부'를 전부 나열하지 말고
+   한 가지만 슬쩍 짚어라. 목록을 나열하는 문장 틀을 반복하지 마라.
+9. recent 는 직전 질문들이다. 말이 자연스럽게 이어지도록만 참고하고, 거기 나온 숫자는 쓰지 마라.
+10. alreadySaid 는 이미 한 답변들이다. 그 문장·표현·말버릇을 그대로 되풀이하지 말고, 같은 뜻이라도 매번 새로운 표현으로 말해라.
+    사용자가 같은 말을 반복해도 똑같이 대꾸하지 마라.
 
 말투: {tone}
 
@@ -154,8 +158,9 @@ def check_text(text: str, facts: dict, mode: str, roast_level: int) -> str | Non
     """문장(또는 지금까지 만든 앞부분)이 통과하면 None, 막히면 사유."""
     if len(text) > MAX_LEN:
         return "length"
-    if any(w in text for w in banned_words(mode, roast_level)):
-        return "banned word"
+    hit = next((w for w in banned_words(mode, roast_level) if w in text), None)
+    if hit:
+        return f"금칙어 '{hit}' 사용"
     low = text.lower()
     if any(re.search(rf"(?<![a-z]){w}(?![a-z])", low) for w in LEAKED):
         return "leaked keyword"
@@ -193,16 +198,19 @@ def _system(mode: str, roast_level: int, retry_reason: str | None = None) -> str
     tone = f"{ROAST_BASE} {ROAST_LEVEL.get(roast_level, ROAST_LEVEL[2])}" if mode == "roast" else TONE[mode]
     text = _SYSTEM.replace("{tone}", tone)
     if retry_reason:  # 직전 시도가 검증에서 거절됐다. 무엇이 잘못됐는지 알려 준다.
-        text += "\n\n[주의] 직전 답변이 검증에서 거절됐다(사유: " + retry_reason + "). 말투·강도·금지 사항·사실의 숫자를 정확히 지켜서 다시 써라."
+        text += "\n\n[주의] 직전 답변이 검증에서 거절됐다(사유: " + retry_reason + "). 그 말을 빼고, 말투·강도·금지 사항·사실의 숫자를 정확히 지켜서 처음부터 다시 써라."
     return text
 
 
-def stream_answer(facts: dict, mode: str, roast_level: int, recent: list[dict]) -> Iterator[tuple[str, str]]:
-    """('delta', 새 글자) 를 계속 내보내고, 성공하면 ('final', 전체 문장), 쓸 수 없으면 ('fail', 사유) 로 끝난다."""
+def stream_answer(facts: dict, mode: str, roast_level: int, recent: list[dict],
+                  said: list[str] | None = None) -> Iterator[tuple[str, str]]:
+    """('delta', 새 글자) 를 계속 내보내고, 성공하면 ('final', 전체 문장), 쓸 수 없으면 ('fail', 사유) 로 끝난다.
+
+    검증에 걸리면 한 번 다시 쓴다. 이미 내보낸 글자가 있으면 ('reset', '') 로 화면을 비우게 한 뒤 다시 시작한다."""
     if not enabled() or (mode != "roast" and mode not in TONE):
         yield ("fail", "disabled")
         return
-    payload = json.dumps({"facts": facts, "recent": recent[-3:]}, ensure_ascii=False)
+    payload = json.dumps({"facts": facts, "recent": recent[-3:], "alreadySaid": (said or [])[-3:]}, ensure_ascii=False)
     temperature = 0.95 if mode == "roast" else 0.7
 
     why_last: str | None = None
@@ -238,11 +246,13 @@ def stream_answer(facts: dict, mode: str, roast_level: int, recent: list[dict]) 
             yield ("final", text)
             return
         except _Reject as e:
-            log.warning("LLM 답변 검증 실패(%s) %d번째, 이미 보낸 글자 %d", e, attempt, emitted)
+            log.warning("LLM 답변 검증 실패(%s) %d번째, 이미 보낸 글자 %d", e, attempt, emitted)  # 사유에는 우리 금칙어 목록의 단어만 들어간다
             why_last = str(e)
-            if emitted > 0 or attempt == 2:  # 이미 화면에 나갔으면 다시 시도하지 않는다
+            if attempt == 2:
                 yield ("fail", str(e))
                 return
+            if emitted > 0:
+                yield ("reset", "")  # 이미 나간 글자는 화면에서 지우고 처음부터 다시 쓴다
         except LlmUnavailable as e:
             log.warning("LLM 답변 실패, 템플릿으로 대체: %s", e)
             yield ("fail", str(e))
@@ -250,10 +260,11 @@ def stream_answer(facts: dict, mode: str, roast_level: int, recent: list[dict]) 
     yield ("fail", "exhausted")
 
 
-def generate_answer(facts: dict, mode: str, roast_level: int, recent: list[dict]) -> dict | None:
+def generate_answer(facts: dict, mode: str, roast_level: int, recent: list[dict],
+                    said: list[str] | None = None) -> dict | None:
     """스트림을 끝까지 모아서 {text, mode, source} 로 돌려준다(스트리밍을 안 쓰는 호출용). 쓸 수 없으면 None."""
     final = None
-    for ev, payload in stream_answer(facts, mode, roast_level, recent):
+    for ev, payload in stream_answer(facts, mode, roast_level, recent, said):
         if ev == "final":
             final = payload
     return {"text": final, "mode": mode, "source": "llm"} if final else None

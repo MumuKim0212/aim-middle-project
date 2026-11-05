@@ -5,6 +5,7 @@ import {
   type Summary, type TxList,
 } from './api'
 import { CATEGORIES } from './copy'
+import type { Mode } from './api'
 
 const todayText = () => {
   const d = new Date()
@@ -13,12 +14,13 @@ const todayText = () => {
 const num = (v: string) => Number(v.replace(/[^\d]/g, '')) || 0
 
 type Props = {
+  mode: Mode
   summary: Summary
   /** 지출·예산이 바뀌면 요약을 다시 불러온다 */
   reload: () => Promise<void>
 }
 
-export default function HistoryTab({ summary, reload }: Props) {
+export default function HistoryTab({ mode, summary, reload }: Props) {
   const [month, setMonth] = useState(todayText().slice(0, 7))
   const [data, setData] = useState<TxList | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +52,7 @@ export default function HistoryTab({ summary, reload }: Props) {
         </div>
         {error && <div className="lg-empty">내역을 불러오지 못했어. ({error})</div>}
         {!error && !data && <div className="lg-empty">불러오는 중…</div>}
-        {data && <Report data={data} onChanged={refresh} />}
+        {data && <Report data={data} mode={mode} dailyLimit={Math.round(summary.budget.total / 30)} onChanged={refresh} />}
       </div>
 
       <AddForm summary={summary} onAdded={async (m) => { setMonth(m); await refresh() }} />
@@ -59,10 +61,12 @@ export default function HistoryTab({ summary, reload }: Props) {
   )
 }
 
-function Report({ data, onChanged }: { data: TxList; onChanged: () => Promise<void> }) {
+function Report({ data, mode, dailyLimit, onChanged }: { data: TxList; mode: Mode; dailyLimit: number; onChanged: () => Promise<void> }) {
   const { report, items } = data
   const sign = report.delta >= 0 ? '+' : '−'
   const [busy, setBusy] = useState<string | null>(null)
+  const [day, setDay] = useState<string | null>(null) // 달력에서 고른 날짜. 없으면 한 달 전체
+  const shown = day ? items.filter((x) => x.date === day) : items
 
   async function remove(id: string) {
     setBusy(id)
@@ -89,9 +93,15 @@ function Report({ data, onChanged }: { data: TxList; onChanged: () => Promise<vo
         </div>
       </div>
 
+      <Calendar month={data.month} items={items} mode={mode} dailyLimit={dailyLimit} day={day} onPick={(d) => setDay((cur) => (cur === d ? null : d))} />
+
+      <div className="lg-listhead">
+        <b>{day ? `${Number(day.slice(5, 7))}월 ${Number(day.slice(8))}일 내역` : '이달 전체 내역'}</b>
+        {day && <button type="button" onClick={() => setDay(null)}>전체 보기</button>}
+      </div>
       <div className="lg-list">
-        {items.length === 0 && <div className="lg-empty">이 달의 카드 지출 내역이 없어.</div>}
-        {items.map((x) => (
+        {shown.length === 0 && <div className="lg-empty">{day ? '이 날은 카드 지출이 없어.' : '이 달의 카드 지출 내역이 없어.'}</div>}
+        {shown.map((x) => (
           <div className="lg-tx" key={x.id}>
             <time>{x.date.slice(5).replace('-', '/')}</time>
             <div>
@@ -108,6 +118,39 @@ function Report({ data, onChanged }: { data: TxList; onChanged: () => Promise<vo
         ))}
       </div>
     </>
+  )
+}
+
+const WEEK = ['일', '월', '화', '수', '목', '금', '토']
+
+/** 월 달력: 칸마다 그날 쓴 돈(환불은 뺀 순지출)을 적고, 많이 쓴 날일수록 진하게 칠한다. 날짜를 누르면 그날 내역만 본다. */
+function Calendar({ month, items, mode, dailyLimit, day, onPick }: { month: string; items: TxList['items']; mode: Mode; dailyLimit: number; day: string | null; onPick: (d: string) => void }) {
+  const [y, mo] = month.split('-').map(Number)
+  const lead = new Date(y, mo - 1, 1).getDay()
+  const days = new Date(y, mo, 0).getDate()
+  const spent: Record<string, number> = {}
+  for (const x of items) spent[x.date] = (spent[x.date] ?? 0) - x.amount // amount 는 지출이 음수
+  const max = Math.max(1, ...Object.values(spent))
+  const today = todayText()
+  const cells: (number | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)]
+  return (
+    <div className="lg-cal" aria-label={`${y}년 ${mo}월 달력`}>
+      {WEEK.map((w, i) => <span key={w} className={`wk${i === 0 ? ' sun' : ''}`}>{w}</span>)}
+      {cells.map((d, i) => {
+        if (d === null) return <i key={`b${i}`} />
+        const key = `${month}-${String(d).padStart(2, '0')}`
+        const v = spent[key] ?? 0
+        const heat = v > 0 ? Math.min(4, Math.ceil((v / max) * 4)) : 0
+        return (
+          <button key={key} type="button" data-heat={heat} className={`${day === key ? 'sel' : ''}${key === today ? ' today' : ''}`} aria-pressed={day === key} onClick={() => onPick(key)}>
+            <em>{d}</em>
+            {v > 0 && <small>{mode === 'numbers' ? v.toLocaleString('ko-KR') : v >= 10000 ? `${Math.round(v / 1000) / 10}만` : won(v).replace('원', '')}</small>}
+            {mode === 'roast' && v > dailyLimit && <span className="mk" aria-label="하루 예산 초과">🔥</span>}
+            {mode === 'kind' && v === 0 && key <= today && <span className="mk" aria-label="무지출">✓</span>}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 

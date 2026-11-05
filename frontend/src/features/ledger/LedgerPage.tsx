@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { won } from '../../format'
-import { checkPayment, fetchChat, fetchSettings, fetchSummary, saveSettings, streamChat, type Mode, type Summary } from './api'
+import { checkPayment, fetchChat, fetchSettings, fetchSummary, newChat, saveSettings, streamChat, type Mode, type Summary } from './api'
+import AnswerCard from './AnswerCard'
 import HistoryTab from './HistoryTab'
 import {
   ANSWER_LABEL, CATEGORIES, HERO, MODE_LABEL, MODES, REWARD_TITLE, WARNING_TITLE,
@@ -29,38 +30,53 @@ const ROAST_LEVELS = [
 ]
 
 /** 답변을 만들어 보여 주는 중인 질문. target 은 서버에서 받은 글자, shown 은 화면에 풀어 놓은 만큼이다. */
-type Live = { question: string; target: string; shown: string; final: Entry | null }
+type Live = { question: string; mode: Mode; target: string; shown: string; final: Entry | null }
 
-/** 서버(LLM)가 쓴 답변이 있으면 그 문장을, 없으면 템플릿 문장을 쓴다. */
+/**
+ * 라벨과 문장은 항상 "지금 선택한 모드" 기준이다.
+ * 그 모드로 쓴 LLM 답변이 있으면 그것을, 없으면(다른 모드로 물어봤던 질문 등) 그 모드의 템플릿 문장을 쓴다.
+ */
 function answerOf(mode: Mode, e: Entry, s: Summary): { label: string; text: string } {
-  if (e.answer?.text) return { label: ANSWER_LABEL[e.answer.mode ?? mode], text: e.answer.text }
-  return { label: ANSWER_LABEL[mode], text: answerFor(mode, e, s) }
+  const llm = e.answers?.[mode]?.text
+  return { label: ANSWER_LABEL[mode], text: llm ?? answerFor(mode, e, s) }
 }
 
 export default function LedgerPage() {
   const [mode, setModeState] = useState<Mode>('roast')
   const [summary, setSummary] = useState<Summary | null>(null)
   const [initial, setInitial] = useState<Entry | null>(null)
-  const [entries, setEntries] = useState<Entry[]>([])
+  const [chats, setChats] = useState<Partial<Record<Mode, Entry[]>>>({}) // 모드마다 대화가 따로다
   const [tab, setTab] = useState<Tab>('summary')
   const [question, setQuestion] = useState('')
   const [roastLevel, setRoastLevel] = useState(2) // 싸가지 모드 욕설 강도
   const [live, setLive] = useState<Live | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchSummary()
       .then(async (s) => {
         const ex = s.examples
-        const [st, chk, chat] = await Promise.all([fetchSettings(), checkPayment(ex.typical, ex.category, false), fetchChat()])
+        const [st, chk, chat] = await Promise.all([fetchSettings(), checkPayment(ex.typical, ex.category, false), fetchSettings().then((x) => fetchChat(x.mode))])
         setSummary(s)
         setModeState(st.mode)
         setRoastLevel(st.roastLevel)
-        setEntries(chat) // 저장된 대화를 이어서 보여준다
+        setChats({ [st.mode]: chat }) // 저장된 대화를 이어서 보여준다
         setInitial({ text: sampleText(s), intent: 'purchase', amount: ex.typical, category: ex.category, check: chk })
       })
       .catch((e: Error) => setError(e.message))
   }, [])
+
+  const entries = chats[mode] ?? []
+  const addEntry = (md: Mode, e: Entry) => setChats((p) => ({ ...p, [md]: [...(p[md] ?? []), e].slice(-24) }))
+
+  // 모드를 바꾸면 그 모드의 대화를 불러온다(한 번 불러온 모드는 다시 부르지 않는다)
+  useEffect(() => {
+    if (chats[mode]) return
+    let alive = true
+    fetchChat(mode).then((c) => alive && setChats((p) => ({ ...p, [mode]: c }))).catch(() => alive && setChats((p) => ({ ...p, [mode]: [] })))
+    return () => { alive = false }
+  }, [mode, chats])
 
   // 물어보기 탭에서 새 답변이 생기면 맨 아래(채팅바 위)로 스크롤한다
   const liveActive = live !== null
@@ -69,6 +85,11 @@ export default function LedgerPage() {
     if (tab !== 'chat') return
     document.querySelector('.lg-pair:last-child')?.scrollIntoView({ behavior: liveActive ? 'auto' : 'smooth', block: 'end' })
   }, [tab, entries.length, liveActive, shownLen])
+
+  // 답변이 끝나면 입력창으로 포커스를 돌려준다(바로 다음 질문을 칠 수 있게)
+  useEffect(() => {
+    if (!liveActive) inputRef.current?.focus({ preventScroll: true })
+  }, [liveActive])
 
   // 받은 글자를 일정한 속도로 풀어서 보여 준다. Gemini 는 문장 덩어리로 보내서 그대로 찍으면 뚝뚝 끊긴다.
   useEffect(() => {
@@ -86,9 +107,9 @@ export default function LedgerPage() {
   // 끝까지 보여 줬으면 확정된 대화로 옮긴다(답변이 없으면 바로 옮겨서 템플릿 문장을 보여 준다)
   useEffect(() => {
     if (!live?.final) return
-    if (live.final.answer && live.shown.length < live.target.length) return
+    if (live.final.answers?.[live.mode] && live.shown.length < live.target.length) return
     const entry = live.final
-    setEntries((p) => [...p, entry].slice(-24))
+    addEntry(live.mode, entry)
     setLive(null)
   }, [live])
 
@@ -101,8 +122,15 @@ export default function LedgerPage() {
   }
 
   const changeMode = (md: Mode) => {
+    if (live) return // 답변을 만드는 중에는 모드를 바꾸지 않는다(답변이 엉뚱한 모드 대화에 붙지 않게)
     setModeState(md)
     saveSettings({ mode: md }).catch(() => undefined) // 저장 실패해도 화면 전환은 유지
+  }
+
+  /** 이 모드의 대화를 비우고 새로 시작한다(다른 모드의 대화는 그대로) */
+  const startNewChat = () => {
+    if (live) return
+    newChat(mode).then(() => setChats((p) => ({ ...p, [mode]: [] }))).catch((e: Error) => setError(e.message))
   }
 
   const changeLevel = (v: number) => {
@@ -115,11 +143,12 @@ export default function LedgerPage() {
     const text = raw.trim() || (summary ? sampleText(summary) : '')
     if (!text || live) return // 앞 질문의 답변을 만드는 중이면 기다린다
     if (tab === 'summary' && !opts?.stay) setTab('chat') // 요약에서 물어보면 대화가 보이는 물어보기 탭으로 간다
-    setLive({ question: text, target: '', shown: '', final: null })
+    setLive({ question: text, mode, target: '', shown: '', final: null })
     setQuestion('')
     try {
       await streamChat(text, mode, roastLevel, {
         onDelta: (t) => setLive((l) => (l ? { ...l, target: l.target + t } : l)),
+        onReset: () => setLive((l) => (l ? { ...l, target: '', shown: '' } : l)), // 다시 쓰는 중: 스피너로 돌아간다
         onDone: (entry) => setLive((l) => (l ? { ...l, final: entry } : l)),
       })
     } catch (e) {
@@ -156,7 +185,7 @@ export default function LedgerPage() {
         <span>가계부 말투 · 화면 모드</span>
         <div className="lg-modes" role="group" aria-label="모드 선택">
           {MODES.map((k) => (
-            <button key={k} type="button" aria-pressed={mode === k} onClick={() => changeMode(k)}>
+            <button key={k} type="button" aria-pressed={mode === k} disabled={!!live} onClick={() => changeMode(k)}>
               {MODE_LABEL[k]}
             </button>
           ))}
@@ -188,7 +217,10 @@ export default function LedgerPage() {
       {tab === 'chat' && (
         <section className="lg-content">
           <div className="lg-panel">
-            <h2>가계부에 물어보기</h2>
+            <div className="lg-panelhead">
+              <h2>가계부에 물어보기</h2>
+              <button type="button" className="lg-newchat" disabled={!!live || entries.length === 0} onClick={startNewChat}>＋ 새 대화</button>
+            </div>
             <p>
               아래 입력창에서 금액과 항목을 말해 봐. “지난달엔?”, “그럼 1만 원은?”처럼 이어서 물어볼 수도 있어.
             </p>
@@ -201,7 +233,7 @@ export default function LedgerPage() {
                     <div className="lg-msg user">{e.text}</div>
                     <div className="lg-msg assistant">
                       <small>{a.label}</small>
-                      {a.text}
+                      <AnswerCard entry={e} summary={summary} text={a.text} />
                     </div>
                   </div>
                 )
@@ -221,7 +253,7 @@ export default function LedgerPage() {
       )}
 
       {tab === 'history' && (
-        <HistoryTab summary={summary} reload={reloadSummary} />
+        <HistoryTab mode={mode} summary={summary} reload={reloadSummary} />
       )}
 
       {tab !== 'history' && (
@@ -239,7 +271,7 @@ export default function LedgerPage() {
           <div className="lg-chat">
             <label htmlFor="lg-question" aria-label="소비 질문">▤</label>
             <input
-              id="lg-question" value={question} placeholder={sampleText(summary)} autoComplete="off" disabled={!!live}
+              id="lg-question" ref={inputRef} value={question} placeholder={sampleText(summary)} autoComplete="off" readOnly={!!live}
               onChange={(e) => setQuestion(e.target.value)}
             />
             <button type="submit" aria-label="질문하기" disabled={!!live}>↗</button>
@@ -321,13 +353,25 @@ function SummaryTab({
     }
   }
 
+  const rewardBlock = (
+    <div className="lg-reward">
+      <b>{REWARD_TITLE[mode]}</b>
+      <span>{rewardBody(mode, summary.examples.typical)}</span>
+    </div>
+  )
+
   return (
-    <section className="lg-content">
+    <section className="lg-content lg-summary">
       <div className="lg-answer" role="status" aria-live="polite">
         <small>{answer.label}</small>
         {answer.busy && !answer.typing ? <Thinking /> : <span>{answer.text}{answer.busy && <i className="lg-caret" aria-hidden />}</span>}
       </div>
 
+      {mode === 'numbers' && <NumbersTable summary={summary} />}
+
+      {mode === 'kind' && <section className="lg-cheer">{rewardBlock}</section>}
+
+      <div className="lg-duo">
       <section className="lg-account">
         <small>대표계좌 · {summary.account ? `${summary.account.bankName} ${summary.account.masked}` : '없음'}</small>
         <strong>{won(m.balance)}</strong>
@@ -348,6 +392,7 @@ function SummaryTab({
           <span>월 예산 <b>{won(m.budget)}</b></span>
         </div>
       </section>
+      </div>
 
       <section className="lg-warning">
         <div className="top">
@@ -355,15 +400,12 @@ function SummaryTab({
           <b>{warningLevelLabel(mode, level)}</b>
         </div>
         <p>{riskText(mode, level, m)}</p>
+        {mode !== 'kind' && rewardBlock}
       </section>
 
-      <section className="lg-reward">
-        <b>{REWARD_TITLE[mode]}</b>
-        <span>{rewardBody(mode, summary.examples.typical)}</span>
-      </section>
-
+      <details className="lg-fold" key={mode}>
+      <summary><span>결제 전 확인</span> <small>금액 넣고 확인</small></summary>
       <form className="lg-panel" onSubmit={(e) => { e.preventDefault(); void pay(Number(amount.replace(/[^\d]/g, '')), category) }}>
-        <h2>결제 전 확인</h2>
         <div className="lg-fields">
           <label className="lg-field">금액
             <input type="number" min={1} placeholder={`예: ${summary.examples.typical}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
@@ -381,7 +423,9 @@ function SummaryTab({
       <button type="button" className="lg-demopay" onClick={() => void pay(summary.examples.large, '기타')}>
         {won(summary.examples.large)} 결제 시뮬레이션 →
       </button>
+      </details>
 
+      <div className="lg-flow">
       <div className="lg-head">
         <h2>지출 흐름</h2>
         <button type="button" onClick={goHistory}>예산·계좌 설정 ›</button>
@@ -402,6 +446,27 @@ function SummaryTab({
           )
         })}
       </div>
+      </div>
     </section>
+  )
+}
+
+/** 숫자만 모드: 카드 대신 한 장의 표로 모아 보여 준다 */
+function NumbersTable({ summary: s }: { summary: Summary }) {
+  const m = metrics(s)
+  const rows: [string, string][] = [
+    ['계좌 잔액', won(m.balance)],
+    ['카드대금 반영 후 예상', won(m.projected)],
+    ['월 예산', won(m.budget)],
+    ['쓴 돈', `${won(m.spent)} (${m.ratio}%)`],
+    ['남은 예산', won(m.remaining)],
+    ['배달 지출 / 예산', `${won(m.delivery)} / ${won(m.deliveryBudget)} (${m.deliveryRatio}%)`],
+  ]
+  return (
+    <table className="lg-ntable">
+      <tbody>
+        {rows.map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}
+      </tbody>
+    </table>
   )
 }

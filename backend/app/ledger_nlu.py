@@ -135,8 +135,13 @@ def understand(text: str) -> Understanding:
         else:
             # 규칙이 금액을 확실히 읽어냈으면 규칙 값을 쓴다(숫자는 코드가 더 정확하다)
             rule_amount = parse_amount(text)
+            intent = llm.intent
+            # "3만원..." 처럼 금액만 말한 후속 답은 문장만 보면 잡담 같지만, 금액을 읽었으니 결제 질문으로 본다
+            # (카테고리는 직전 질문에서 이어받는다)
+            if intent == "chat" and rule_amount is not None:
+                intent = "purchase"
             amount = rule_amount if rule_amount is not None else llm.amount
-            if llm.intent != "purchase":
+            if intent != "purchase":
                 amount = None  # 금액은 결제 가능 여부를 물을 때만 의미가 있다
-            return Understanding(llm.intent, amount, llm.category, "llm")
+            return Understanding(intent, amount, llm.category, "llm")
     return understand_rules(text)

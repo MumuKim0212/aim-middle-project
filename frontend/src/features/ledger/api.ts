@@ -133,17 +133,19 @@ export type Entry = {
   category: string
   check?: Check | null
   history?: History | null
-  /** LLM 이 쓴 답변(서버 검증 통과분). 없으면 화면이 템플릿 문장을 쓴다. */
-  answer?: { text: string; mode: Mode | null; source: string } | null
+  /** LLM 이 쓴 답변(서버 검증 통과분)을 모드별로. 화면은 현재 모드의 것만 쓰고, 없으면 현재 모드의 템플릿 문장을 쓴다. */
+  answers?: Partial<Record<Mode, { text: string; source: string }>>
 }
 
-export const fetchChat = (): Promise<Entry[]> =>
-  fetch('/api/ledger/chat').then((r) => json<{ entries: Entry[] }>(r)).then((d) => d.entries)
+export const fetchChat = (mode: Mode): Promise<Entry[]> =>
+  fetch(`/api/ledger/chat?mode=${mode}`).then((r) => json<{ entries: Entry[] }>(r)).then((d) => d.entries)
 
 export type StreamHandlers = {
   onMeta?: (entry: Entry) => void
   /** 답변 글자 조각이 도착할 때마다 */
   onDelta: (text: string) => void
+  /** 서버가 검증에서 걸려 처음부터 다시 쓸 때: 지금까지 보여 준 글자를 지운다 */
+  onReset?: () => void
   /** 저장까지 끝난 최종 대화 한 건. answer 가 없으면 화면이 템플릿 문장을 쓴다. */
   onDone: (entry: Entry) => void
 }
@@ -176,6 +178,7 @@ export async function streamChat(text: string, mode: Mode, roastLevel: number, h
     const payload = JSON.parse(data)
     if (event === 'meta') h.onMeta?.(payload as Entry)
     else if (event === 'delta') h.onDelta((payload as { t: string }).t)
+    else if (event === 'reset') h.onReset?.()
     else if (event === 'done') {
       finished = true
       h.onDone(payload as Entry)
@@ -195,3 +198,11 @@ export async function streamChat(text: string, mode: Mode, roastLevel: number, h
   }
   if (!finished) throw new Error('STREAM_ENDED')
 }
+
+/** 이 모드의 새 대화를 시작한다. 다른 모드의 대화는 그대로다. */
+export const newChat = (mode: Mode): Promise<unknown> =>
+  fetch('/api/ledger/chat/new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  }).then((r) => json<unknown>(r))

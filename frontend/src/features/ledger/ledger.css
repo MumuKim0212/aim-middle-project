@@ -14,7 +14,7 @@
 .lg button { font: inherit; }
 
 /* 탭 */
-.lg-tabs { height: 42px; display: grid; grid-template-columns: repeat(3, 1fr); background: #fff; border-bottom: 1px solid #e6edf2; }
+.lg-tabs { position: sticky; top: 56px; z-index: 4; height: 42px; display: grid; grid-template-columns: repeat(3, 1fr); background: #fff; border-bottom: 1px solid #e6edf2; }
 .lg-tabs button { border: 0; border-bottom: 3px solid transparent; background: #fff; color: #8998a6; font-size: 12px; font-weight: 750; }
 .lg-tabs button.on { border-bottom-color: #1688dc; color: #0876c7; }
 
@@ -173,3 +173,114 @@
   .lg-spinner, .lg-shimmer, .lg-caret { animation: none; }
   .lg-shimmer { color: var(--muted); background: none; }
 }
+
+/* 물어보기 제목 줄 + 새 대화 */
+.lg-panelhead { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lg-panelhead h2 { margin: 0; }
+.lg-newchat { flex: none; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 999px; background: transparent; color: var(--accent); font-size: 11px; font-weight: 800; }
+.lg-newchat:disabled { opacity: 0.4; cursor: default; }
+.lg-modes button:disabled { opacity: 0.6; cursor: default; }
+
+/* 소비 내역 달력 */
+.lg-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 14px; }
+.lg-cal .wk { padding: 2px 0 4px; color: var(--muted); font-size: 10px; font-weight: 800; text-align: center; }
+.lg-cal .wk.sun { color: var(--alert-ink); }
+.lg-cal button { position: relative; min-height: 46px; padding: 4px 2px; border: 1px solid transparent; border-radius: 8px; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.lg-cal button em { font-style: normal; font-size: 11px; font-weight: 800; }
+.lg-cal button small { font-size: 9px; font-weight: 800; color: var(--accent); letter-spacing: -0.04em; }
+.lg-cal button[data-heat='1'] { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.lg-cal button[data-heat='2'] { background: color-mix(in srgb, var(--accent) 28%, var(--panel)); }
+.lg-cal button[data-heat='3'] { background: color-mix(in srgb, var(--accent) 45%, var(--panel)); }
+.lg-cal button[data-heat='4'] { background: color-mix(in srgb, var(--accent) 65%, var(--panel)); }
+.lg-cal button[data-heat='3'] small, .lg-cal button[data-heat='4'] small { color: var(--ink); }
+.lg-cal button.today { border-color: var(--muted); }
+.lg-cal button.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.lg-listhead { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; }
+.lg-listhead button { border: 0; background: transparent; color: var(--accent); font-size: 11px; font-weight: 800; }
+
+/* 답변 단락: 배지 → 한마디 → 숫자 (말풍선 안에서 읽기 편하게) */
+.lg-msg.assistant { padding: 13px 14px; }
+.lg-card { display: grid; gap: 11px; }
+.lg-card p { margin: 0; font-size: 12.5px; line-height: 1.75; word-break: keep-all; }
+.lg-badge { justify-self: start; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 850; }
+.lg-badge.ok { background: color-mix(in srgb, #2fa36b 22%, var(--panel)); color: #2fa36b; }
+.lg-badge.held { background: var(--alert); color: var(--alert-ink); }
+.lg-card dl { display: grid; margin: 0; border-top: 1px solid var(--border); }
+.lg-card dl div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 11.5px; }
+.lg-card dt { color: var(--muted); }
+.lg-card dd { margin: 0; white-space: nowrap; font-size: 12.5px; font-weight: 850; text-align: right; }
+.lg-card dd.bad { color: var(--alert-ink); }
+.lg-chat input:read-only { opacity: 0.6; }
+
+/* 요약 탭 압축: 계좌·예산 두 칸, 경고에 미션을 합침, 결제 전 확인은 접기 */
+.lg-hero { height: 170px; }
+.lg-hero-content { padding: 14px 19px; }
+.lg-hero h1 { margin: 6px 0 4px; font-size: 25px; }
+.lg-hero .badge { margin-top: 10px; }
+.lg[data-mode='numbers'] .lg-hero { height: 150px; }
+.lg-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lg-duo .lg-account, .lg-duo .lg-budget { margin: 0; padding: 12px; min-width: 0; }
+.lg-duo .lg-account strong { margin: 4px 0 8px; font-size: 19px; }
+.lg-duo .lg-budget strong { margin: 4px 0 8px; font-size: 19px; }
+.lg-duo .sub { flex-direction: column; gap: 2px; font-size: 9.5px; }
+.lg-warning { margin-top: 8px; padding: 12px 13px; }
+.lg-warning .lg-reward { margin: 8px 0 0; padding: 8px 0 0; border: 0; border-top: 1px dashed currentColor; background: transparent; color: inherit; opacity: 0.9; }
+.lg-warning .lg-reward b { color: inherit; }
+.lg-fold { margin-top: 8px; }
+.lg-fold > summary { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); font-size: 13px; font-weight: 850; cursor: pointer; list-style: none; }
+.lg-fold > summary::-webkit-details-marker { display: none; }
+.lg-fold > summary::after { content: '＋'; margin-left: auto; color: var(--accent); }
+.lg-fold[open] > summary::after { content: '－'; }
+.lg-fold > summary small { color: var(--muted); font-size: 10px; font-weight: 700; }
+.lg-fold[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.lg-fold > .lg-panel { margin-top: 0; border-top: 0; border-radius: 0 0 12px 12px; }
+.lg-head { margin: 12px 0 7px; }
+.lg-fold > summary span { white-space: nowrap; }
+
+/* ───── 모드별 구성 ───── */
+.lg-summary { display: flex; flex-direction: column; }
+.lg-summary > * { flex: none; }
+.lg-summary .lg-answer { order: 0; }
+
+/* 싸가지: 경고·결제 확인이 먼저, 예산을 크게, 계좌는 아래 */
+.lg[data-mode='roast'] .lg-summary .lg-warning { order: 1; margin-top: 0; border-width: 2px; border-color: #d54d44; }
+.lg[data-mode='roast'] .lg-summary .lg-warning .top strong { font-size: 15px; }
+.lg[data-mode='roast'] .lg-summary .lg-fold { order: 2; }
+.lg[data-mode='roast'] .lg-summary .lg-duo { order: 3; grid-template-columns: 1fr; margin-top: 8px; }
+.lg[data-mode='roast'] .lg-duo .lg-budget { order: -1; }
+.lg[data-mode='roast'] .lg-duo .lg-budget strong { font-size: 30px; }
+.lg[data-mode='roast'] .lg-summary .lg-flow { order: 4; }
+.lg[data-mode='roast'] .lg-duo .sub { flex-direction: row; }
+
+/* 착한: 응원이 맨 위 큰 카드, 경고는 부드럽게 */
+.lg-cheer .lg-reward { margin: 0 0 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--alert); color: var(--alert-ink); font-size: 12px; line-height: 1.6; }
+.lg-cheer .lg-reward b { font-size: 13px; color: inherit; }
+.lg[data-mode='kind'] .lg-warning { border-radius: 16px; font-size: 12px; }
+.lg[data-mode='kind'] .lg-duo > * { border-radius: 18px; }
+
+/* 숫자만: 표 중심, 카드(계좌·예산)는 숨김 */
+.lg-ntable { width: 100%; margin-bottom: 8px; border-collapse: collapse; border: 1px solid var(--border); background: var(--panel); font: 700 11px ui-monospace, Consolas, monospace; }
+.lg-ntable th, .lg-ntable td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.lg-ntable th { color: var(--muted); font-weight: 700; text-align: left; }
+.lg-ntable td { text-align: right; }
+.lg[data-mode='numbers'] .lg-duo { display: none; }
+.lg[data-mode='numbers'] .lg-warning .lg-reward { display: none; }
+.lg[data-mode='numbers'] .lg-warning p { font-family: ui-monospace, Consolas, monospace; }
+
+/* 모드별 답변 카드 */
+.lg[data-mode='roast'] .lg-badge { border-radius: 2px; }
+.lg[data-mode='roast'] .lg-card p { font-weight: 700; }
+.lg[data-mode='kind'] .lg-card p { font-size: 13.5px; line-height: 1.85; }
+.lg[data-mode='kind'] .lg-card dl { padding: 4px 12px; border: 0; border-radius: 14px; background: var(--bg); }
+.lg[data-mode='kind'] .lg-card dl div:last-child { border-bottom: 0; }
+.lg[data-mode='numbers'] .lg-card { font-family: ui-monospace, Consolas, monospace; }
+.lg[data-mode='numbers'] .lg-card dl { order: -1; }
+.lg[data-mode='numbers'] .lg-card .lg-badge { order: -2; border-radius: 0; }
+.lg[data-mode='numbers'] .lg-card p { color: var(--muted); font-size: 11px; }
+/* 모드별 달력 표시 */
+.lg-cal .mk { position: absolute; top: 2px; right: 3px; font-size: 9px; line-height: 1; }
+.lg[data-mode='kind'] .lg-cal .mk { color: #2fa36b; font-weight: 900; }
+.lg[data-mode='numbers'] .lg-cal button { border-radius: 0; font-family: ui-monospace, Consolas, monospace; }
+.lg[data-mode='numbers'] .lg-cal button small { font-size: 8px; letter-spacing: -0.06em; }
+.lg[data-mode='roast'] .lg-cal button { border-radius: 2px; }
+.lg[data-mode='kind'] .lg-cal button { border-radius: 14px; }
