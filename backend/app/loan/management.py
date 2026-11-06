@@ -10,16 +10,20 @@ from .database import Database, now_iso
 from .errors import DuplicateRequest, NotFound, ValidationError
 from .ids import new_id
 from .security import sha256
+from ..accounts import service as account_service
 
 
-def accounts(db: Database) -> list[dict]:
+def accounts(db: Database, user_id: int | None = None) -> list[dict]:
+    """user_id 를 주면 그 회원의 대출만(서버), 없으면 전부(콘솔·시험)."""
     rows = db.all("""SELECT a.*, p.name AS product_name, p.business_type FROM loan_account a
-                     JOIN product_catalog p ON p.product_id = a.product_id ORDER BY a.start_date DESC, a.rowid DESC""")
+                     JOIN product_catalog p ON p.product_id = a.product_id
+                     WHERE (?::bigint IS NULL OR a.user_id = ?) ORDER BY a.start_date DESC, a.updated_at DESC, a.contract_no DESC""", (user_id, user_id))
     return [dict(r) for r in rows]
 
 
-def account(db: Database, contract_no: str) -> dict:
-    r = db.one("SELECT * FROM loan_account WHERE contract_no = ?", (contract_no,))
+def account(db: Database, contract_no: str, user_id: int | None = None) -> dict:
+    """내 대출만 찾는다. 없는 계약과 타인의 계약은 똑같이 NotFound 다(공통.md 3장)."""
+    r = db.one("SELECT * FROM loan_account WHERE contract_no = ? AND (?::bigint IS NULL OR user_id = ?)", (contract_no, user_id, user_id))
     if r is None:
         raise NotFound("대출 계좌를 찾을 수 없습니다.")
     return dict(r)
@@ -55,20 +59,25 @@ def prepay_quote(acc: dict, principal: int) -> dict:
     return {"principal": principal, "fee": fee, "interest": interest, "total": principal + fee + interest, "fee_free": el >= 36}
 
 
-def prepay(db: Database, contract_no: str, principal: int, idempotency_key: str) -> dict:
+def prepay(db: Database, contract_no: str, principal: int, idempotency_key: str, account_id: int | None = None) -> dict:
+    """중도상환. 서버에서는 내 저축예금에서 총액을 출금한다(account_id, 없으면 대출의 자동이체 계좌)."""
     acc = account(db, contract_no)
     _active(acc)
+    pay_from = account_id or acc["debit_account_id"]
+    if acc["user_id"] is not None and pay_from is None:
+        raise ValidationError("출금할 계좌를 선택해 주세요.")
     if db.one("SELECT 1 FROM prepay_request WHERE idempotency_key = ?", (idempotency_key,)):
         raise DuplicateRequest()
     q = prepay_quote(acc, principal)
     with db.tx():
+        txn = account_service.loan_repay(db.session, acc["user_id"], pay_from, q["total"], contract_no, "대출 중도상환") if acc["user_id"] is not None else None
         db.insert("prepay_request", {"prepay_id": new_id("ppy"), "contract_no": contract_no, "principal": principal, "fee": q["fee"],
                                      "interest": q["interest"], "total": q["total"], "idempotency_key": idempotency_key, "executed_at": now_iso()})
         new_bal = acc["balance"] - principal
         db.update("loan_account", {"contract_no": contract_no}, {"balance": new_bal, "status": "PAID_OFF" if new_bal == 0 else "ACTIVE", "updated_at": now_iso()})
         db.insert("payment_txn", {"payment_id": new_id("pay"), "contract_no": contract_no, "due_date": date.today().isoformat(), "amount": q["total"],
                                   "allocation": {"interest": q["interest"], "fee": q["fee"], "principal": principal}, "method": "PREPAY",
-                                  "result": "DONE", "account_txn_ref": None, "paid_at": now_iso()})
+                                  "result": "DONE", "account_txn_ref": txn, "paid_at": now_iso()})
         if new_bal == 0:
             db.execute("UPDATE collateral SET status = 'RELEASED', released_at = ? WHERE contract_no = ? AND status = 'SET'", (now_iso(), contract_no))
         db.audit("loan_account", contract_no, "PREPAY", {"principal": principal})
@@ -103,6 +112,10 @@ def withdraw(db: Database, contract_no: str) -> dict:
     ok = date.today() <= deadline
     refund = acc["principal"] + to_won(D(acc["principal"]) * D(str(acc["rate"])) / 100 * 3 / 365) + (K.STAMP_DUTY_CUSTOMER if acc["principal"] > K.STAMP_DUTY_THRESHOLD else 0)
     with db.tx():
+        if ok and acc["user_id"] is not None:  # 받은 대출금이 들어간 내 계좌에서 되돌려 받는다. 잔액이 모자라면 철회가 거부된다
+            dsb = db.one("SELECT account_id FROM disbursement WHERE contract_no = ? AND account_id IS NOT NULL", (contract_no,))
+            if dsb:
+                account_service.loan_repay(db.session, acc["user_id"], dsb["account_id"], refund, contract_no, "대출 청약철회 반환")
         db.insert("withdrawal_request", {"withdrawal_id": new_id("wdr"), "contract_no": contract_no, "deadline": deadline.isoformat(),
                                          "refund_total": refund, "status": "ACCEPTED" if ok else "REFUSED", "requested_at": now_iso()})
         if ok:

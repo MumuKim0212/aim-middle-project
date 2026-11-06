@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from datetime import date
 
+from sqlalchemy.orm import Session
+
 from . import catalog as C
 from .database import Database, now_iso
+from .scenarios import run_one
 from .security import sha256
 
 
@@ -24,10 +27,10 @@ def seed(db: Database) -> None:
             db.insert("consent_code", {"code": code, "title": title, "required_for": req, "form_no": form})
         for code, (grp, msg, fix) in C.REASON_CODES.items():
             db.insert("reason_code", {"code": code, "code_group": grp, "message": msg, "fixable": int(fix)})
-        for p in C.PRODUCTS:
+        for i, p in enumerate(C.PRODUCTS):
             pid, btype, kind, cat, sub, name, mx, mn, rmin, rmax, terms, repay, target = p
             db.insert("product_catalog", {"product_id": pid, "business_type": btype, "inst_kind": kind, "collateral_type": cat,
-                                          "name": name, "subtitle": sub, "target_desc": target, "max_amount": mx, "min_amount": mn,
+                                          "sort_no": i, "name": name, "subtitle": sub, "target_desc": target, "max_amount": mx, "min_amount": mn,
                                           "rate_min": rmin, "rate_max": rmax, "term_options": terms, "repay_options": repay,
                                           "rules": {}, "sale_from": "2026-01-01", "sale_to": None, "version": 1, "created_at": ts})
         for key, val, unit, desc in C.REG_PARAMS:
@@ -53,3 +56,18 @@ def seed(db: Database) -> None:
             db.insert("demo_scenario", {"scenario_key": key, "label": s["label"], "profile": s["profile"],
                                         "existing_loans": s["loans"], "defects": s["defects"]})
         db.audit("system", "seed", "SEED", {"date": today})
+
+
+DEMO_LOANS = [("g1", "KIM_OK"), ("r1", "KIM_OK")]  # 화면 시연용 내 대출(신용대출 1건, 대환 1건)
+
+
+def setup(session: Session, demo_user_id: int) -> None:
+    """서버 시작 때 호출한다: 대출 테이블을 만들고(IF NOT EXISTS) 기준 데이터를 넣고, 시연 회원에게 대출 2건을 만들어 준다.
+    시연 대출은 실제 신청 흐름(체험 고객 KIM_OK)을 그대로 실행해 만든다. 계좌 입금은 하지 않아 계좌 시드 잔액을 바꾸지 않는다."""
+    db = Database(session)
+    db.init_schema()
+    seed(db)
+    if not db.one("SELECT 1 FROM loan_account WHERE user_id = ?", (demo_user_id,)):
+        for pid, scn in DEMO_LOANS:
+            run_one(db, pid, scn, user_id=demo_user_id)
+    session.commit()

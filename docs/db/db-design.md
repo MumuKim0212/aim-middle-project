@@ -97,16 +97,16 @@
 
 ### 3.4 `transactions` (계좌 거래, 계좌.md 7.3)
 
-`id` BIGINT · `account_id` FK · `type`(`open`/`deposit`/`transfer_in`/`transfer_out`/`interest`/`close`, `card_payment`는 이름만 예약) · `amount` BIGINT(양수, open·close는 0) · `balance_after` · `counterparty_account_id` FK NULL · `counterparty_name` · `memo` · `created_at`. 이체·납입·해지는 출금 계좌 `transfer_out` + 입금 계좌 `transfer_in` 2건을 한 트랜잭션에서 기록한다. 인덱스 `(account_id, created_at DESC, id DESC)`.
+`id` BIGINT · `account_id` FK · `type`(`open`/`deposit`/`transfer_in`/`transfer_out`/`interest`/`close`/`loan_disbursement`/`loan_repayment`, `card_payment`는 이름만 예약) · `amount` BIGINT(양수, open·close는 0) · `balance_after` · `counterparty_account_id` FK NULL · `counterparty_name` · `memo` · `ref_type` · `ref_id` · `created_at`. 이체·납입·해지는 출금 계좌 `transfer_out` + 입금 계좌 `transfer_in` 2건을 한 트랜잭션에서 기록한다. 인덱스 `(account_id, created_at DESC, id DESC)`.
 예전 설계의 이름 `account_transactions`는 `transactions`로 바뀌었다. 카드 거래는 `card_transactions`로 따로 둔다.
 
-> 대출 지급·상환(`loan_disbursement`/`loan_repayment` 유형)과 `ref_type`/`ref_id` 연결 컬럼은 계좌.md 7.3에 아직 없다. 대출 파트가 쓰려면 계좌.md에 먼저 추가한다 (8절).
+> 대출 지급·상환(`loan_disbursement`/`loan_repayment` 유형)과 `ref_type`/`ref_id` 연결 컬럼은 계좌.md 7.3에 추가됐다(2026-11-06). 대출 거래는 `ref_type='loan'`, `ref_id=계약번호`로 찾는다.
 
 ### 3.5 `favorite_accounts` · `idempotency_keys` · `audit_log`
 
 - `favorite_accounts`: `id`, `user_id` FK, `account_no`, `display_name`, `created_at`
 - `idempotency_keys`: PK `(user_id, idem_key)` · `fingerprint` CHAR(64) · `response_status` SMALLINT NULL · `response_body` TEXT NULL · `created_at` · `expires_at`. 인덱스 `(expires_at)`. 카드 신청과 대출이 공용
-- `audit_log` (대출 공통 감사 로그를 전 도메인 공용으로): `id`, `entity`, `entity_id`, `action`, `before` JSONB, `after` JSONB, `actor`, `at`. 인덱스 `(entity, entity_id, at)`
+- `audit_log` (대출 공통 감사 로그를 전 도메인 공용으로): `id`, `entity`, `entity_id`, `action`, `before` JSONB, `after` JSONB, `actor`, `at`. 인덱스 `(entity, entity_id, at)`. 대출의 위변조 탐지용 해시 체인 감사 로그는 이름이 겹치지 않게 `loan_audit_log`로 따로 둔다(6절)
 
 ## 4. 카드 (김경민) — `backend-spec.md` 2장이 정본
 
@@ -166,7 +166,7 @@
 
 ## 6. 대출 (임대진)
 
-대출 기획서의 공통 테이블만 정리했다(정부·기관·대환·대출관리 업무별 확장 테이블은 제외). 원문은 `feature/loan`의 `일반대출_기획서 6장`, `Loan_Service_main 13.1`.
+대출 구현의 정본은 `backend/app/loan/schema.sql`(60개 테이블, 정리본은 [대출서비스_종합정리.md](../loan/대출서비스_종합정리.md))이다. 아래는 공통 테이블 요약이고 컬럼 이름은 구현을 따른다(예: `loan_application`의 PK는 `application_id`). 원문은 [일반대출 기획서 6장](../loan/Loan_Service/일반대출_기획서.md), [Loan_Service_main 13.1](../loan/Loan_Service_main.md).
 
 ### 6.1 공통 테이블
 
@@ -194,9 +194,9 @@
 
 ### 6.2 대출 쪽 보완 제안 (원문에 없는 부분)
 
-- 원문에 PK/FK/타입이 없다. `loan_application.id`는 `loanapp_…`, `contract_no`는 업무용 번호(예 `LN-2026-000123`)로 `UNIQUE`를 걸고, 하위 테이블은 `contract_no` FK.
+- 원문에 PK/FK/타입이 없어 구현에서 정했다: PK는 `application_id` 등 접두어+ULID(`lap_…`), `contract_no`는 업무용 번호(`LA-2026-NNNNNN`, 대환 `RA-…`)로 `UNIQUE`, 하위 테이블은 `contract_no` FK. 6.2의 `loanapp_…` 제안은 이 구현으로 대체한다.
 - 대출 도메인에서 쓰는 금액은 모두 `BIGINT`(원), 금리는 `NUMERIC(6,4)`, JSON 컬럼은 `JSONB`.
-- 대출 지급·상환은 `accounts`/`transactions`와 연결(`disbursement.account_id`, 거래의 `ref_id`). 이게 없으면 계좌 잔액과 대출 실행이 따로 논다. 거래 유형과 연결 컬럼은 3.4의 안내대로 계좌.md에 먼저 추가해야 한다.
+- 대출 지급·상환은 `accounts`/`transactions`와 연결된다(`disbursement.account_id`·`account_txn_ref`, 거래의 `ref_type='loan'`·`ref_id=계약번호`). 거래 유형과 연결 컬럼은 계좌.md 7.3에 추가됐다.
 - 가계부 `planned_outflows`가 `repayment_schedule`의 다음 회차를 읽도록 연결하면 "상환일 반영 후 예상 잔액"이 계산된다.
 
 ## 7. 도메인 간 연결 키
@@ -206,7 +206,7 @@
 | 카드 ↔ 계좌 | `cards.payment_account_id` → `accounts.id` (논리), 은행명·마스킹은 스냅샷. 결제 계좌 후보는 저축예금이고 active인 계좌만. 계좌 해지 때 `count_active_cards(account_id)`로 확인 |
 | 가계부 ↔ 카드 | `ledger_tx_category.card_transaction_id` FK, 청구 묶음은 카드 03 계산 결과를 `planned_outflows`로 반영 |
 | 가계부 ↔ 대출 | `planned_outflows.ref_type='loan_repayment'`, `ref_id=repayment_schedule` |
-| 대출 ↔ 계좌 | `disbursement.account_id`, 계좌 거래의 `ref_id`(3.4 안내 참조) |
+| 대출 ↔ 계좌 | `disbursement.account_id`·`account_txn_ref`, `loan_account.debit_account_id`(논리 참조). 계좌 거래의 `ref_type='loan'`, `ref_id=계약번호`. 계좌 파트의 `loan_disburse`·`loan_repay`가 같은 트랜잭션에서 입출금 |
 | 전 도메인 ↔ 회원 | `user_id` (논리 참조), **세션에서 얻은 값만 사용**(본문 값 불신) |
 
 ## 8. 결정 현황
@@ -219,7 +219,7 @@
 | 거래 원장 소유: 카드가 `card_transactions` 소유, 가계부는 읽기 전용 + `ledger_tx_category`만 추가 | 결정 (5.1) |
 | 가계부 거래 `status`(승인/거절/환불) vs 카드 `kind`(approval/cancel) — 거절은 `payment_attempts` | 결정 (5.1) |
 | 계좌 암호·`account_pin_state` | 폐기. 간편비밀번호로 통일 (공통.md 4장) |
-| 대출 지급·상환의 계좌 거래 유형과 `ref_type`/`ref_id` 컬럼 | **미결.** 대출 파트가 요구하면 계좌.md 7.3에 추가 |
-| 대출 도메인 PK/FK/타입/인덱스 구체화 (6.2) | **미결.** 임대진 |
-| 대출 구현(`loan_service/db/schema.sql`)의 외부 참조 컬럼 | 결정: 회원은 `user_id BIGINT`(`spouse_user_id` 포함), 계좌·거래는 `account_id`·`debit_account_id`·`auto_debit_account_id`·`account_txn_ref` BIGINT (공통.md 6장). 대출 자체 ID는 `application_id` 등 접두어+ULID(`lap_…`), 계약은 `LA-YYYY-NNNNNN`. 6.2의 `loanapp_…`는 이 구현으로 대체한다 |
+| 대출 지급·상환의 계좌 거래 유형과 `ref_type`/`ref_id` 컬럼 | 결정 (2026-11-06): 계좌.md 7.3에 추가 |
+| 대출 도메인 PK/FK/타입/인덱스 구체화 (6.2) | 결정: `backend/app/loan/schema.sql`이 정본 (6절) |
+| 대출 구현(`backend/app/loan/schema.sql`)의 외부 참조 컬럼 | 결정: 회원은 `user_id BIGINT`(`spouse_user_id` 포함), 계좌·거래는 `account_id`·`debit_account_id`·`auto_debit_account_id`·`account_txn_ref` BIGINT (공통.md 6장). 대출 자체 ID는 `application_id` 등 접두어+ULID(`lap_…`), 계약은 `LA-YYYY-NNNNNN` |
 | 개인정보 보관 기간 | 도메인별로 다르다. 카드는 거절 신청 90일, 대출은 법정 보존 기간 |

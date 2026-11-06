@@ -11,3 +11,6 @@ dist/
 .env
 .env.*
 !.env.example
+
+# 대출 모듈의 실행 중 생성 파일(해시 키·로그)
+backend/data/

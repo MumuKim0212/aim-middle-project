@@ -25,6 +25,9 @@ from .auth.deps import current_user
 from .auth.router import me_router, router as auth_router
 from . import ledger_query
 from .ledger import router as ledger_router
+from .loan.errors import LoanError
+from .loan.router import router as loan_router
+from .loan.summary import home_summary
 from .seed import seed
 
 
@@ -83,6 +86,12 @@ app.add_exception_handler(ApiError, api_error_response)
 app.add_exception_handler(Exception, internal_error_response)
 
 
+@app.exception_handler(LoanError)
+async def loan_error_handler(_: Request, e: LoanError):
+    """대출 예외를 {code, message} 오류 응답으로 바꾼다(공통.md 5장). 화면에는 user_message 만 보낸다."""
+    return JSONResponse({"code": e.code, "message": e.user_message}, status_code=e.status)
+
+
 @app.exception_handler(StarletteHTTPException)
 async def api_error_handler(request, exc):
     """오류는 {"code", "message", "details"?} 모양(공통.md 5장). 가계부의 기존 문자열 오류(detail)는 그대로 둔다."""
@@ -110,6 +119,7 @@ app.include_router(auth_router)
 app.include_router(me_router)
 app.include_router(ledger_router)
 app.include_router(accounts_router)
+app.include_router(loan_router)
 if account_service.dev_mode():  # 시연용 API 는 APP_ENV=dev 에서만 연다(운영에서는 404)
     app.include_router(dev_router)
 
@@ -117,49 +127,6 @@ if account_service.dev_mode():  # 시연용 API 는 APP_ENV=dev 에서만 연다
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
-
-
-def _loan_summary(db: Session, user_id: int) -> dict:
-    today = date.today()
-    rows = db.execute(
-        select(m.Contract, m.LoanTerms, m.Pricing, m.LoanApplication)
-        .join(m.LoanApplication, m.LoanApplication.id == m.Contract.application_id)
-        .join(m.LoanTerms, m.LoanTerms.application_id == m.Contract.application_id)
-        .join(m.Pricing, m.Pricing.application_id == m.Contract.application_id)
-        .where(m.LoanApplication.user_id == user_id)
-    ).all()
-    items, total, due_total, next_due = [], 0, 0, None
-    for contract, terms, pricing, _app in rows:
-        sched = db.scalars(
-            select(m.RepaymentSchedule).where(m.RepaymentSchedule.contract_no == contract.contract_no)
-            .order_by(m.RepaymentSchedule.seq)
-        ).all()
-        paid = [s for s in sched if s.due_date <= today]
-        upcoming = next((s for s in sched if s.due_date > today), None)
-        balance = paid[-1].balance if paid else terms.amount
-        total += balance
-        if upcoming:
-            if next_due is None or upcoming.due_date < next_due:
-                next_due = upcoming.due_date
-        items.append({
-            "contractNo": contract.contract_no,
-            "productName": db.get(m.ProductCatalog, terms.product_id).name,
-            "balance": balance,
-            "amount": terms.amount,
-            "rate": float(pricing.final_rate) * 100,
-            "nextDueDate": upcoming.due_date.isoformat() if upcoming else None,
-            "nextDueAmount": (upcoming.principal + upcoming.interest) if upcoming else 0,
-        })
-    for it in items:
-        if next_due and it["nextDueDate"] == next_due.isoformat():
-            due_total += it["nextDueAmount"]
-    return {
-        "count": len(items),
-        "totalBalance": total,
-        "nextDueDate": next_due.isoformat() if next_due else None,
-        "nextDueAmount": due_total,
-        "items": items,
-    }
 
 
 @app.get("/api/home")
@@ -190,8 +157,6 @@ def home(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     budget = db.scalar(select(m.Budget).where(m.Budget.user_id == user.id, m.Budget.month == month))
     budget_total = budget.total_amount if budget else 0
 
-    products = db.scalars(select(m.ProductCatalog).order_by(m.ProductCatalog.product_id)).all()
-
     return {
         "user": {"id": user.id, "name": user.name},
         "accounts": {
@@ -218,15 +183,5 @@ def home(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
             "remaining": budget_total - spent,
             "usageRate": round(spent / budget_total * 100, 1) if budget_total else 0,
         },
-        "loans": {
-            **_loan_summary(db, user.id),
-            "products": [
-                {"id": p.product_id, "type": p.type, "name": p.name,
-                 "maxAmount": (p.rules or {}).get("max_amount"),
-                 "term": (p.rules or {}).get("term"),
-                 "tags": (p.rules or {}).get("tags", []),
-                 "icon": (p.rules or {}).get("icon")}
-                for p in products
-            ],
-        },
+        "loans": home_summary(db, user.id),
     }

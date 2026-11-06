@@ -30,8 +30,8 @@ TRANSFER_PER_TX = 5_000_000
 TRANSFER_PER_DAY = 10_000_000
 CHECKING_MAX = 5
 CLOSE_MEMO = "계좌 해지"  # 해지 때 잔액 이전 표시. 1일 이체 한도 합산에서 뺀다
-IN_TYPES = ("deposit", "transfer_in", "interest")
-OUT_TYPES = ("transfer_out", "card_payment")
+IN_TYPES = ("deposit", "transfer_in", "interest", "loan_disbursement")
+OUT_TYPES = ("transfer_out", "card_payment", "loan_repayment")
 PRODUCT_LABEL = {"deposit": "정기예금", "savings": "정기적금"}
 
 
@@ -120,10 +120,12 @@ def count_active_cards(db: Session, account_id: int) -> int:
 # ───────────── 거래 기록 ─────────────
 
 def _tx(db: Session, acc: m.Account, type_: str, amount: int, *, cp: m.Account | None = None,
-        name: str | None = None, memo: str | None = None) -> None:
-    db.add(m.Transaction(account_id=acc.id, type=type_, amount=amount, balance_after=acc.balance,
-                         counterparty_account_id=cp.id if cp else None, counterparty_name=name, memo=memo,
-                         created_at=m.now()))
+        name: str | None = None, memo: str | None = None, ref: tuple[str, str] | None = None) -> m.Transaction:
+    t = m.Transaction(account_id=acc.id, type=type_, amount=amount, balance_after=acc.balance,
+                      counterparty_account_id=cp.id if cp else None, counterparty_name=name, memo=memo,
+                      ref_type=ref[0] if ref else None, ref_id=ref[1] if ref else None, created_at=m.now())
+    db.add(t)
+    return t
 
 
 def _move(db: Session, src: m.Account, dst: m.Account, amount: int, src_name: str, dst_name: str,
@@ -306,7 +308,7 @@ def get_transactions(db: Session, user: m.User, account_id: int, *, period: str 
     return {"page": page, "hasNext": len(rows) > size, "items": [{
         "id": t.id, "type": t.type, "direction": "in" if t.type in IN_TYPES else "out" if t.type in OUT_TYPES else None,
         "amount": t.amount, "balanceAfter": t.balance_after, "counterpartyName": t.counterparty_name,
-        "memo": t.memo, "createdAt": _kst_iso(t.created_at)} for t in rows[:size]]}
+        "memo": t.memo, "refType": t.ref_type, "refId": t.ref_id, "createdAt": _kst_iso(t.created_at)} for t in rows[:size]]}
 
 
 # ───────────── 개설 ─────────────
@@ -413,6 +415,43 @@ def deposit(db: Session, user: m.User, account_id: int, amount: int) -> dict:
     _tx(db, acc, "deposit", amount, name="ATM 입금")
     db.commit()
     return {"accountId": acc.id, "amount": amount, "balance": acc.balance}
+
+
+# ───────────── 대출 연동(공통.md 8장) ─────────────
+
+def checking_for(db: Session, user_id: int, account_id: int) -> m.Account:
+    """대출의 입금·자동이체 계좌로 쓸 수 있는 내 저축예금(active)인지 확인한다. 아니면 404/409."""
+    acc = get_owned(db, user_id, account_id)
+    _need_checking(acc)
+    return acc
+
+
+def loan_disburse(db: Session, user_id: int, account_id: int, amount: int, contract_no: str) -> int:
+    """대출 실행금을 내 저축예금에 입금한다(loan_disbursement). 커밋하지 않는다: 호출한 대출 실행과 한 트랜잭션이다."""
+    get_owned(db, user_id, account_id)
+    acc = _lock(db, account_id)[account_id]
+    _need_checking(acc)
+    if amount <= 0:
+        raise validation_error("amount", "OUT_OF_RANGE", "1원 이상이어야 합니다.")
+    acc.balance += amount
+    t = _tx(db, acc, "loan_disbursement", amount, name="대출 실행", memo=contract_no, ref=("loan", contract_no))
+    db.flush()
+    return t.id
+
+
+def loan_repay(db: Session, user_id: int, account_id: int, amount: int, contract_no: str, memo: str = "대출 상환") -> int:
+    """대출 상환금을 내 저축예금에서 출금한다(loan_repayment). 잔액이 모자라면 422. 커밋하지 않는다."""
+    get_owned(db, user_id, account_id)
+    acc = _lock(db, account_id)[account_id]
+    _need_checking(acc)
+    if amount <= 0:
+        raise validation_error("amount", "OUT_OF_RANGE", "1원 이상이어야 합니다.")
+    if acc.balance < amount:
+        raise api_error(422, "INSUFFICIENT_BALANCE", "잔액이 부족합니다.", balance=acc.balance, required=amount)
+    acc.balance -= amount
+    t = _tx(db, acc, "loan_repayment", amount, name="대출 상환", memo=memo, ref=("loan", contract_no))
+    db.flush()
+    return t.id
 
 
 # ───────────── 이체 ─────────────

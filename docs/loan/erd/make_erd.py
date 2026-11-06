@@ -1,4 +1,4 @@
-"""[역할] db/schema.sql의 @domain/@ext 태그와 PK·FK를 읽어 전체 개요 ERD와 영역별 상세 ERD를 PNG로 그린다."""
+"""[역할] backend/app/loan/schema.sql의 @domain/@ext 태그와 PK·FK를 읽어 전체 개요 ERD와 영역별 상세 ERD를 PNG로 그린다."""
 from __future__ import annotations
 
 import re
@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 from matplotlib.patches import FancyBboxPatch  # noqa: E402
 
-BASE = Path(__file__).resolve().parent.parent
-SCHEMA = BASE / "db" / "schema.sql"
-OUT = BASE / "docs" / "erd"
+HERE = Path(__file__).resolve().parent
+SCHEMA = HERE.parents[2] / "backend" / "app" / "loan" / "schema.sql"
+OUT = HERE
 
 # ---------------------------------------------------------------- 글꼴·색
 for f in ("C:/Windows/Fonts/malgun.ttf", "/System/Library/Fonts/AppleSDGothicNeo.ttc", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"):
@@ -147,7 +147,7 @@ def overview(tables, path: Path) -> None:
     ax.set_ylim(bottom, top)
     ax.axis("off")
     ax.text(W / 2, top - 0.2, "대출 서비스 DB 전체 구조 (개요 ERD)", ha="center", va="top", fontsize=21, weight="bold", color=INK)
-    ax.text(W / 2, top - 1.15, "주황 점선 = 아직 만들지 않은 외부 서비스와 연결할 빈 칸(지금은 NULL·FK 없음, 통합 때 연결)   ·   회색 실선 = 대출 서비스 안의 영역 간 FK(개수)",
+    ax.text(W / 2, top - 1.15, "주황 점선 = 다른 파트(회원·계좌·카드)와 잇는 논리 참조 칸(FK 없이 id 값만 저장, 공통.md 6장)   ·   회색 실선 = 대출 서비스 안의 영역 간 FK(개수)",
             ha="center", va="top", fontsize=11.5, color=MUTED)
 
     # 외부 서비스 상자
@@ -242,7 +242,7 @@ def overview(tables, path: Path) -> None:
             p, q = (p_lo, p_hi) if a in row2 else (p_hi, p_lo)
             arrow(ax, p, q, color="#7B8794", lw=1.3, label=f"FK {n}", fs=8.5)
 
-    ax.text(0.6, bottom + 0.4, "※ 외부 서비스 칸은 통합할 때 해당 서비스의 PK로 FK(또는 API 호출)만 추가하면 된다.  화살표 방향 = 참조하는 쪽 → 참조되는 쪽.  생성: tools/make_erd.py (schema.sql 태그 기준)",
+    ax.text(0.6, bottom + 0.4, "※ 외부 칸은 다른 파트 테이블의 id 값을 그대로 저장한다(FK 없음, 공통.md 6장).  화살표 방향 = 참조하는 쪽 → 참조되는 쪽.  생성: docs/loan/erd/make_erd.py (schema.sql 태그 기준)",
             fontsize=9.5, color=MUTED)
     fig.savefig(path, bbox_inches="tight", facecolor="white")
     plt.close(fig)

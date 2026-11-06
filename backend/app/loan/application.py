@@ -17,6 +17,7 @@ from .security import keyed_hash, mask_account, sha256
 from .state_machine import transition
 from .underwriting import Applicant, adjust_plan, est_rate, review, suitability
 from .validation import JOBS, RATE_PREFS, choice, desired_amount, employee_no, int_range
+from ..accounts import service as account_service
 
 
 def product_row(db: Database, pid: str) -> dict:
@@ -30,7 +31,7 @@ def product_row(db: Database, pid: str) -> dict:
 
 
 def products(db: Database, refi: bool | None = None) -> list[dict]:
-    rows = db.all("SELECT product_id FROM product_catalog ORDER BY rowid")
+    rows = db.all("SELECT product_id FROM product_catalog ORDER BY sort_no")
     ps = [product_row(db, r["product_id"]) for r in rows]
     if refi is None:
         return ps
@@ -69,6 +70,7 @@ class Session:
     contract: str | None = None
     account_no: str | None = None
     agency: str | None = None
+    user_id: int | None = None  # 서버에서는 세션의 회원 번호. 콘솔·시험에서는 None
 
     # ------------------------------------------------------------------ 공통
     @property
@@ -95,17 +97,17 @@ class Session:
 
     # ------------------------------------------------------------------ C01 시작
     @classmethod
-    def start(cls, db: Database, product_id: str, scenario_key: str | None = None, channel: str = "CLI") -> "Session":
+    def start(cls, db: Database, product_id: str, scenario_key: str | None = None, channel: str = "CLI", user_id: int | None = None) -> "Session":
         p = product_row(db, product_id)
         sc = C.SCENARIOS.get(scenario_key) if scenario_key else None
         app_id, ts = new_id("lap"), now_iso()
         exp = (datetime.now(timezone.utc) + timedelta(days=K.APPLICATION_TTL_DAYS)).isoformat(timespec="seconds")
         with db.tx():
-            db.insert("loan_application", {"application_id": app_id, "user_id": None, "auth_ref": None, "product_id": product_id,
+            db.insert("loan_application", {"application_id": app_id, "user_id": user_id, "auth_ref": None, "product_id": product_id,
                                            "business_type": p["business_type"], "status": "DRAFT", "channel": channel,
                                            "scenario_key": scenario_key, "created_at": ts, "updated_at": ts, "expires_at": exp})
             db.audit("loan_application", app_id, "CREATE", {"product": product_id})
-        return cls(db, app_id, p, sc)
+        return cls(db, app_id, p, sc, user_id=user_id)
 
     # ------------------------------------------------------------------ G01 정책 사전 확인
     def precheck(self, homeless: bool, married: bool, hh_income: int, net_assets: int) -> list[tuple[str, bool, str]]:
@@ -337,7 +339,8 @@ class Session:
         return res
 
     # ------------------------------------------------------------------ C07 조건
-    def set_terms(self, amount: int | None = None, term: int | None = None, repay: str | None = None, payment_day: int = 25) -> dict:
+    def set_terms(self, amount: int | None = None, term: int | None = None, repay: str | None = None, payment_day: int = 25,
+                  debit_account_id: int | None = None) -> dict:
         p, a, r = self.product, self.applicant, self.review
         amount = refinance.refi_amount(self.targets) if self.refi else (amount or min(a.amount, r.limit))
         if not self.refi and amount > min(r.limit, p["max_amount"]):
@@ -349,11 +352,13 @@ class Session:
         if term not in p["term_options"] or repay not in p["repay_options"]:
             raise ValidationError("상품이 허용하지 않는 기간·상환 방법입니다.")
         int_range(payment_day, "납입일", 1, 28)
-        self.terms = {"amount": amount, "term": term, "repay": repay, "payment_day": payment_day}
+        if debit_account_id is not None and self.user_id is not None:
+            account_service.checking_for(self.db.session, self.user_id, debit_account_id)  # 내 저축예금(active)만
+        self.terms = {"amount": amount, "term": term, "repay": repay, "payment_day": payment_day, "debit_account_id": debit_account_id}
         with self.db.tx():
             self.db.execute("DELETE FROM loan_terms WHERE application_id = ?", (self.app_id,))
             self.db.insert("loan_terms", {"application_id": self.app_id, "amount": amount, "term_months": term, "repay_method": repay,
-                                          "payment_day": payment_day, "auto_debit_account_id": None, "payroll_deduction": 0, "updated_at": now_iso()})
+                                          "payment_day": payment_day, "auto_debit_account_id": debit_account_id, "payroll_deduction": 0, "updated_at": now_iso()})
             consent.record(self.db, self.app_id, "AUTO_DEBIT", True)
             transition(self.db, self.app_id, "TERMS_SET", "C07")
         return self.terms
@@ -433,8 +438,9 @@ class Session:
             transition(self.db, self.app_id, "COLLATERAL_SET", "C11")
 
     # ------------------------------------------------------------------ C12 실행
-    def execute(self, idempotency_key: str, fail_at: str | None = None) -> str:
-        """멱등 키로 이중 실행을 막는다. 대환은 사가로 실행하고 실패 시 보상 후 REFI_FAILED."""
+    def execute(self, idempotency_key: str, fail_at: str | None = None, account_id: int | None = None) -> str:
+        """멱등 키로 이중 실행을 막는다. 대환은 사가로 실행하고 실패 시 보상 후 REFI_FAILED.
+        account_id 는 본인 지급(SELF) 대출금을 받을 내 저축예금이다. 주면 같은 트랜잭션에서 입금한다."""
         if self.db.one("SELECT 1 FROM idempotency_key WHERE idem_key = ?", (idempotency_key,)):
             raise DuplicateRequest()
         failed: SagaFailed | None = None
@@ -448,31 +454,36 @@ class Session:
                     transition(self.db, self.app_id, "REFI_FAILED", "C12")
                     failed = exc
             if failed is None:
-                self._finish_execute(idempotency_key)
+                self._finish_execute(idempotency_key, account_id)
         if failed:
             raise failed
         return self.contract
 
-    def _finish_execute(self, idempotency_key: str) -> None:
+    def _finish_execute(self, idempotency_key: str, account_id: int | None = None) -> None:
         """실행 후 처리: 지급(대출) · 대출 계좌 개설 · 상태 완료 · 알림."""
         if not self.refi:
             payee = {"CREDIT": "SELF", "DEPOSIT": "SELF", "JEONSE": "LANDLORD", "MORTGAGE": "SELLER", "AUTO": "DEALER"}[self.product["collateral_type"]]
+            txn = None
+            if payee == "SELF" and account_id is not None and self.user_id is not None:
+                txn = account_service.loan_disburse(self.db.session, self.user_id, account_id, self.terms["amount"], self.contract)
+            else:
+                account_id = None  # 임대인·매도인·딜러 지급은 타행 계좌라 우리 계좌에 기록하지 않는다
             self.db.insert("disbursement", {"disbursement_id": new_id("dsb"), "contract_no": self.contract, "payee_type": payee,
-                                            "payee_masked": "본인 계좌" if payee == "SELF" else "지급처(마스킹)", "account_id": None,
-                                            "account_txn_ref": None, "amount": self.terms["amount"], "result": "DONE",
+                                            "payee_masked": "본인 계좌" if payee == "SELF" else "지급처(마스킹)", "account_id": account_id,
+                                            "account_txn_ref": txn, "amount": self.terms["amount"], "result": "DONE",
                                             "idempotency_key": idempotency_key, "executed_at": now_iso()})
         self.account_no = loan_account_no()
         start = date.today()
-        self.db.insert("loan_account", {"contract_no": self.contract, "user_id": None, "account_masked": mask_account(self.account_no),
+        self.db.insert("loan_account", {"contract_no": self.contract, "user_id": self.user_id, "account_masked": mask_account(self.account_no),
                                         "account_hash": keyed_hash(self.account_no), "product_id": self.product["product_id"], "status": "ACTIVE",
                                         "principal": self.terms["amount"], "balance": self.terms["amount"], "rate": str(self.final_rate),
                                         "term_months": self.terms["term"], "repay_method": self.terms["repay"], "start_date": start.isoformat(),
-                                        "next_due_date": (start + timedelta(days=10)).isoformat(), "debit_account_id": None, "updated_at": now_iso()})
+                                        "next_due_date": (start + timedelta(days=10)).isoformat(), "debit_account_id": self.terms.get("debit_account_id"), "updated_at": now_iso()})
         transition(self.db, self.app_id, "DISBURSED", "C12")
         if self.refi:
             transition(self.db, self.app_id, "PAID_OFF", "C12x")
         transition(self.db, self.app_id, "COMPLETED", "C13")
-        self.db.insert("notification", {"notification_id": new_id("ntf"), "user_id": None, "application_id": self.app_id,
+        self.db.insert("notification", {"notification_id": new_id("ntf"), "user_id": self.user_id, "application_id": self.app_id,
                                         "contract_no": self.contract, "event_code": "DISBURSED",
                                         "message": "대출 실행이 완료되었습니다. 청약철회는 14일 안에 할 수 있습니다.", "sent_at": now_iso()})
 

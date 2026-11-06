@@ -129,7 +129,7 @@ class Account(Base):
 
 
 class Transaction(Base):
-    """계좌 거래(계좌.md 7.3). card_payment 는 이름만 예약한다(공통.md 10장)."""
+    """계좌 거래(계좌.md 7.3). card_payment 는 이름만 예약한다(공통.md 10장). 대출 지급·상환은 ref_type='loan', ref_id=계약번호."""
     __tablename__ = "transactions"
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
@@ -139,13 +139,17 @@ class Transaction(Base):
     counterparty_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     counterparty_name: Mapped[str | None] = mapped_column(Text)
     memo: Mapped[str | None] = mapped_column(Text)
+    ref_type: Mapped[str | None] = mapped_column(Text)  # 이 거래를 만든 업무(현재 'loan')
+    ref_id: Mapped[str | None] = mapped_column(Text)  # 업무 쪽 키(대출은 계약번호)
     created_at: Mapped[datetime] = ts_created()
     __table_args__ = (
         CheckConstraint(
-            "type IN ('open','deposit','transfer_in','transfer_out','interest','close','card_payment')",
+            "type IN ('open','deposit','transfer_in','transfer_out','interest','close','card_payment',"
+            "'loan_disbursement','loan_repayment')",
             name="ck_tx_type"),
         CheckConstraint("amount >= 0", name="ck_tx_amount"),
         Index("ix_tx_account_time", "account_id", text("created_at DESC"), text("id DESC")),
+        Index("ix_tx_ref", "ref_type", "ref_id"),
     )
 
 
@@ -416,168 +420,3 @@ class RagDocument(Base):
     version: Mapped[str] = mapped_column(String(20))
     chunk_text: Mapped[str] = mapped_column(Text)
     effective_date: Mapped[date | None] = mapped_column(Date)
-
-
-# ───────────────────────── 대출 (공통 테이블) ─────────────────────────
-
-
-class LoanApplication(Base):
-    __tablename__ = "loan_application"
-    id: Mapped[str] = pk("loanapp")
-    user_id: Mapped[int] = mapped_column(BigInteger)
-    product_type: Mapped[str] = mapped_column(String(20))
-    status: Mapped[str] = mapped_column(String(20), default="draft")
-    channel: Mapped[str] = mapped_column(String(10), default="mobile")
-    created_at: Mapped[datetime] = ts_created()
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class ConsentRecord(Base):
-    __tablename__ = "consent_record"
-    id: Mapped[str] = pk("cons")
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"))
-    consent_code: Mapped[str] = mapped_column(String(30))
-    doc_version_hash: Mapped[str] = mapped_column(String(64))
-    agreed: Mapped[bool] = mapped_column(Boolean)
-    agreed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ip: Mapped[str | None] = mapped_column(String(45))
-
-
-class ApplicantProfile(Base):
-    __tablename__ = "applicant_profile"
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"), primary_key=True)
-    job_type: Mapped[str] = mapped_column(String(20))
-    annual_income: Mapped[int] = mapped_column(Money)
-    debts: Mapped[int] = mapped_column(Money, default=0)
-    purpose_code: Mapped[str | None] = mapped_column(String(20))
-    prefs: Mapped[dict | None] = mapped_column(JSONB)
-
-
-class SuitabilityResult(Base):
-    __tablename__ = "suitability_result"
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"), primary_key=True)
-    result: Mapped[str] = mapped_column(String(20))
-    reason_codes: Mapped[list | None] = mapped_column(JSONB)
-    rule_version: Mapped[str | None] = mapped_column(String(20))
-
-
-class Evidence(Base):
-    __tablename__ = "evidence"
-    id: Mapped[str] = pk("evd")
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"))
-    doc_type: Mapped[str] = mapped_column(String(30))
-    source: Mapped[str] = mapped_column(String(6))  # API | UPLOAD
-    extracted: Mapped[dict | None] = mapped_column(JSONB)
-    confidence: Mapped[dict | None] = mapped_column(JSONB)
-    mismatch_flags: Mapped[list | None] = mapped_column(JSONB)
-
-
-class ReviewResult(Base):
-    __tablename__ = "review_result"
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"), primary_key=True)
-    result_code: Mapped[str] = mapped_column(String(20))
-    approved_limit: Mapped[int | None] = mapped_column(Money)
-    grade: Mapped[str | None] = mapped_column(String(10))
-    dsr: Mapped[float | None] = mapped_column(Numeric(6, 2))
-    conditions: Mapped[dict | None] = mapped_column(JSONB)
-    reason_codes: Mapped[list | None] = mapped_column(JSONB)
-    rule_version: Mapped[str | None] = mapped_column(String(20))
-    reviewer_id: Mapped[str | None] = mapped_column(String(40))
-
-
-class ProductCatalog(Base):
-    __tablename__ = "product_catalog"
-    product_id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    type: Mapped[str] = mapped_column(String(20))
-    name: Mapped[str] = mapped_column(String(100))
-    rules: Mapped[dict | None] = mapped_column(JSONB)
-    rate_rule_id: Mapped[str | None] = mapped_column(String(40))
-    sale_from: Mapped[date | None] = mapped_column(Date)
-    sale_to: Mapped[date | None] = mapped_column(Date)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class RegParam(Base):
-    __tablename__ = "reg_param"
-    key: Mapped[str] = mapped_column(String(40), primary_key=True)
-    version: Mapped[int] = mapped_column(Integer, primary_key=True)
-    value: Mapped[str] = mapped_column(String(100))
-    effective_from: Mapped[date] = mapped_column(Date)
-
-
-class RecommendationLog(Base):
-    __tablename__ = "recommendation_log"
-    id: Mapped[str] = pk("rec")
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"))
-    candidates: Mapped[list | None] = mapped_column(JSONB)
-    excluded_reasons: Mapped[list | None] = mapped_column(JSONB)
-    scores: Mapped[dict | None] = mapped_column(JSONB)
-    version: Mapped[str | None] = mapped_column(String(20))
-    llm_output: Mapped[dict | None] = mapped_column(JSONB)
-    validation: Mapped[dict | None] = mapped_column(JSONB)
-
-
-class LoanTerms(Base):
-    __tablename__ = "loan_terms"
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"), primary_key=True)
-    product_id: Mapped[str] = mapped_column(ForeignKey("product_catalog.product_id"))
-    amount: Mapped[int] = mapped_column(Money)
-    term_months: Mapped[int] = mapped_column(SmallInteger)
-    repay_method: Mapped[str] = mapped_column(String(20))
-
-
-class Pricing(Base):
-    __tablename__ = "pricing"
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"), primary_key=True)
-    base_rate: Mapped[float] = mapped_column(Numeric(6, 4))
-    spread: Mapped[float] = mapped_column(Numeric(6, 4))
-    preferential: Mapped[float] = mapped_column(Numeric(6, 4), default=0)
-    final_rate: Mapped[float] = mapped_column(Numeric(6, 4))
-
-
-class Contract(Base):
-    __tablename__ = "contract"
-    contract_no: Mapped[str] = mapped_column(String(30), primary_key=True)
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"), unique=True)
-    signed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    doc_hash: Mapped[str | None] = mapped_column(String(64))
-
-
-class RepaymentSchedule(Base):
-    __tablename__ = "repayment_schedule"
-    contract_no: Mapped[str] = mapped_column(ForeignKey("contract.contract_no"), primary_key=True)
-    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
-    due_date: Mapped[date] = mapped_column(Date)
-    principal: Mapped[int] = mapped_column(Money)
-    interest: Mapped[int] = mapped_column(Money)
-    balance: Mapped[int] = mapped_column(Money)  # 해당 회차 납부 후 잔액
-
-
-class ExplanationRecord(Base):
-    __tablename__ = "explanation_record"
-    id: Mapped[str] = pk("expl")
-    application_id: Mapped[str] = mapped_column(ForeignKey("loan_application.id"))
-    doc_id: Mapped[str] = mapped_column(String(40))
-    read_seconds: Mapped[int] = mapped_column(Integer, default=0)
-    scrolled: Mapped[bool] = mapped_column(Boolean, default=False)
-    quiz_results: Mapped[dict | None] = mapped_column(JSONB)
-
-
-class Collateral(Base):
-    __tablename__ = "collateral"
-    id: Mapped[str] = pk("coll")
-    contract_no: Mapped[str] = mapped_column(ForeignKey("contract.contract_no"))
-    type: Mapped[str] = mapped_column(String(20))
-    detail: Mapped[dict | None] = mapped_column(JSONB)
-    registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class Disbursement(Base):
-    __tablename__ = "disbursement"
-    id: Mapped[str] = pk("disb")
-    contract_no: Mapped[str] = mapped_column(ForeignKey("contract.contract_no"))
-    payee: Mapped[str] = mapped_column(String(50))
-    account_id: Mapped[int] = mapped_column(BigInteger)  # 논리 참조 → accounts
-    amount: Mapped[int] = mapped_column(Money)
-    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    result: Mapped[str | None] = mapped_column(String(10))

@@ -5,10 +5,9 @@ import os
 from decimal import Decimal
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parents[2]  # backend/
 DATA_DIR = BASE_DIR / "data"
-DB_PATH = Path(os.environ.get("LOAN_DB_PATH", DATA_DIR / "loan_service.db"))
-SCHEMA_PATH = BASE_DIR / "db" / "schema.sql"
+SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 LOG_PATH = DATA_DIR / "loan_service.log"
 SECRET_PATH = DATA_DIR / ".secret_key"
 

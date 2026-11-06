@@ -16,9 +16,9 @@ EXPECTED = [
 ]
 
 
-def run_one(db: Database, pid: str, scn: str | None, complete: bool = True) -> dict:
+def run_one(db: Database, pid: str, scn: str | None, complete: bool = True, user_id: int | None = None) -> dict:
     """한 조합 실행. 승인이면 약정·실행까지 진행해 대출 계좌를 만든다."""
-    s = Session.start(db, pid, scn)
+    s = Session.start(db, pid, scn, user_id=user_id)
     out = {"product": pid, "scenario": scn or "NONE", "codes": []}
     try:
         if s.product["business_type"] == "POLICY":

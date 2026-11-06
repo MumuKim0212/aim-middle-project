@@ -63,6 +63,8 @@ export type Tx = {
   balanceAfter: number
   counterpartyName: string | null
   memo: string | null
+  refType: string | null
+  refId: string | null
   createdAt: string
 }
 

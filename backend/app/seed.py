@@ -8,26 +8,11 @@ from . import models as m
 from .accounts.interest import add_months
 from .accounts.service import round_due
 from .auth.security import hash_secret
+from .loan.seed import setup as loan_setup
 
 DEMO_USER_ID = 1  # user1 (김하나)
 # 가계부 데모 거래는 카드 시드(card/00-api-common.md 10절)의 숫자를 흔들지 않도록 해지된 카드에 붙인다. 가계부는 카드 상태와 상관없이 사용자의 모든 카드 거래를 읽는다.
 LEDGER_DEMO_CARD = "card_005"
-
-
-def _schedule(contract_no: str, start: date, amount: int, months: int, rate: float):
-    """원금균등 상환 스케줄 (데모용 단순 계산)."""
-    rows, balance = [], amount
-    principal = amount // months
-    for seq in range(1, months + 1):
-        y, mo = divmod(start.month - 1 + seq, 12)
-        due = date(start.year + y, mo + 1, min(start.day, 28))
-        interest = round(balance * rate / 12)
-        pay = principal if seq < months else balance
-        balance -= pay
-        rows.append(m.RepaymentSchedule(
-            contract_no=contract_no, seq=seq, due_date=due,
-            principal=pay, interest=interest, balance=balance))
-    return rows
 
 
 KST = timezone(timedelta(hours=9))
@@ -270,6 +255,7 @@ def seed(db: Session) -> None:
         _ensure_planned_outflows(db)
         _ensure_demo_history(db)
         _ensure_demo_sync(db)
+        loan_setup(db, DEMO_USER_ID)
         return
     today = date.today()
     month = today.strftime("%Y-%m")
@@ -327,39 +313,8 @@ def seed(db: Session) -> None:
         m.LedgerSettings(user_id=DEMO_USER_ID, mode="roast", roast_level=2),
     ])
 
-    # 대출 상품 (화면 시안의 상품 목록)
-    catalog = [
-        ("loan_g_01", "general", "OO 직장인 신용대출", 100_000_000, "1년 ~ 5년", ["일반대출", "신용"], "card"),
-        ("loan_g_02", "general", "OO 스마트 전세대출", 220_000_000, "2년", ["일반대출", "전세"], "home"),
-        ("loan_p_01", "gov", "정책 전세자금 (버팀목형)", 120_000_000, "2년", ["정부대출", "전세"], "home"),
-        ("loan_p_02", "gov", "정책 주택구입자금 (디딤돌형)", 250_000_000, "10년 ~ 30년", ["정부대출", "주택담보"], "key"),
-        ("loan_o_01", "org", "OO 협약기관 임직원 우대대출", 150_000_000, "1년 ~ 5년", ["기관대출", "신용"], "card"),
-        ("loan_o_02", "org", "OO 보증부 전세대출", 500_000_000, "2년", ["기관대출", "전세"], "shield"),
-        ("loan_r_01", "refi", "OO 신용대출 갈아타기", 100_000_000, "최대 5년", ["대환", "신용"], "swap"),
-        ("loan_r_02", "refi", "OO 주택담보대출 갈아타기", 1_000_000_000, "최대 30년", ["대환", "주택담보"], "home"),
-    ]
-    for pid, typ, name, mx, term, tags, icon in catalog:
-        db.add(m.ProductCatalog(product_id=pid, type=typ, name=name, version=1,
-                                rules={"max_amount": mx, "term": term, "tags": tags, "icon": icon}))
-    db.flush()
-
-    # 내 대출 2건 (신청 → 조건 → 금리 → 약정 → 스케줄)
-    loans = [
-        ("loanapp_001", "LA-2025-000123", "loan_g_01", 30_000_000, 36, 0.0510, date(2025, 3, 10)),
-        ("loanapp_002", "LA-2026-000412", "loan_r_01", 8_000_000, 24, 0.0450, date(2026, 10, 30)),
-    ]
-    for app_id, no, pid, amount, months, rate, start in loans:
-        db.add(m.LoanApplication(id=app_id, user_id=DEMO_USER_ID, product_type="general", status="contracted"))
-        db.flush()
-        db.add_all([
-            m.LoanTerms(application_id=app_id, product_id=pid, amount=amount, term_months=months,
-                        repay_method="원금균등"),
-            m.Pricing(application_id=app_id, base_rate=rate - 0.012, spread=0.012, preferential=0, final_rate=rate),
-            m.Contract(contract_no=no, application_id=app_id, signed_at=datetime.combine(start, datetime.min.time())),
-        ])
-        db.flush()
-        db.add_all(_schedule(no, start, amount, months, rate))
     db.commit()
     _ensure_planned_outflows(db)
     _ensure_demo_history(db)
     _ensure_demo_sync(db)
+    loan_setup(db, DEMO_USER_ID)

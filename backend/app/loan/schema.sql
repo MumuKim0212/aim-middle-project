@@ -1,9 +1,9 @@
--- [역할] 대출 서비스 전체 DB 스키마(DDL). SQLite로 바로 실행되고 PostgreSQL로 옮기기 쉬운 형태로 작성.
+-- [역할] 대출 서비스 전체 DB 스키마(DDL, PostgreSQL). 서버 시작 때 backend/app/loan/database.py 가 실행한다(IF NOT EXISTS 라 여러 번 실행해도 안전).
 --
 -- 작성 규칙 (팀 공통 규칙 docs/db/db-design.md 1절 준수)
 --   · 금액 BIGINT(원), 금리 NUMERIC(6,4)(연 %, 예: 4.8500), 비율 NUMERIC(8,4)
 --   · ID: VARCHAR(40) 접두어 + ULID (예: lap_01J...). 계약 번호는 업무 번호(LA-2026-000123, 대환 RA-...)
---   · enum은 VARCHAR + CHECK, JSON은 JSONB(SQLite에서는 텍스트로 저장)
+--   · enum은 VARCHAR + CHECK, JSON은 JSONB
 --   · 같은 도메인 안은 FK, 다른 서비스(회원·로그인·은행·카드)는 FK 없이 "논리 참조" 빈 칸으로 둠
 --
 -- 주석 태그 (tools/make_erd.py가 읽어 ERD를 그림)
@@ -17,8 +17,6 @@
 --   카드          : cards.id               ← card_id (우대금리 카드 실적)
 --   메인 화면     : loan_account·product_catalog를 읽어 요약 표시 (테이블 연결 없음, 조회 API)
 
-PRAGMA foreign_keys = ON;
-
 -- =====================================================================
 -- @domain 기준정보 (상품·규제·규칙·코드)
 -- =====================================================================
@@ -29,6 +27,7 @@ CREATE TABLE IF NOT EXISTS product_catalog (
     business_type   VARCHAR(10)  NOT NULL CHECK (business_type IN ('GENERAL','POLICY','INST','REFI')),
     inst_kind       VARCHAR(1)   CHECK (inst_kind IN ('A','B')),   -- 기관대출: A 보증부, B 협약
     collateral_type VARCHAR(10)  NOT NULL CHECK (collateral_type IN ('CREDIT','JEONSE','MORTGAGE','AUTO','DEPOSIT')),
+    sort_no         INTEGER      NOT NULL DEFAULT 0,          -- 목록 표시 순서
     name            VARCHAR(80)  NOT NULL,
     subtitle        VARCHAR(80)  NOT NULL,
     target_desc     VARCHAR(200) NOT NULL,
@@ -184,7 +183,7 @@ CREATE TABLE IF NOT EXISTS suitability_result (
     burden_ratio    NUMERIC(8,4) NOT NULL,
     reason_codes    JSONB        NOT NULL,
     rule_version    VARCHAR(30)  NOT NULL,
-    override        BOOLEAN      NOT NULL DEFAULT 0,          -- 고지 확인 후 진행(suitability_override)
+    override        BOOLEAN      NOT NULL DEFAULT FALSE,          -- 고지 확인 후 진행(suitability_override)
     override_notice VARCHAR(40),
     created_at      TIMESTAMPTZ  NOT NULL
 );
@@ -247,6 +246,23 @@ CREATE TABLE IF NOT EXISTS review_result (
     created_at      TIMESTAMPTZ  NOT NULL
 );
 
+-- PostgreSQL 은 앞에서 만든 테이블만 참조할 수 있어 recommendation_log 보다 먼저 둔다.
+-- @domain 보안·감사
+CREATE TABLE IF NOT EXISTS llm_call_log (
+    call_id         VARCHAR(40)  PRIMARY KEY,
+    application_id  VARCHAR(40)  REFERENCES loan_application(application_id),
+    use_case_id     VARCHAR(20)  NOT NULL,
+    prompt_version  INTEGER      NOT NULL,
+    model_tier      VARCHAR(10)  NOT NULL,
+    provider        VARCHAR(20)  NOT NULL,
+    input_hash      VARCHAR(64)  NOT NULL,                    -- 원문 대신 해시
+    output_masked   TEXT,
+    validation      JSONB        NOT NULL,
+    fallback_used   BOOLEAN      NOT NULL,
+    latency_ms      INTEGER      NOT NULL,
+    created_at      TIMESTAMPTZ  NOT NULL
+);
+
 -- @domain 신청·심사
 CREATE TABLE IF NOT EXISTS recommendation_log (
     recommendation_id VARCHAR(40) PRIMARY KEY,
@@ -284,7 +300,7 @@ CREATE TABLE IF NOT EXISTS loan_terms (
     repay_method    VARCHAR(10)  NOT NULL CHECK (repay_method IN ('원리금균등분할','만기일시상환','원금균등분할')),
     payment_day     INTEGER      NOT NULL CHECK (payment_day BETWEEN 1 AND 28),
     auto_debit_account_id BIGINT,                             -- @ext 은행(계좌) accounts.id
-    payroll_deduction BOOLEAN    NOT NULL DEFAULT 0,
+    payroll_deduction BOOLEAN    NOT NULL DEFAULT FALSE,
     updated_at      TIMESTAMPTZ  NOT NULL
 );
 
@@ -744,22 +760,6 @@ CREATE TABLE IF NOT EXISTS notification (
 -- =====================================================================
 
 -- @domain 보안·감사
-CREATE TABLE IF NOT EXISTS llm_call_log (
-    call_id         VARCHAR(40)  PRIMARY KEY,
-    application_id  VARCHAR(40)  REFERENCES loan_application(application_id),
-    use_case_id     VARCHAR(20)  NOT NULL,
-    prompt_version  INTEGER      NOT NULL,
-    model_tier      VARCHAR(10)  NOT NULL,
-    provider        VARCHAR(20)  NOT NULL,
-    input_hash      VARCHAR(64)  NOT NULL,                    -- 원문 대신 해시
-    output_masked   TEXT,
-    validation      JSONB        NOT NULL,
-    fallback_used   BOOLEAN      NOT NULL,
-    latency_ms      INTEGER      NOT NULL,
-    created_at      TIMESTAMPTZ  NOT NULL
-);
-
--- @domain 보안·감사
 CREATE TABLE IF NOT EXISTS idempotency_key (
     idem_key        VARCHAR(80)  PRIMARY KEY,
     scope           VARCHAR(30)  NOT NULL,
@@ -768,8 +768,8 @@ CREATE TABLE IF NOT EXISTS idempotency_key (
 );
 
 -- @domain 보안·감사
-CREATE TABLE IF NOT EXISTS audit_log (
-    audit_seq       INTEGER      PRIMARY KEY AUTOINCREMENT,   -- PostgreSQL: BIGSERIAL
+CREATE TABLE IF NOT EXISTS loan_audit_log (
+    audit_seq       BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     entity          VARCHAR(30)  NOT NULL,
     entity_id       VARCHAR(40)  NOT NULL,
     action          VARCHAR(40)  NOT NULL,
@@ -779,11 +779,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
     row_hash        VARCHAR(64)  NOT NULL,                    -- 해시 체인(위변조 탐지)
     created_at      TIMESTAMPTZ  NOT NULL
 );
--- 감사 로그는 추가만 가능(수정·삭제 금지). PostgreSQL에서는 같은 역할의 트리거 함수 또는 권한(REVOKE UPDATE, DELETE)으로 구현
-CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update BEFORE UPDATE ON audit_log
-BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
-CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete BEFORE DELETE ON audit_log
-BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+-- 감사 로그는 추가만 가능(수정·삭제 금지). 공통 audit_log(공통 설계)와 이름이 겹치지 않게 loan_audit_log 로 둔다.
+CREATE OR REPLACE FUNCTION loan_audit_log_append_only() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'loan_audit_log is append-only';
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE TRIGGER trg_audit_log_no_update BEFORE UPDATE ON loan_audit_log
+    FOR EACH ROW EXECUTE FUNCTION loan_audit_log_append_only();
+CREATE OR REPLACE TRIGGER trg_audit_log_no_delete BEFORE DELETE ON loan_audit_log
+    FOR EACH ROW EXECUTE FUNCTION loan_audit_log_append_only();
 
 -- @domain 보안·감사
 CREATE TABLE IF NOT EXISTS demo_scenario (                   -- 체험 고객(데모 전용, 회원 DB 통합 시 제거)
