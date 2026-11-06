@@ -22,6 +22,7 @@
 | `card/` | [README.md](card/README.md) | 카드 기획서 개요, 기능별 상세 `00`~`08` | 김경민 |
 | `dev/auth/` | [backend-spec.md](dev/auth/backend-spec.md) | 회원·인증 개발 명세 (users·devices DB 설계, 구현 체크리스트) | 김연준 |
 | `dev/card/` | [backend-spec.md](dev/card/backend-spec.md), [frontend-spec.md](dev/card/frontend-spec.md) | 카드 개발 명세 (DB, 서버 규칙, 프론트 구조) | 김경민 |
+| `ledger/` | [README.md](ledger/README.md), [가계부_기획안.md](ledger/가계부_기획안.md) | 가계부 기능 제안·기획안, 4가지 말투 모드 체험 HTML, 디자인 3종 비교 | |
 | `db/` | [db-design.md](db/db-design.md), [erd.md](db/erd.md) | 통합 DB 설계, ERD | |
 | `loan/` | [Loan_Service_main.md](loan/Loan_Service_main.md), [README.md](loan/README.md), [대출서비스_종합정리.md](loan/대출서비스_종합정리.md) | 대출 기획서(일반·정부·기관·대환·대출관리), 서식·제출서류·프로토타입, 서버 구현 정리(`backend/app/loan/`), ERD | 임대진 |
 | `references/` | 화면 캡처 | 우리WON뱅킹 참고 화면 (`card/`, `account/`, `loan/`) | |
