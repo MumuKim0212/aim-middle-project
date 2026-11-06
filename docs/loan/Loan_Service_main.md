@@ -7,6 +7,7 @@
 | 표기 원칙 | 은행명은 'OO은행'(본문에서는 '당행')으로 씁니다. 본문에 나오는 실제 기관·제도·회사 이름(신용평가회사, 보증기관, 시세 제공처, 정책자금 상품명 등)은 업무를 설명하기 위한 공개 정보 기준 예시이며 제휴·승인 관계를 뜻하지 않습니다. 금리·한도·기준값은 모두 예시이고, 법령·약관 내용은 요약이므로 실제 적용 전 법무·준법감시 확인이 필요합니다. |
 | 작성일 | 2026-11-04 |
 | 하위 문서 | [일반대출](Loan_Service/일반대출_기획서.md) · [정부대출](Loan_Service/정부대출_기획서.md) · [기관대출](Loan_Service/기관대출_기획서.md) · [대환대출](Refinancing_Service/대환대출_기획서.md) · [대출관리(사후)](대출관리_기획서.md) |
+| 공통 규칙 | [공통.md](../common/공통.md)와 [오류코드.md](../common/오류코드.md)가 기준입니다. 이 폴더의 기획서는 원안이고, API 경로·오류 형식·멱등·본인 재확인은 구현 기준 문서([README.md](README.md), [대출서비스_종합정리.md](대출서비스_종합정리.md))를 따릅니다 |
 | 테스트 자료 | [Customer_Submission_Documents](Customer_Submission_Documents/README.md) (가상 고객 4명, PDF 100개, 판정 정답표) |
 | 체험 프로토타입 | [대출서비스_프로토타입.html](Prototype/대출서비스_프로토타입.html) — 모바일 웹 화면으로 네 업무와 대출관리의 흐름을 직접 눌러 보는 데모 (브라우저에서 파일을 열면 됨. 기본은 한 화면 전환, PC에서는 분할 보기로 바꿀 수 있음, 3.6). 화면·값·문구 명세: [프로토타입_구현명세.md](Prototype/프로토타입_구현명세.md) |
 | 서류 양식 | `Loan_Service/Contract Document/` (LN-01~28), `Refinancing_Service/Contract Document/` (RF-01~19) |
@@ -279,8 +280,8 @@ flowchart TB
 ### 4.3 공통 플랫폼 의존 (이 문서 범위 밖, 인터페이스만)
 | 기능 | 대출 업무에서 쓰는 곳 | 인터페이스 |
 |---|---|---|
-| 로그인·세션 | 모든 API | 요청마다 고객 ID와 인증 수준이 담긴 토큰 |
-| 본인인증 (재인증) | 동의(C02), 약정(C10), 실행(C12) | `verify(customer_id, purpose) → auth_ref` (결과 참조값만 저장) |
+| 로그인·세션 | 모든 API | 서버 세션 쿠키. 모든 API는 `Depends(current_user)`로 세션의 `user_id`를 쓰고 요청 본문의 값은 쓰지 않는다 (공통.md 3장) |
+| 본인인증 (재인증) | 실행(C12), 중도상환, 청약철회 | 간편비밀번호 6자리 재확인: 실행 직전 `pin_verified(request)`, 미확인이면 `403 PIN_VERIFICATION_REQUIRED` (공통.md 4장). 원안의 동의(C02)·약정(C10) 시점 재인증과 `verify(user_id, purpose) → auth_ref`는 아직 연결하지 않았고 `auth_ref` 칸은 비어 있다 |
 | 전자서명 | 약정(C10), 배우자 동의(G02) | `sign(document_hash, auth_ref) → signature_ref` |
 | 계좌 실명 확인 | 자동이체 계좌(C07), 지급 계좌(C12) | `verify_account(bank, account, name) → match` |
 
@@ -924,13 +925,15 @@ interface LlmProvider:
 | 대환 확장 | `existing_loan`, `refi_target`, `refi_benefit`, `refi_override`, `payoff_quote`, `refi_saga`, `payoff_record`, `lien_change` |
 | 대출관리 확장 | `loan_account`, `payment_txn`, `delinquency`, `rate_change`, `prepay_request`, `rate_cut_request`, `withdrawal_request`, `term_change_request`, `certificate` |
 
+구현의 해시 체인 감사 로그 테이블 이름은 공용 `audit_log`와 겹치지 않도록 `loan_audit_log`다. 회원 참조 칼럼은 `customer_id`가 아니라 `user_id`(공통.md 6장)이고, 세션의 값만 채운다.
+
 ### 13.2 공통 API 규약
 | 항목 | 규약 |
 |---|---|
-| 경로 | 신규 대출 `/loans/...`, 대출관리 `/loans/accounts/...`, 대환 `/refi/...`, 운영 `/admin/...`, 외부 콜백 `/webhooks/...`, 내부 LLM 게이트웨이 `/internal/llm/v1/...` |
-| 멱등 | 상태를 바꾸는 모든 요청에 `Idempotency-Key` 헤더 |
-| 비동기 | 심사, 보증, 정책기관, 대환 실행은 `202 Accepted` + 상태 조회 API + 이벤트 알림 |
-| 오류 | `{ code, reason_codes[], message, retryable }` — `reason_codes`는 6.1.3 체계 |
+| 경로 | 모든 API는 `/api` 아래 (공통.md 1장). 구현은 `/api/loans/...` 하나로 신청(`/applications/{id}/<단계>`), 대출관리(`/{no}/...`), 대환(같은 신청 흐름의 `existing`·`targets`·`compare`)을 처리한다. 원안의 `/refi/...`, `/admin/...`, `/webhooks/...`, `/internal/llm/v1/...`는 구현하지 않았다 |
+| 멱등 | `Idempotency-Key` 헤더(8~36자)는 실행·중도상환에만 요구한다. 나머지 상태 변경은 상태 머신의 단계 순서로 중복을 막는다. 원안은 모든 상태 변경에 요구 |
+| 비동기 | 구현은 모두 동기 응답이다. 원안은 심사, 보증, 정책기관, 대환 실행을 `202 Accepted` + 상태 조회 API + 이벤트 알림으로 처리 |
+| 오류 | `{ code, message, details? }`, `code`는 대문자 SNAKE_CASE (공통.md 5장). 대출 코드는 오류코드.md 5.1이 원본이고 입력 오류는 `VALIDATION_FAILED`다. `reason_codes[]`(6.1.3 체계)는 심사·적합성 **결과 본문**의 사유 필드로 쓰고 오류 응답 형식에는 쓰지 않으며, `retryable`은 쓰지 않는다 |
 | 버전 | 응답에 사용한 `rule_version`, `product_version` 포함 |
 
 ### 13.3 비기능 요구 (초안)

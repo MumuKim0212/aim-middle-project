@@ -2,7 +2,7 @@
 
   GET  /api/loans/products                       상품 목록          GET  /api/loans                         내 대출 목록
   GET  /api/loans/{no}  /schedule  /prepay-quote  대출 상세·상환 일정·중도상환 견적
-  POST /api/loans/{no}/prepay|withdraw           중도상환·청약철회(간편비밀번호 재확인 + Idempotency-Key)
+  POST /api/loans/{no}/prepay|withdraw           중도상환(간편비밀번호 재확인 + Idempotency-Key)·청약철회(간편비밀번호 재확인)
   POST /api/loans/{no}/rate-cut|extend|certificates   금리인하요구·기간연장·증명서
   POST /api/loans/applications                   신청 시작(상품, 체험 고객 선택)    GET  /api/loans/applications/{id}   진행 상태
   POST /api/loans/applications/{id}/<단계>        precheck, consents, existing, targets, profile, policy-check,
