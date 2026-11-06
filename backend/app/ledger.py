@@ -31,12 +31,13 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from . import ledger_categorize, ledger_query
 from . import models as m
+from .accounts.service import BANK_NAME, mask
 from .db import SessionLocal, engine, get_db
 from .auth.deps import current_user
 from .ledger_answer import enabled as answer_enabled, generate_answer, stream_answer
@@ -109,14 +110,21 @@ def _examples(db: Session, user_id: int, budget_remaining: int, budget_set: bool
     return {"category": "배달", "typical": typical, "large": large}
 
 
+def _external(q, user_id: int):
+    """내 계좌의 거래 중 상대가 내 다른 계좌가 아닌 것만(내 계좌 사이 이체·적금 납입·해지 입금은 수입도 지출도 아니다)."""
+    me, cp = aliased(m.Account), aliased(m.Account)
+    return (q.select_from(m.Transaction).join(me, me.id == m.Transaction.account_id)
+            .outerjoin(cp, cp.id == m.Transaction.counterparty_account_id)
+            .where(me.user_id == user_id, or_(cp.user_id.is_(None), cp.user_id != user_id)))
+
+
 def _income(db: Session, user_id: int, start: date, end: date) -> int:
     """그 기간에 내 계좌로 들어온 돈(입금·이체 입금). 대출 실행금은 수입으로 보지 않는다."""
     total = db.scalar(
-        select(func.coalesce(func.sum(m.AccountTransaction.amount), 0))
-        .join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.Account.user_id == user_id, m.AccountTransaction.kind.in_(("deposit", "transfer_in")),
-               m.AccountTransaction.occurred_at >= datetime.combine(start, time.min),
-               m.AccountTransaction.occurred_at < datetime.combine(end, time.min)))
+        _external(select(func.coalesce(func.sum(m.Transaction.amount), 0)), user_id)
+        .where(m.Transaction.type.in_(INCOME_KINDS),
+               m.Transaction.created_at >= datetime.combine(start, time.min),
+               m.Transaction.created_at < datetime.combine(end, time.min)))
     return int(total or 0)
 
 
@@ -276,7 +284,7 @@ def build_summary(db: Session, user_id: int, month: str) -> dict:
         "goal": _goal(db, user_id, month, saved["heldAmount"]),
         "streak": _streak(db, user_id) if month == this_month() else 0,
         "account": None if not primary else {
-            "id": primary.id, "bankName": primary.bank_name, "masked": primary.account_masked},
+            "id": primary.id, "bankName": BANK_NAME, "masked": mask(primary.account_no)},
         "balance": {
             "current": balance, "plannedOutflow": planned_total, "expected": expected,
             "planned": [{"id": p.id, "dueDate": p.due_date.isoformat(), "amount": p.amount, "type": p.type}
@@ -1169,7 +1177,7 @@ INCOME_MEMO = "가계부 입력"  # 가계부에서 직접 기록한 입금 표�
 INCOME_KINDS = ("deposit", "transfer_in")
 
 
-def create_income(db: Session, user_id: int, day: date, source: str, amount: int) -> m.AccountTransaction:
+def create_income(db: Session, user_id: int, day: date, source: str, amount: int) -> m.Transaction:
     """대표계좌에 입금을 기록하고 잔액을 늘린다(화면 입력과 대화 입력이 같이 쓴다)."""
     source = source.strip()[:30]
     if not source:
@@ -1181,8 +1189,8 @@ def create_income(db: Session, user_id: int, day: date, source: str, amount: int
     if not acc:
         raise HTTPException(409, "NO_PRIMARY_ACCOUNT")
     acc.balance += amount
-    tx = m.AccountTransaction(account_id=acc.id, kind="deposit", amount=amount, balance_after=acc.balance,
-                              counterparty=source, memo=INCOME_MEMO, occurred_at=datetime.combine(day, time(9, 0)))
+    tx = m.Transaction(account_id=acc.id, type="deposit", amount=amount, balance_after=acc.balance,
+                       counterparty_name=source, memo=INCOME_MEMO, created_at=datetime.combine(day, time(9, 0)))
     db.add(tx)
     db.commit()
     return tx
@@ -1204,26 +1212,26 @@ def list_income(month: str = Query(default_factory=this_month), user: m.User = D
                 db: Session = Depends(get_db)):
     start, end = month_range(month)
     rows = db.scalars(
-        select(m.AccountTransaction).join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.Account.user_id == user.id, m.AccountTransaction.kind.in_(INCOME_KINDS),
-               m.AccountTransaction.occurred_at >= datetime.combine(start, time.min),
-               m.AccountTransaction.occurred_at < datetime.combine(end, time.min))
-        .order_by(m.AccountTransaction.occurred_at.desc(), m.AccountTransaction.id.desc())).all()
+        _external(select(m.Transaction), user.id)
+        .where(m.Transaction.type.in_(INCOME_KINDS),
+               m.Transaction.created_at >= datetime.combine(start, time.min),
+               m.Transaction.created_at < datetime.combine(end, time.min))
+        .order_by(m.Transaction.created_at.desc(), m.Transaction.id.desc())).all()
     return {"month": month, "items": [{
-        "id": r.id, "date": r.occurred_at.date().isoformat(), "source": r.counterparty or r.memo or "입금",
+        "id": r.id, "date": r.created_at.date().isoformat(), "source": r.counterparty_name or r.memo or "입금",
         "amount": r.amount, "canDelete": r.memo == INCOME_MEMO} for r in rows]}
 
 
 @router.delete("/income/{tx_id}", status_code=204)
-def delete_income(tx_id: str, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+def delete_income(tx_id: int, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """가계부에서 기록한 수입만 지운다. 그만큼 잔액을 되돌리고, 잔액이 모자라면 못 지운다."""
     row = db.execute(
-        select(m.AccountTransaction, m.Account).join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.AccountTransaction.id == tx_id, m.Account.user_id == user.id)).first()
+        select(m.Transaction, m.Account).join(m.Account, m.Account.id == m.Transaction.account_id)
+        .where(m.Transaction.id == tx_id, m.Account.user_id == user.id)).first()
     if not row:
         raise HTTPException(404, "NOT_FOUND")
     tx, acc = row
-    if tx.memo != INCOME_MEMO or tx.kind not in INCOME_KINDS:
+    if tx.memo != INCOME_MEMO or tx.type not in INCOME_KINDS:
         raise HTTPException(409, "NOT_DELETABLE")
     if acc.balance < tx.amount:
         raise HTTPException(409, "BALANCE_TOO_LOW")
@@ -1238,14 +1246,14 @@ def account_outflows(month: str = Query(default_factory=this_month), user: m.Use
     """내 계좌에서 나간 돈(출금·이체). 카드대금·대출상환은 카드 지출·예정 출금과 겹쳐서 뺀다. 예산 계산에는 넣지 않는다."""
     start, end = month_range(month)
     rows = db.execute(
-        select(m.AccountTransaction, m.Account.account_masked)
-        .join(m.Account, m.Account.id == m.AccountTransaction.account_id)
-        .where(m.Account.user_id == user.id, m.AccountTransaction.kind.in_(("withdraw", "transfer_out")),
-               m.AccountTransaction.occurred_at >= datetime.combine(start, time.min),
-               m.AccountTransaction.occurred_at < datetime.combine(end, time.min))
-        .order_by(m.AccountTransaction.occurred_at.desc(), m.AccountTransaction.id.desc())).all()
-    items = [{"id": t.id, "date": t.occurred_at.date().isoformat(), "kind": t.kind,
-              "to": t.counterparty or t.memo or "출금", "amount": t.amount, "account": masked} for t, masked in rows]
+        _external(select(m.Transaction, m.Account.account_no), user.id)
+        .join(m.Account, m.Account.id == m.Transaction.account_id)
+        .where(m.Transaction.type.in_(("transfer_out", "card_payment")),
+               m.Transaction.created_at >= datetime.combine(start, time.min),
+               m.Transaction.created_at < datetime.combine(end, time.min))
+        .order_by(m.Transaction.created_at.desc(), m.Transaction.id.desc())).all()
+    items = [{"id": t.id, "date": t.created_at.date().isoformat(), "kind": t.type,
+              "to": t.counterparty_name or t.memo or "출금", "amount": t.amount, "account": mask(no)} for t, no in rows]
     return {"month": month, "total": sum(i["amount"] for i in items), "items": items}
 
 

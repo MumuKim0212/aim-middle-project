@@ -9,7 +9,7 @@ export type CardAction =
   | 'report_lost'
   | 'terminate'
 
-export type PaymentAccount = { accountId: string; bankName: string; accountMasked: string }
+export type PaymentAccount = { accountId: number; bankName: string; accountMasked: string }
 export type CreditLimit = { total: number; used: number; remaining: number; usageRate: number }
 export type DebitLimit = { perTx: number; perDay: number }
 
@@ -148,7 +148,7 @@ export type IncomeRange = 'none' | 'lt_10m' | '10m_20m' | '20m_40m' | '40m_70m' 
 export type CardApplicationRequest = {
   type: CardType
   productId: string
-  paymentAccountId: string
+  paymentAccountId: number
   paymentDay?: number
   incomeRange?: IncomeRange
   cardPin: string

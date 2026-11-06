@@ -24,7 +24,7 @@ export type HomeData = {
   user: { id: number; name: string }
   accounts: {
     totalBalance: number
-    items: { id: string; bankName: string; masked: string; balance: number; primary: boolean }[]
+    items: { id: number; bankName: string; masked: string; balance: number; primary: boolean; productType: 'checking' | 'deposit' | 'savings'; productName: string }[]
   }
   cards: {
     count: number

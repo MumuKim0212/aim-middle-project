@@ -25,6 +25,7 @@ from .card_cycles import (
     KST, add_months, billed, cycle_lines, cycle_totals, date_of, first_due_date, is_simple_pin,
     kst_date, next_payment_date, usage_rate, used_amount,
 )
+from .accounts.service import BANK_NAME, CHECKING, mask
 from .auth.deps import current_user, require_pin_verified
 from .db import get_db
 
@@ -440,17 +441,6 @@ def list_card_products(db: Session = Depends(get_db)):
     return {"items": [{"id": p.id, "type": p.type, "name": p.name, "description": p.description} for p in products]}
 
 
-@router.get("/accounts")
-def list_payment_accounts(request: Request, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
-    # 계좌 도메인(김연준) API 가 생기기 전까지 카드 신청 화면용으로 둔다
-    if request.query_params.get("purpose", "card_payment") != "card_payment":
-        raise validation([("purpose", "INVALID_ENUM")])
-    accounts = db.scalars(select(m.Account).where(m.Account.user_id == user.id, m.Account.status == "active")
-                          .order_by(m.Account.is_primary.desc(), m.Account.id))
-    return {"items": [{"accountId": a.id, "bankName": a.bank_name, "accountMasked": a.account_masked}
-                      for a in accounts]}
-
-
 def _age_under_19(user: m.User) -> bool:
     b, t = user.birth_date, today_kst()  # 생년월일이 없으면 통과
     return bool(b) and t.year - b.year - ((t.month, t.day) < (b.month, b.day)) < 19
@@ -487,7 +477,7 @@ def _validate_apply(b: dict, key: str | None, db: Session) -> tuple[dict, list[t
             f.append(("productId", "PRODUCT_TYPE_MISMATCH"))
     if not b.get("paymentAccountId"):
         f.append(("paymentAccountId", "REQUIRED"))
-    elif not isinstance(b["paymentAccountId"], str):
+    elif not isinstance(b["paymentAccountId"], int) or isinstance(b["paymentAccountId"], bool)             or not 0 < b["paymentAccountId"] < 2**63:
         f.append(("paymentAccountId", "INVALID_FORMAT"))
     agreements = b.get("agreements") if isinstance(b.get("agreements"), dict) else {}
     pay_day, income = b.get("paymentDay"), b.get("incomeRange")
@@ -577,8 +567,8 @@ def _issue_card(db: Session, user_id: int, req: dict, account: m.Account, grante
             user_id=user_id, product_id=product.id, name=product.name, type=req["type"],
             number_last4=f"{random.randrange(10000):04d}",
             expiry=f"{today.month:02d}/{(today.year + 5) % 100:02d}", issued_at=today,
-            payment_account_id=account.id, payment_bank_name=account.bank_name,
-            payment_account_masked=account.account_masked,
+            payment_account_id=account.id, payment_bank_name=BANK_NAME,
+            payment_account_masked=mask(account.account_no),
             payment_day=req["paymentDay"] if credit else None, credit_limit=granted if credit else None,
             debit_per_tx=None if credit else 1_000_000, debit_per_day=None if credit else 3_000_000)
         try:
@@ -606,7 +596,8 @@ def apply_card(request: Request, body: dict = Depends(json_body), user: m.User =
         return _replay(saved, fingerprint)
 
     account = db.scalar(select(m.Account).where(
-        m.Account.id == req["paymentAccountId"], m.Account.user_id == user.id, m.Account.status == "active"))
+        m.Account.id == req["paymentAccountId"], m.Account.user_id == user.id, m.Account.status == "active",
+        m.Account.product_id == CHECKING))  # 결제 계좌는 저축예금만(공통.md 8장). 계좌 후보 조회는 계좌 파트 API
     if not account:
         raise ApiError(404, "ACCOUNT_NOT_FOUND", "계좌를 찾을 수 없습니다.")
     if req["type"] == "credit" and _age_under_19(user):

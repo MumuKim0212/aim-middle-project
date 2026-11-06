@@ -42,7 +42,7 @@ def check(name, cond, info=""):
 
 
 def apply_body(**over):
-    body = {"type": "credit", "productId": "prod_credit_01", "paymentAccountId": "acc_002",
+    body = {"type": "credit", "productId": "prod_credit_01", "paymentAccountId": 2,
             "incomeRange": "20m_40m", "cardPin": "1357", "recipient": "김민수", "phone": "010-1234-5678",
             "address": {"line1": "서울"}, "agreements": {"cardTerms": True, "privacy": True, "creditInquiry": True}}
     body.update(over)
@@ -106,7 +106,7 @@ def read_scenarios():
     check("02 없는 거래 404", s == 404 and d["code"] == "TRANSACTION_NOT_FOUND", d)
     s, d = call("GET", "/card-billing/upcoming")
     pay = d["payments"]
-    check("03 결제일 11/25 두 묶음, acc_002 부족 850,000", d["nextPaymentDate"] == "2026-11-25" and d["thisMonthTotal"] == 945000 and [p["amount"] for p in pay] == [45000, 900000] and pay[1]["shortfall"] == 850000 and pay[1]["balanceStatus"] == "insufficient", d)
+    check("03 결제일 11/25 두 묶음, 계좌 2 부족 400,000", d["nextPaymentDate"] == "2026-11-25" and d["thisMonthTotal"] == 945000 and [p["amount"] for p in pay] == [45000, 900000] and pay[1]["shortfall"] == 400000 and pay[1]["balanceStatus"] == "insufficient", d)
     s, d = call("GET", "/cards/card_004/limit")
     check("05 분실 카드 한도 9.0%", d["credit"]["usageRate"] == 9.0 and d["credit"]["remaining"] == 455000, d)
     s, d = call("GET", "/cards/card_001/limit")
@@ -154,7 +154,7 @@ def apply_scenarios():
     check("06 T22 상품·종류 불일치", s == 400 and {"field": "productId", "reason": "PRODUCT_TYPE_MISMATCH"} in d["details"]["fields"], d)
     s, d = apply(apply_body(cardPin="1234", phone="1"))
     check("06 여러 필드 오류를 모두 담음", s == 400 and len(d["details"]["fields"]) == 2, d)
-    s, d = apply(apply_body(paymentAccountId="acc_101"))
+    s, d = apply(apply_body(paymentAccountId=5))
     check("06 남의 계좌 404", s == 404 and d["code"] == "ACCOUNT_NOT_FOUND", d)
     s, d = apply(apply_body(incomeRange="lt_10m"))
     check("06 소득 부족 거절(201)", s == 201 and d["status"] == "rejected" and d["rejectReason"] == "INCOME_INSUFFICIENT" and d["card"] is None, d)

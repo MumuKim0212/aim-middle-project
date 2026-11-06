@@ -1,6 +1,14 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { PublicOnly, RequireAuth } from './auth/guards'
 import Layout from './components/Layout'
+import AccountList from './features/accounts/AccountList'
+import Close from './features/accounts/Close'
+import Deposit from './features/accounts/Deposit'
+import Detail, { Pay } from './features/accounts/Detail'
+import Open from './features/accounts/Open'
+import Products from './features/accounts/Products'
+import Transactions from './features/accounts/Transactions'
+import TransferFlow, { TransferDone, TransferStep1, TransferStep2, TransferStep3 } from './features/accounts/Transfer'
 import CardShell from './features/card/components/CardShell'
 import ApplyPage from './features/card/pages/ApplyPage'
 import ApplyResultPage from './features/card/pages/ApplyResultPage'
@@ -35,6 +43,8 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Home />} />
 
+        <Route path="products" element={<Products />} />
+
         <Route element={<PublicOnly />}>
           <Route path="login" element={<Login />} />
           <Route path="login/password" element={<Login />} />
@@ -53,8 +63,20 @@ export default function App() {
           <Route path="me/pin" element={<PinSetup />} />
           <Route path="me/password" element={<PasswordChange />} />
           <Route path="auth/pin/verify" element={<PinVerify />} />
-          <Route path="accounts" element={<Placeholder title="계좌" owner="김연준" />} />
-          <Route path="accounts/open" element={<Placeholder title="계좌개설" owner="김연준" />} />
+          <Route path="accounts" element={<AccountList />} />
+          <Route path="accounts/open" element={<Navigate to="/products" replace />} />
+          <Route path="accounts/:id" element={<Detail />} />
+          <Route path="accounts/:id/transactions" element={<Transactions />} />
+          <Route path="accounts/:id/deposit" element={<Deposit />} />
+          <Route path="accounts/:id/pay" element={<Pay />} />
+          <Route path="accounts/:id/close" element={<Close />} />
+          <Route path="products/:type/open" element={<Open />} />
+          <Route path="transfer" element={<TransferFlow />}>
+            <Route index element={<TransferStep1 />} />
+            <Route path="amount" element={<TransferStep2 />} />
+            <Route path="confirm" element={<TransferStep3 />} />
+            <Route path="done" element={<TransferDone />} />
+          </Route>
           <Route path="cards" element={<CardShell />}>
             <Route index element={<CardListPage />} />
             <Route path="transactions" element={<TransactionsPage />} />

@@ -1,0 +1,75 @@
+/* 계좌 화면(A-01~A-12). 공통 색·카드·폼 스타일은 styles.css, auth.css 를 그대로 쓴다. */
+.ac-page { display: flex; flex-direction: column; gap: 14px; }
+.ac-page .auth-title { margin: 6px 0 0; }
+.ac-retry { margin-top: 12px; padding: 9px 18px; border: 0; border-radius: 10px; background: var(--blue); color: #fff; font-weight: 700; }
+
+.ac-total { padding: 18px; border-radius: var(--radius); background: linear-gradient(135deg, #2f6bff, #5b8dff); color: #fff; box-shadow: 0 10px 24px rgba(47, 107, 255, 0.28); }
+.ac-total .label { color: rgba(255, 255, 255, 0.8); }
+.ac-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.ac-quick a { padding: 9px 0; border-radius: 10px; background: rgba(255, 255, 255, 0.2); text-align: center; font-size: 13px; font-weight: 700; }
+.ac-empty { padding: 30px 8px; text-align: center; color: var(--muted); }
+.ac-group h3 { margin: 4px 2px 8px; font-size: 14px; color: var(--muted); }
+.ac-group ul { display: grid; gap: 10px; }
+.ac-card { display: block; padding: 15px 16px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.ac-card .row { gap: 8px; }
+.ac-card .row .tag { margin-left: auto; }
+.ac-card p { margin: 4px 0 0; }
+.ac-balance { font-size: 21px; font-weight: 800; letter-spacing: -0.03em; }
+.ac-primary { background: var(--blue-soft); color: var(--blue); }
+
+.ac-products { display: grid; gap: 12px; }
+.ac-products .auth-summary { margin: 10px 0 8px; }
+.ac-products .auth-actions { margin-top: 8px; }
+.ac-desc { margin: 4px 0 8px; padding: 12px; border-radius: 12px; background: #f4f8ff; color: #3d4a63; font-size: 13px; line-height: 1.6; }
+.ac-link-btn { flex: 1; display: grid; place-items: center; min-height: 50px; border-radius: 12px; background: var(--blue); color: #fff; font-size: 15px; font-weight: 800; }
+.ac-inline { border: 0; background: none; padding: 0; color: var(--blue); font-weight: 800; text-decoration: underline; font-size: inherit; }
+
+.ac-select { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-size: 14px; }
+.ac-inline-form { display: flex; gap: 8px; }
+.ac-inline-form input { flex: 1; min-width: 0; }
+.ac-inline-form button { padding: 0 16px; border: 0; border-radius: 12px; background: var(--blue); color: #fff; font-weight: 800; }
+.ac-inline-form button:disabled { opacity: 0.5; }
+
+.ac-amount { text-align: center; }
+.ac-amount-won { margin: 6px 0 0; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; }
+.ac-amount-ko { margin: 2px 0 6px; min-height: 18px; color: var(--blue); font-size: 13px; font-weight: 700; }
+.ac-amount-hint { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; }
+.ac-amount .pin-pad button { min-height: 54px; }
+.ac-pin { width: 100%; max-width: 360px; padding: 22px; border-radius: 16px; background: #fff; text-align: center; }
+.ac-pin h3 { margin: 0 0 8px; font-size: 17px; }
+.ac-pin p { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+.ac-pin .pin-dots { margin: 18px 0; }
+
+.ac-no { margin: 10px 0 0; font-size: 13px; opacity: 0.92; }
+.ac-copy { margin-left: 6px; padding: 2px 9px; border: 0; border-radius: 99px; background: rgba(255, 255, 255, 0.25); color: #fff; font-size: 11px; }
+.ac-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px; border-radius: 14px; background: #fff6e0; color: #8a5a00; font-size: 13px; line-height: 1.5; }
+.ac-banner .ac-link-btn { flex: none; min-height: 38px; padding: 0 14px; font-size: 13px; }
+.ac-warn { color: #d54d44; }
+.ac-interest h3 { margin: 0 0 8px; font-size: 15px; }
+.ac-interest .two { margin: 8px 0; }
+.ac-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; }
+.ac-actions a { padding: 14px 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; text-align: center; font-size: 14px; font-weight: 800; }
+.ac-actions a.danger { border-color: #f0c9c6; color: #d54d44; }
+.ac-dev { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border: 1px dashed #c3cbdc; border-radius: 12px; }
+.ac-dev small { width: 100%; color: var(--muted); }
+.ac-dev button { padding: 8px 12px; border: 0; border-radius: 9px; background: #eef1f7; font-size: 12.5px; font-weight: 700; }
+
+.ac-dates { display: flex; align-items: center; gap: 8px; }
+.ac-dates input { flex: 1; min-width: 0; min-height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.ac-tx { background: #fff; border: 1px solid var(--line); border-radius: 16px; }
+.ac-tx li { display: flex; justify-content: space-between; gap: 10px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+.ac-tx li:last-child { border-bottom: 0; }
+.ac-tx strong { display: block; font-size: 14px; }
+.ac-tx small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+.ac-tx-amt { text-align: right; }
+.ac-tx-amt b { font-size: 15px; }
+.ac-tx-amt b.in { color: var(--blue); }
+
+.ac-pick { display: grid; gap: 8px; margin-bottom: 8px; }
+.ac-pick button { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); text-align: left; }
+.ac-pick button.on { border-color: var(--blue); background: var(--blue-soft); }
+.ac-pick small { color: var(--muted); }
+.ac-fav { display: flex; gap: 6px; }
+.ac-fav > button:first-child { flex: 1; }
+.ac-fav .ac-x { width: 44px; flex: none; justify-content: center; color: var(--muted); }
+.ac-lists h4 { margin: 14px 2px 8px; font-size: 13px; color: var(--muted); }

@@ -10,7 +10,7 @@ import { isSimplePin } from '../lib/pin'
 
 type Draft = {
   type: CardType | null
-  paymentAccountId: string
+  paymentAccountId: number | ''
   paymentDay: number
   incomeRange: IncomeRange | ''
   cardPin: string
@@ -129,7 +129,7 @@ export default function ApplyPage() {
   }
 
   const body = (): CardApplicationRequest => ({
-    type: d.type!, productId: product!.id, paymentAccountId: d.paymentAccountId,
+    type: d.type!, productId: product!.id, paymentAccountId: d.paymentAccountId as number,
     ...(credit ? { paymentDay: d.paymentDay, incomeRange: d.incomeRange as IncomeRange } : {}),
     cardPin: d.cardPin, recipient: d.recipient.trim(), phone: d.phone,
     address: { line1: d.line1.trim(), ...(d.line2.trim() ? { line2: d.line2.trim() } : {}) },

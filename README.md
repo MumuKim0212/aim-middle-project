@@ -96,8 +96,10 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
 | `/auth/pin/setup`, `/auth/pin/verify` | 간편비밀번호 설정 · 2차 인증 | 필요 |
 | `/me`, `/me/password`, `/me/pin` | 내 정보 · 비밀번호 변경 · 간편비밀번호 변경 | 필요 |
 | `/ledger`, `/ledger/chat`, `/ledger/history` | 가계부 요약 · 물어보기 · 소비 내역 | 필요 |
+| `/products` | 상품 안내(저축예금·정기예금·정기적금) | 불필요 |
+| `/accounts`, `/accounts/:id`(+`/transactions` `/deposit` `/pay` `/close`), `/products/:type/open`, `/transfer` | 계좌 목록·상세·개설·이체·해지 (계좌.md) | 필요 |
 | `/cards`, `/cards/:id`, `/cards/transactions`, `/cards/billing`, `/cards/apply` 등 | 카드 | 필요 |
-| `/accounts`, `/loans` | 각 담당자 화면(빈 페이지) | 필요 |
+| `/loans` | 담당자 화면(빈 페이지) | 필요 |
 
 로그인이 필요한 API 는 모두 `Depends(current_user)`(`backend/app/auth/deps.py`) 하나로 막고, 모든 조회는 `user.id` 로 걸러서 남의 데이터는 404 로 답합니다. 오류 응답은 `{"code", "message"}` 모양입니다. 이체 같은 중요 동작 직전에는 `/auth/pin/verify` 를 거치고 서버는 `pin_verified(request)` 로 5분간 통과 여부를 확인합니다.
 

@@ -1,15 +1,16 @@
 """docs/db/db-design.md 의 통합 테이블 설계를 SQLAlchemy 모델로 옮긴 것.
 
-공통 규칙: 금액 BIGINT(원) · ID 'prefix_<시간순 값>' VARCHAR(40) ·
+공통 규칙: 금액 BIGINT(원) · 회원·계좌 ID 는 BIGINT IDENTITY, 파트 자체 ID 는 'prefix_<시간순 값>' VARCHAR(40) ·
 enum 은 VARCHAR + CHECK · 도메인 간 참조(user_id, account_id)는 논리 참조(FK 없음).
 """
 import secrets
 import time
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index,
-    Integer, Numeric, SmallInteger, String, Text, UniqueConstraint,
+    Integer, Numeric, SmallInteger, String, Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -80,56 +81,82 @@ class Device(Base):
     __table_args__ = (Index("ix_devices_user", "user_id"),)
 
 
+class Product(Base):
+    """상품(계좌.md 7.1). 3행 고정: 1 저축예금, 2 정기예금, 3 정기적금. 시드로 id 를 고정하므로 BY DEFAULT."""
+    __tablename__ = "products"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
+    type: Mapped[str] = mapped_column(Text)  # checking | deposit | savings
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    rate: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    early_close_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    min_amount: Mapped[int | None] = mapped_column(Money)
+    max_amount: Mapped[int | None] = mapped_column(Money)
+    min_months: Mapped[int | None] = mapped_column(Integer)
+    max_months: Mapped[int | None] = mapped_column(Integer)
+    max_per_user: Mapped[int | None] = mapped_column(Integer)
+    requires_checking: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (CheckConstraint("type IN ('checking','deposit','savings')", name="ck_products_type"),)
+
+
 class Account(Base):
+    """계좌(계좌.md 7.2). 시드로 id 1~6 을 고정하므로 BY DEFAULT. 은행명은 컬럼이 아니라 API 상수다."""
     __tablename__ = "accounts"
-    id: Mapped[str] = pk("acc")
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    bank_name: Mapped[str] = mapped_column(String(30))
-    account_no_enc: Mapped[str] = mapped_column(String(200))
-    account_masked: Mapped[str] = mapped_column(String(20))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    account_no: Mapped[str] = mapped_column(Text, unique=True)  # 1002-XXX-XXXXXX 평문
+    alias: Mapped[str | None] = mapped_column(Text)
     balance: Mapped[int] = mapped_column(Money, default=0)
-    purpose: Mapped[str] = mapped_column(String(20), default="general")  # general|card_payment|loan
+    rate: Mapped[Decimal] = mapped_column(Numeric(5, 2))  # 개설 시점에 확정된 연금리
+    term_months: Mapped[int | None] = mapped_column(Integer)
+    monthly_amount: Mapped[int | None] = mapped_column(Money)
+    payment_day: Mapped[int | None] = mapped_column(Integer)
+    paid_count: Mapped[int] = mapped_column(Integer, default=0)
+    auto_pay: Mapped[bool] = mapped_column(Boolean, default=True)
+    linked_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
+    opened_at: Mapped[date] = mapped_column(Date)
+    maturity_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(Text, default="active")  # active | matured | closed_early | closed
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
-    status: Mapped[str] = mapped_column(String(10), default="active")
-    created_at: Mapped[datetime] = ts_created()
-    updated_at: Mapped[datetime] = ts_updated()
     __table_args__ = (
         CheckConstraint("balance >= 0", name="ck_accounts_balance"),
-        CheckConstraint("status IN ('active','closed')", name="ck_accounts_status"),
+        CheckConstraint("status IN ('active','matured','closed_early','closed')", name="ck_accounts_status"),
         Index("ix_accounts_user_status", "user_id", "status"),
+        Index("uq_accounts_primary", "user_id", unique=True, postgresql_where=text("is_primary")),
     )
 
 
-class AccountPinState(Base):
-    __tablename__ = "account_pin_state"
-    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), primary_key=True)
-    fail_count: Mapped[int] = mapped_column(SmallInteger, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = ts_updated()
-    __table_args__ = (CheckConstraint("fail_count BETWEEN 0 AND 4", name="ck_pin_fail"),)
-
-
-class AccountTransaction(Base):
-    __tablename__ = "account_transactions"
-    id: Mapped[str] = pk("atx")
-    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"))
-    kind: Mapped[str] = mapped_column(String(20))
-    amount: Mapped[int] = mapped_column(Money)
+class Transaction(Base):
+    """계좌 거래(계좌.md 7.3). card_payment 는 이름만 예약한다(공통.md 10장)."""
+    __tablename__ = "transactions"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+    type: Mapped[str] = mapped_column(Text)
+    amount: Mapped[int] = mapped_column(Money)  # 양수. open·close 는 0
     balance_after: Mapped[int] = mapped_column(Money)
-    counterparty: Mapped[str | None] = mapped_column(String(100))
-    memo: Mapped[str | None] = mapped_column(String(100))
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ref_type: Mapped[str | None] = mapped_column(String(20))
-    ref_id: Mapped[str | None] = mapped_column(String(40))
+    counterparty_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
+    counterparty_name: Mapped[str | None] = mapped_column(Text)
+    memo: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = ts_created()
     __table_args__ = (
-        CheckConstraint("amount > 0", name="ck_atx_amount"),
         CheckConstraint(
-            "kind IN ('deposit','withdraw','transfer_in','transfer_out','card_payment',"
-            "'loan_disbursement','loan_repayment')",
-            name="ck_atx_kind",
-        ),
-        Index("ix_atx_account_time", "account_id", "occurred_at"),
+            "type IN ('open','deposit','transfer_in','transfer_out','interest','close','card_payment')",
+            name="ck_tx_type"),
+        CheckConstraint("amount >= 0", name="ck_tx_amount"),
+        Index("ix_tx_account_time", "account_id", text("created_at DESC"), text("id DESC")),
     )
+
+
+class FavoriteAccount(Base):
+    __tablename__ = "favorite_accounts"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    account_no: Mapped[str] = mapped_column(Text)
+    display_name: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = ts_created()
+    __table_args__ = (UniqueConstraint("user_id", "account_no", name="uq_fav_user_no"),)
 
 
 class IdempotencyKey(Base):
@@ -181,7 +208,7 @@ class Card(Base):
     expiry: Mapped[str] = mapped_column(String(5))
     status: Mapped[str] = mapped_column(String(12), default="active")
     issued_at: Mapped[date] = mapped_column(Date)
-    payment_account_id: Mapped[str] = mapped_column(String(40))  # 논리 참조
+    payment_account_id: Mapped[int] = mapped_column(BigInteger)  # 논리 참조 → accounts.id
     payment_bank_name: Mapped[str] = mapped_column(String(30))
     payment_account_masked: Mapped[str] = mapped_column(String(20))
     payment_day: Mapped[int | None] = mapped_column(SmallInteger)
@@ -260,7 +287,7 @@ class CardApplication(Base):
     user_id: Mapped[int] = mapped_column(BigInteger)
     type: Mapped[str] = mapped_column(String(6))
     product_id: Mapped[str] = mapped_column(ForeignKey("card_products.id"))
-    payment_account_id: Mapped[str] = mapped_column(String(40))
+    payment_account_id: Mapped[int] = mapped_column(BigInteger)
     payment_day: Mapped[int | None] = mapped_column(SmallInteger)
     income_range: Mapped[str | None] = mapped_column(String(10))
     recipient: Mapped[str] = mapped_column(String(20))
@@ -550,7 +577,7 @@ class Disbursement(Base):
     id: Mapped[str] = pk("disb")
     contract_no: Mapped[str] = mapped_column(ForeignKey("contract.contract_no"))
     payee: Mapped[str] = mapped_column(String(50))
-    account_id: Mapped[str] = mapped_column(String(40))  # 논리 참조 → accounts
+    account_id: Mapped[int] = mapped_column(BigInteger)  # 논리 참조 → accounts
     amount: Mapped[int] = mapped_column(Money)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result: Mapped[str | None] = mapped_column(String(10))
