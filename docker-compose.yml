@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg17
     container_name: aimbank-db
     environment:
       POSTGRES_DB: aimbank
@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: aimbank
       TZ: UTC
     ports:
-      - "5433:5432"   # 로컬에 이미 5432 를 쓰는 DB 가 있어도 겹치지 않게 5433
+      - "5432:5432"   # 로컬 PostgreSQL 이 5432 를 쓰고 있으면 둘 중 하나만 켠다 (docs/common/기술스택.md)
     volumes:
       - aimbank-pg:/var/lib/postgresql/data
 volumes:

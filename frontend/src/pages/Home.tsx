@@ -1,248 +1,81 @@
-import { useEffect, useState } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchHome, type HomeData, type LoanProduct } from '../api'
-import { dDay, koreanAmount, shortDate, won } from '../format'
+import AuthStrip from '../auth/AuthStrip'
+import './home.css'
 
-type Filter = 'all' | LoanProduct['type']
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'all', label: '전체' },
-  { key: 'general', label: '일반대출' },
-  { key: 'gov', label: '정부대출' },
-  { key: 'org', label: '기관대출' },
-  { key: 'refi', label: '대환' },
+type Pictogram = 'open' | 'account' | 'reset' | 'card' | 'ledger' | 'loan'
+
+function PictogramIcon({ name }: { name: Pictogram }) {
+  const paths: Record<Pictogram, ReactNode> = {
+    open: <><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18" /><circle cx="18.5" cy="18.5" r="4" fill="#f8f3ed" /><path d="M18.5 16.5v4M16.5 18.5h4" /></>,
+    account: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M6 10h12M7 15h6" /></>,
+    reset: <><rect x="6" y="10" width="12" height="11" rx="2" /><path d="M9 10V7a3 3 0 0 1 6 0v3M20 12a5 5 0 0 1 1 7M21 15v-3h-3" /></>,
+    card: <><rect x="2.5" y="5.5" width="19" height="13" rx="2" /><path d="M2.5 10h19M16 15h2" /></>,
+    ledger: <><rect x="5" y="3" width="15" height="18" rx="2" /><path d="M8 3v18M11 16l2-3 2 1 2-5" /></>,
+    loan: <><path d="M6 8c0-2 2-2 3-1 1-2 3-2 4 0 2-1 4 0 4 2l-2 3c3 2 5 5 5 7 0 2-3 3-8 3S4 21 4 19c0-2 2-5 5-7L6 8zM9 12h6M9 17h6M12 14v6" /></>,
+  }
+
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+}
+
+const shortcuts: { to: string; icon: Pictogram; label: ReactNode }[] = [
+  { to: '/accounts/open', icon: 'open', label: '계좌개설' },
+  { to: '/accounts', icon: 'account', label: '계좌조회' },
+  { to: '/auth/reset', icon: 'reset', label: <>로그인<br />비밀번호 재설정</> },
 ]
-const ICONS: Record<string, string> = { card: '💳', home: '🏠', key: '🔑', shield: '🛡️', swap: '🔁' }
+
+const services: { to: string; icon: Pictogram; title: string; detail: string }[] = [
+  { to: '/accounts', icon: 'account', title: '계좌', detail: '내 계좌조회 · 관리' },
+  { to: '/cards', icon: 'card', title: '카드', detail: '이용내역 · 결제관리' },
+  { to: '/ledger', icon: 'ledger', title: '가계부', detail: '수입 · 지출 관리' },
+  { to: '/loans', icon: 'loan', title: '대출', detail: '한도조회 · 신청' },
+]
 
 export default function Home() {
-  const [data, setData] = useState<HomeData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [searchMessage, setSearchMessage] = useState('')
 
-  useEffect(() => {
-    fetchHome().then(setData).catch((e: Error) => setError(e.message))
-  }, [])
-
-  if (error) {
-    return (
-      <div className="state">
-        <p>데이터를 불러오지 못했어요.</p>
-        <small>{error} · 백엔드(8000)가 켜져 있는지 확인하세요.</small>
-      </div>
-    )
+  function onSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSearchMessage('지점 검색은 준비 중입니다.')
   }
-  if (!data) return <div className="state">불러오는 중…</div>
 
   return (
-    <div className="home">
-      <Greeting data={data} />
-      <PromoBanner />
-      <QuickMenu />
-      <MyLoans data={data} />
-      <SummaryRow data={data} />
-      <LoanProducts products={data.loans.products} />
+    <div className="branch-home">
+      <section className="branch-hero" aria-labelledby="branch-title">
+        <img className="branch-hero-art" src="/images/aim-portal.png" alt="" />
+        <div className="branch-hero-content">
+          <p className="branch-eyebrow">내 손안에 AIM지점 <span aria-hidden="true" /></p>
+          <h2 id="branch-title">AIM WON<br /><em>브랜치</em></h2>
+          <div className="branch-badges"><span># NO앱설치</span><span># NO인증서</span></div>
+          <p className="branch-description">앱 설치도, 복잡한 인증서도 없이<br />지금 바로, AIM의 금융서비스를 만나보세요.</p>
+        </div>
+      </section>
+
+      <div className="branch-content">
+        <AuthStrip />
+        <form className="branch-search" onSubmit={onSearch} role="search">
+          <input type="search" aria-label="AIM지점 검색" placeholder="AIM지점 방문해 볼까요?" onChange={() => setSearchMessage('')} />
+          <button type="submit" aria-label="검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="10.7" cy="10.7" r="7" /><path d="m16 16 5 5" /></svg></button>
+        </form>
+        {searchMessage && <p className="branch-search-message" role="status">{searchMessage}</p>}
+
+        <nav className="branch-shortcuts" aria-label="빠른 메뉴">
+          {shortcuts.map((item, index) => <Link to={item.to} key={item.to} className={index === 0 ? 'is-primary' : ''}>
+            <PictogramIcon name={item.icon} /><strong>{item.label}</strong><span className="branch-shortcut-arrow" aria-hidden="true">→</span>
+          </Link>)}
+        </nav>
+
+        <section className="branch-services" aria-labelledby="services-title">
+          <div className="branch-section-heading"><h3 id="services-title">내 금융</h3><span className="branch-section-rule" aria-hidden="true" /><p>자주 쓰는 금융서비스를 한곳에</p></div>
+          <nav className="branch-service-grid" aria-label="금융 서비스">
+            {services.map((item) => <Link to={item.to} key={item.to} className="branch-service-card">
+              <PictogramIcon name={item.icon} />
+              <span className="branch-service-copy"><strong>{item.title}</strong><small>{item.detail}</small></span>
+              <span className="branch-service-arrow" aria-hidden="true">→</span>
+            </Link>)}
+          </nav>
+        </section>
+      </div>
     </div>
-  )
-}
-
-/* 인사말 + 총자산 + 계좌 */
-function Greeting({ data }: { data: HomeData }) {
-  return (
-    <section className="asset-card">
-      <p className="hello">{data.member.name}님, 안녕하세요</p>
-      <p className="label">내 계좌 총 잔액</p>
-      <p className="big">{won(data.accounts.totalBalance)}</p>
-      <ul className="acc-list">
-        {data.accounts.items.map((a) => (
-          <li key={a.id}>
-            <span>
-              {a.bankName} {a.masked}
-              {a.primary && <em className="chip-mini">대표</em>}
-            </span>
-            <b>{won(a.balance)}</b>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-/* 대출 프로모션 배너 (시안의 큰 카드) */
-function PromoBanner() {
-  return (
-    <section className="promo">
-      <div>
-        <h2>
-          직장인 전용
-          <br />
-          비대면 신용대출
-        </h2>
-        <Link to="/loans" className="promo-link">
-          OO 직장인 신용대출 ›
-        </Link>
-        <p className="max">
-          <span className="badge">최대</span> 1억원
-        </p>
-      </div>
-      <div className="promo-art" aria-hidden>
-        🧮
-      </div>
-      <div className="dots" aria-hidden>
-        <i className="on" />
-        <i />
-        <i />
-      </div>
-    </section>
-  )
-}
-
-function QuickMenu() {
-  const items = [
-    { to: '/accounts', icon: '💳', label: '계좌' },
-    { to: '/cards', icon: '🪪', label: '카드' },
-    { to: '/loans', icon: '🏦', label: '대출' },
-    { to: '/ledger', icon: '📒', label: '가계부' },
-  ]
-  return (
-    <section className="quick">
-      {items.map((i) => (
-        <Link key={i.to} to={i.to}>
-          <span className="q-ico">{i.icon}</span>
-          {i.label}
-        </Link>
-      ))}
-    </section>
-  )
-}
-
-/* 내 대출 한눈에 (대출관리 대시보드 시안) */
-function MyLoans({ data }: { data: HomeData }) {
-  const { loans } = data
-  if (loans.count === 0) return null
-  const d = loans.nextDueDate ? dDay(loans.nextDueDate) : null
-  return (
-    <section className="card">
-      <div className="loan-hero">
-        <div>
-          <p className="label">내 대출 총 잔액 · {loans.count}건</p>
-          <p className="big blue">{koreanAmount(loans.totalBalance)}</p>
-        </div>
-        <span className="cal" aria-hidden>
-          🗓️
-        </span>
-      </div>
-      <div className="two">
-        <div className="mini">
-          <small>다음 납입일</small>
-          <b>
-            {loans.nextDueDate ? shortDate(loans.nextDueDate) : '-'}
-            {d !== null && <em> (D-{d})</em>}
-          </b>
-        </div>
-        <div className="mini">
-          <small>이번 달 납입액</small>
-          <b>{won(loans.nextDueAmount)}</b>
-        </div>
-      </div>
-      {loans.items.map((l) => {
-        const repaid = Math.round((1 - l.balance / l.amount) * 100)
-        return (
-          <article className="loan-item" key={l.contractNo}>
-            <div className="row">
-              <strong>{l.productName}</strong>
-              <span className="tag ok">정상</span>
-            </div>
-            <small className="muted">{l.contractNo}</small>
-            <p className="row">
-              <span className="muted">잔액</span>
-              <b>{koreanAmount(l.balance)}</b>
-            </p>
-            <div className="bar" role="progressbar" aria-valuenow={repaid} aria-valuemin={0} aria-valuemax={100}>
-              <i style={{ width: `${repaid}%` }} />
-            </div>
-            <p className="row small">
-              <span>상환 {repaid}%</span>
-              <span>연 {l.rate.toFixed(2)}%</span>
-            </p>
-          </article>
-        )
-      })}
-    </section>
-  )
-}
-
-/* 가계부 · 카드 요약 */
-function SummaryRow({ data }: { data: HomeData }) {
-  const { ledger, cards } = data
-  return (
-    <section className="two-cards">
-      <Link to="/ledger" className="card compact">
-        <p className="label">{Number(ledger.month.slice(5))}월 가계부</p>
-        <p className="mid">{won(ledger.remaining)}</p>
-        <small className="muted">남은 예산</small>
-        <div className="bar thin">
-          <i style={{ width: `${Math.min(100, ledger.usageRate)}%` }} />
-        </div>
-        <small className="muted">
-          {won(ledger.spent)} / {won(ledger.budget)}
-        </small>
-      </Link>
-      <Link to="/cards" className="card compact">
-        <p className="label">이번 달 카드 사용</p>
-        <p className="mid">{won(cards.monthSpent)}</p>
-        <small className="muted">보유 카드 {cards.count}장</small>
-        <div className="card-dots">
-          {cards.items.map((c) => (
-            <span key={c.id} className="tag">
-              {c.type === 'credit' ? '신용' : '체크'} {c.last4}
-            </span>
-          ))}
-        </div>
-      </Link>
-    </section>
-  )
-}
-
-/* 대출 상품 목록 (칩 필터 + 리스트) */
-function LoanProducts({ products }: { products: LoanProduct[] }) {
-  const [filter, setFilter] = useState<Filter>('all')
-  const list = products.filter((p) => filter === 'all' || p.type === filter)
-  return (
-    <section className="products">
-      <h3>대출 상품</h3>
-      <div className="chips" role="tablist">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            role="tab"
-            aria-selected={filter === f.key}
-            className={filter === f.key ? 'chip on' : 'chip'}
-            onClick={() => setFilter(f.key)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-      <ul>
-        {list.map((p) => (
-          <li key={p.id} className="product">
-            <div className="p-body">
-              <div className="p-tags">
-                {p.tags.map((t) => (
-                  <span key={t} className="tag">
-                    {t}
-                  </span>
-                ))}
-              </div>
-              <strong>{p.name}</strong>
-              <small className="muted">
-                최대 <b>{p.maxAmount ? koreanAmount(p.maxAmount) : '-'}</b> | 기간 {p.term ?? '-'}
-              </small>
-            </div>
-            <span className="p-ico" aria-hidden>
-              {ICONS[p.icon ?? ''] ?? '🏦'}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
   )
 }

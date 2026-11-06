@@ -1,16 +1,25 @@
 # ERD (Mermaid)
 
-[db-design.md](db-design.md)의 통합 설계를 ERD로 그린 것이다. 실선(`--`)은 FK, 점선(`..`)은 **도메인 간 논리 참조**(FK 없음)다.
-GitHub·VS Code(Mermaid 미리보기)·Notion 코드블록(Mermaid)에서 바로 렌더링된다. 컬럼은 키와 핵심 컬럼만 적었고 전체는 `backend/app/models.py`가 정본이다.
+기획 문서의 DB 설계를 ERD로 그린 것이다. 기준 문서는 [회원,인증.md 8장](../auth/회원,인증.md), [계좌.md 7장](../account/계좌.md), [카드 backend-spec 2장](../dev/card/backend-spec.md), [공통.md 6·7장](../common/공통.md)이고, 가계부·대출은 [db-design.md](db-design.md)를 따른다. [db-design.md](db-design.md)도 같은 기준으로 정렬했다. 다르면 기획 문서가 정본이다.
+실선(`--`)은 FK, 점선(`..`)은 **도메인 간 논리 참조**(FK 없음)다.
+GitHub·VS Code(Mermaid 미리보기)·Notion 코드블록(Mermaid)에서 바로 렌더링된다. 컬럼은 키와 핵심 컬럼만 적었다. 전체 컬럼은 각 기획 문서의 표가 정본이고, 구현은 `backend/app/models.py`다.
+
+규칙 (공통.md 6장): 회원·계좌 ID는 `BIGINT IDENTITY`(시드 id를 고정하는 users, products, accounts는 BY DEFAULT), 금액은 `BIGINT`(원), 시각은 `TIMESTAMPTZ`. 회원 테이블은 `users`이고 다른 테이블의 `user_id`는 모두 `BIGINT`다.
 
 ## 1. 전체 관계도 (테이블 단위)
 
 ```mermaid
 erDiagram
-    %% ── 공통 · 계좌 ──
-    members ||--o{ accounts : "소유"
-    accounts ||--|| account_pin_state : "암호 오류 상태"
-    accounts ||--o{ account_transactions : "입출금"
+    %% ── 회원 · 인증 ──
+    users ||--o{ devices : "기기 등록"
+
+    %% ── 계좌 ──
+    users ||--o{ accounts : "소유"
+    users ||--o{ favorite_accounts : "자주 쓰는 계좌"
+    products ||--o{ accounts : "상품"
+    accounts ||--o{ transactions : "입출금"
+    accounts }o--o| accounts : "linked_account_id (예적금 → 저축예금)"
+    transactions }o--o| accounts : "counterparty_account_id"
 
     %% ── 카드 ──
     card_products ||--o{ cards : "상품"
@@ -20,9 +29,10 @@ erDiagram
     card_products ||--o{ card_applications : "신청 상품"
     card_applications }o--o| cards : "result_card_id"
 
-    members ||..o{ cards : "member_id"
-    members ||..o{ card_applications : "member_id"
+    users ||..o{ cards : "user_id"
+    users ||..o{ card_applications : "user_id"
     accounts ||..o{ cards : "payment_account_id"
+    accounts ||..o{ card_applications : "payment_account_id"
 
     %% ── 가계부 ──
     card_transactions ||--o| ledger_tx_category : "분류"
@@ -30,15 +40,16 @@ erDiagram
     chat_sessions ||--o{ chat_messages : "대화"
     card_transactions |o--o{ payment_attempts : "허용된 시도"
 
-    members ||..o{ budgets : "member_id"
-    members ||..o{ planned_outflows : "member_id"
-    members ||..o{ payment_attempts : "member_id"
-    members ||..|| ledger_settings : "member_id"
-    members ||..o{ chat_sessions : "member_id"
-    members ||..o{ ledger_tx_category : "member_id"
+    users ||..o{ budgets : "user_id"
+    users ||..o{ planned_outflows : "user_id"
+    users ||..o{ payment_attempts : "user_id"
+    users ||..|| ledger_settings : "user_id"
+    users ||..o{ ledger_goals : "user_id"
+    users ||..o{ chat_sessions : "user_id"
+    users ||..o{ ledger_tx_category : "user_id"
 
     %% ── 대출 (공통) ──
-    members ||..o{ loan_application : "member_id"
+    users ||..o{ loan_application : "user_id"
     loan_application ||--o{ consent_record : "동의"
     loan_application ||--o| applicant_profile : "고객정보"
     loan_application ||--o| suitability_result : "적합성"
@@ -55,52 +66,96 @@ erDiagram
     contract ||--o{ disbursement : "지급"
     accounts ||..o{ disbursement : "account_id"
     repayment_schedule ||..o{ planned_outflows : "loan_repayment 연결"
-    account_transactions }o..o| disbursement : "ref_id"
+    transactions }o..o| disbursement : "ref_id"
 ```
 
 ## 2. 도메인별 상세 (컬럼 포함)
 
-### 2.1 공통 · 계좌
+### 2.1 회원 · 인증 · 계좌
 
 ```mermaid
 erDiagram
-    members {
-        varchar40 id PK
-        varchar50 login_id UK
-        varchar100 password_hash
+    users {
+        bigint id PK "BY DEFAULT (시드 1~4 고정)"
+        varchar20 login_id UK "소문자 정규화"
+        text password_hash "bcrypt"
         varchar30 name
         date birth_date
-        varchar13 phone
+        varchar11 phone "숫자만"
+        boolean marketing_agree
+        text simple_pin_hash "6자리, 미설정이면 NULL"
+        timestamptz pin_set_at
+        int pin_failed_count
+        timestamptz pin_locked_until "재설정으로만 해제"
+        int failed_login_count
+        timestamptz locked_until "10분 잠금"
+        timestamptz created_at
+        timestamptz last_login_at
+    }
+    devices {
+        bigint id PK
+        bigint user_id FK
+        text token_hash UK "SHA-256"
+        text device_name
+        timestamptz created_at
+        timestamptz last_used_at
+        timestamptz expires_at "90일 슬라이딩"
+        timestamptz revoked_at
+    }
+    products {
+        bigint id PK "BY DEFAULT (1 저축예금, 2 정기예금, 3 정기적금)"
+        text type "checking|deposit|savings"
+        text name
+        text description
+        numeric52 rate
+        numeric52 early_close_rate
+        bigint min_amount
+        bigint max_amount
+        int min_months
+        int max_months
+        int max_per_user
+        boolean requires_checking
     }
     accounts {
-        varchar40 id PK
-        varchar40 member_id FK
-        varchar30 bank_name
-        varchar200 account_no_enc
-        varchar20 account_masked
+        bigint id PK "BY DEFAULT (시드 1~6 고정)"
+        bigint user_id FK
+        bigint product_id FK
+        text account_no UK "1002-XXX-XXXXXX"
+        text alias
         bigint balance
-        varchar20 purpose
-        boolean is_primary
-        varchar10 status
+        numeric52 rate "개설 시점 확정"
+        int term_months "예적금"
+        bigint monthly_amount "적금"
+        int payment_day "적금"
+        int paid_count "적금"
+        boolean auto_pay "적금, 기본 true"
+        bigint linked_account_id FK "예적금의 지정 저축예금"
+        date opened_at
+        date maturity_date
+        text status "active|matured|closed_early|closed"
+        timestamptz closed_at
+        boolean is_primary "저축예금만"
     }
-    account_pin_state {
-        varchar40 account_id PK
-        smallint fail_count
-        timestamptz locked_until
-    }
-    account_transactions {
-        varchar40 id PK
-        varchar40 account_id FK
-        varchar20 kind
+    transactions {
+        bigint id PK
+        bigint account_id FK
+        text type "open|deposit|transfer_in|transfer_out|interest|close (card_payment 예약)"
         bigint amount
         bigint balance_after
-        varchar100 counterparty
-        timestamptz occurred_at
-        varchar20 ref_type
-        varchar40 ref_id
+        bigint counterparty_account_id FK
+        text counterparty_name
+        text memo
+        timestamptz created_at
+    }
+    favorite_accounts {
+        bigint id PK
+        bigint user_id FK
+        text account_no
+        text display_name
+        timestamptz created_at
     }
     idempotency_keys {
-        varchar40 member_id PK
+        bigint user_id PK
         varchar36 idem_key PK
         char64 fingerprint
         smallint response_status
@@ -117,10 +172,17 @@ erDiagram
         varchar40 actor
         timestamptz at
     }
-    members ||--o{ accounts : owns
-    accounts ||--|| account_pin_state : has
-    accounts ||--o{ account_transactions : has
+    users ||--o{ devices : "기기 등록"
+    users ||--o{ accounts : owns
+    users ||--o{ favorite_accounts : has
+    products ||--o{ accounts : "상품"
+    accounts ||--o{ transactions : has
+    accounts }o--o| accounts : "linked_account_id"
 ```
+
+- 계좌 비밀번호(`account_pin_state`)는 없다. 본인 재확인은 간편비밀번호 6자리(`users.simple_pin_hash`)이고 틀린 횟수는 `users.pin_failed_count`가 센다 (공통.md 4장).
+- 거래 테이블 이름은 계좌.md 기준 `transactions`다 (예전 설계의 `account_transactions`). 카드 거래는 `card_transactions`로 따로 둔다.
+- 세션은 서명 쿠키라 세션 테이블이 없다 (회원,인증.md 8.3).
 
 ### 2.2 카드
 
@@ -135,27 +197,31 @@ erDiagram
     }
     cards {
         varchar40 id PK
-        varchar40 member_id "논리 참조"
+        bigint user_id "논리 참조"
         varchar40 product_id FK
         varchar50 name
         varchar6 type
-        char4 number_last4 "UK(member_id,number_last4)"
+        char4 number_last4 "UK(user_id,number_last4)"
         char5 expiry
         varchar12 status "active|suspended|lost|terminated"
         date issued_at
-        varchar40 payment_account_id "논리 참조"
+        bigint payment_account_id "논리 참조"
+        varchar30 payment_bank_name "스냅샷"
+        varchar20 payment_account_masked "스냅샷"
         smallint payment_day "신용만"
         bigint credit_limit "신용만"
         bigint debit_per_tx "체크만"
         bigint debit_per_day "체크만"
         timestamptz suspended_at
         timestamptz lost_at
+        varchar6 lost_reason "lost|stolen"
         timestamptz terminated_at
+        varchar30 terminated_reason "응답에 없음"
     }
     card_status_history {
         varchar40 id PK
         varchar40 card_id FK
-        varchar40 member_id
+        bigint user_id
         varchar12 action
         varchar12 from_status
         varchar12 to_status
@@ -173,10 +239,10 @@ erDiagram
     }
     card_applications {
         varchar40 id PK
-        varchar40 member_id
+        bigint user_id
         varchar6 type
         varchar40 product_id FK
-        varchar40 payment_account_id
+        bigint payment_account_id
         varchar10 income_range
         varchar8 status "approved|rejected"
         bigint granted_limit
@@ -184,7 +250,7 @@ erDiagram
         timestamptz requested_at
     }
     card_issue_quota {
-        varchar40 member_id PK
+        bigint user_id PK
         varchar6 type PK
     }
     card_products ||--o{ cards : has
@@ -204,13 +270,13 @@ erDiagram
     }
     ledger_tx_category {
         varchar40 card_transaction_id PK
-        varchar40 member_id
+        bigint user_id
         varchar20 category
         varchar4 source "auto|user"
     }
     budgets {
         varchar40 id PK
-        varchar40 member_id "UK(member_id,month)"
+        bigint user_id "UK(user_id,month)"
         char7 month "YYYY-MM"
         bigint total_amount
         bigint emergency_floor
@@ -222,7 +288,7 @@ erDiagram
     }
     planned_outflows {
         varchar40 id PK
-        varchar40 member_id
+        bigint user_id
         date due_date
         bigint amount
         varchar20 type "card_bill|fixed|loan_repayment"
@@ -232,7 +298,7 @@ erDiagram
     }
     payment_attempts {
         varchar40 id PK
-        varchar40 member_id
+        bigint user_id
         bigint amount
         varchar20 category
         varchar8 result "allowed|held"
@@ -241,13 +307,20 @@ erDiagram
         varchar40 card_transaction_id FK
     }
     ledger_settings {
-        varchar40 member_id PK
+        bigint user_id PK
         varchar8 mode "roast|basic|kind|numbers"
         smallint roast_level
     }
+    ledger_goals {
+        varchar40 id PK
+        bigint user_id
+        varchar7 month "YYYY-MM, 회원당 월 1건"
+        varchar30 name
+        bigint target_amount
+    }
     chat_sessions {
         varchar40 id PK
-        varchar40 member_id
+        bigint user_id
     }
     chat_messages {
         varchar40 id PK
@@ -263,6 +336,7 @@ erDiagram
         varchar200 title
         varchar20 version
         text chunk_text
+        vector768 embedding "pgvector"
         date effective_date
     }
     card_transactions ||--o| ledger_tx_category : classified
@@ -277,7 +351,7 @@ erDiagram
 erDiagram
     loan_application {
         varchar40 id PK
-        varchar40 member_id "논리 참조"
+        bigint user_id "논리 참조"
         varchar20 product_type
         varchar20 status
         varchar10 channel
@@ -389,7 +463,7 @@ erDiagram
         varchar40 id PK
         varchar30 contract_no FK
         varchar50 payee
-        varchar40 account_id "논리 참조 accounts"
+        bigint account_id "논리 참조 accounts"
         bigint amount
         timestamptz executed_at
         varchar10 result
@@ -412,5 +486,7 @@ erDiagram
 
 ## 3. 참고
 
+- `chat_sessions`·`chat_messages`는 구현된 가계부 대화가 쓰는 테이블이고 홈 자연어 입력창도 같은 테이블을 쓴다 (공통.md 9.3).
+- 카드의 `payment_account_id`는 FK 없는 논리 참조다 (카드 backend-spec). 결제 계좌 후보는 저축예금이고 active인 계좌만이다.
 - 대출 쪽 `inquiry_log`, `rule_version`, `llm_call_log`, `saga_instance`, `notification` 등 main 13.1의 "공통 추가" 테이블은 스켈레톤 단계라 모델·ERD에서 뺐다.
 - 업무별 확장 테이블(정부·기관·대환·대출관리)은 설계에서 제외했다.
