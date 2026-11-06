@@ -21,6 +21,7 @@
 | `card/` | [README.md](card/README.md) | 카드 기획서 개요, 기능별 상세 `00`~`08` | 김경민 |
 | `dev/card/` | [backend-spec.md](dev/card/backend-spec.md), [frontend-spec.md](dev/card/frontend-spec.md) | 카드 개발 명세 (DB, 서버 규칙, 프론트 구조) | 김경민 |
 | `db/` | [db-design.md](db/db-design.md), [erd.md](db/erd.md) | 통합 DB 설계, ERD | |
+| `Proposal/`, `loan_service/` | [Loan_Service_main.md](../Proposal/Loan_Service_main.md), [대출서비스_종합정리.md](../loan_service/대출서비스_종합정리.md) | 대출 기획서 원문(일반·정부·기관·대환·대출관리), 대출 서비스 구현(DB 스키마, CLI)과 요약 | 임대진 |
 | `references/` | 화면 캡처 | 우리WON뱅킹 참고 화면 (`card/`, `account/`, `loan/`) | |
 | `screenshots/` | 구현 화면 캡처 | | |
 

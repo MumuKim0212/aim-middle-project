@@ -221,4 +221,5 @@
 | 계좌 암호·`account_pin_state` | 폐기. 간편비밀번호로 통일 (공통.md 4장) |
 | 대출 지급·상환의 계좌 거래 유형과 `ref_type`/`ref_id` 컬럼 | **미결.** 대출 파트가 요구하면 계좌.md 7.3에 추가 |
 | 대출 도메인 PK/FK/타입/인덱스 구체화 (6.2) | **미결.** 임대진 |
+| 대출 구현(`loan_service/db/schema.sql`)의 외부 참조 컬럼 | 결정: 회원은 `user_id BIGINT`(`spouse_user_id` 포함), 계좌·거래는 `account_id`·`debit_account_id`·`auto_debit_account_id`·`account_txn_ref` BIGINT (공통.md 6장). 대출 자체 ID는 `application_id` 등 접두어+ULID(`lap_…`), 계약은 `LA-YYYY-NNNNNN`. 6.2의 `loanapp_…`는 이 구현으로 대체한다 |
 | 개인정보 보관 기간 | 도메인별로 다르다. 카드는 거절 신청 90일, 대출은 법정 보존 기간 |
