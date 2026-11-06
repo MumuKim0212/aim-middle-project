@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대출 화면 디자인 최종안</title>
+<style>
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+body{font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;background:#eef1f6;color:#1d2433;padding:28px 16px 48px}
+
+h1{font-size:22px;font-weight:700;text-align:center;margin-bottom:6px}
+
+.sub{text-align:center;color:#6b7280;font-size:14px;margin-bottom:28px}
+
+.grid{display:flex;flex-wrap:wrap;gap:30px;justify-content:center}
+.grid{gap:30px}
+.v1 .col{width:340px}
+.v1 .label{font-size:15px;font-weight:700;margin-bottom:4px}
+.v1 .label span{display:inline-block;background:#141414;color:#fff;border-radius:6px;padding:1px 8px;margin-right:6px;font-size:13px}
+.v1 .desc{font-size:13px;color:#555;line-height:1.5;margin-bottom:12px;min-height:58px}
+.v1 .sw{display:flex;gap:6px;margin-bottom:12px}
+.v1 .sw i{width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,0,0,.1)}
+.v1 .phone{width:340px;height:700px;border-radius:38px;overflow:hidden;border:8px solid #1b1b1d;position:relative;box-shadow:0 18px 40px rgba(0,0,0,.18)}
+.v1 .sb{height:30px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:12px;font-weight:700}
+.v1 .top{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-weight:700;font-size:17px}
+.v1 .top svg{width:22px;height:22px}
+.v1 .tabs{display:flex;gap:22px;padding:0 20px;font-size:16px;font-weight:700}
+.v1 .tabs b{padding:10px 0 9px;border-bottom:3px solid transparent}
+.v1 .banner{margin:14px 16px 0;border-radius:22px;padding:20px;position:relative;height:200px;overflow:hidden}
+.v1 .banner .t{font-size:21px;line-height:1.3;font-weight:300}
+.v1 .banner .p{font-size:12px;margin-top:6px;text-decoration:underline}
+.v1 .banner .m{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;margin-top:14px}
+.v1 .banner .n{position:relative;z-index:1;font-size:30px;font-weight:800;letter-spacing:-1px}
+.v1 .banner .art{position:absolute;right:8px;bottom:8px;width:112px;height:112px}
+.v1 .dots{display:flex;gap:5px;justify-content:center;margin:10px 0 2px}
+.v1 .dots i{width:6px;height:6px;border-radius:3px}
+.v1 .chips{display:flex;gap:7px;padding:10px 16px}
+.v1 .chips b{white-space:nowrap;font-size:12.5px;padding:7px 11px;border-radius:999px;font-weight:600}
+.v1 .card{margin:0 16px 10px;border-radius:18px;padding:15px 64px 15px 16px;position:relative}
+.v1 .card .ds{font-size:12px;margin-top:14px}
+.v1 .card .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;font-weight:800;margin:3px 0 6px}
+.v1 .card .row{font-size:12px;white-space:nowrap}
+.v1 .card .row b{font-size:17px}
+.v1 .card .tag{position:absolute;right:14px;top:12px;font-size:11px;padding:3px 8px;border-radius:6px}
+.v1 .card .ic{position:absolute;right:16px;bottom:16px;width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center}
+.v1 .card .ic svg{width:22px;height:22px}
+.v1 .a{background:#eef1f5}
+.v1 .a .sb,.v1 .a .top{background:#fff}
+.v1 .a .tabs{background:#fff;border-bottom:1px solid #e7e7e7}
+.v1 .a .tabs b{color:#9aa0a8}
+.v1 .a .tabs b.on{color:#141414;border-color:#2f8ff0}
+.v1 .a .banner{background:linear-gradient(150deg,#ffffff 0%,#eaf4fe 100%);box-shadow:0 6px 18px rgba(47,143,240,.12)}
+.v1 .a .m{background:#1f5fbf;color:#fff}
+.v1 .a .n{background:linear-gradient(90deg,#3b82f6,#a78bfa,#e879f9);-webkit-background-clip:text;color:transparent}
+.v1 .a .dots i{background:#cdd5df}
+.v1 .a .dots i.on{width:18px;background:#2f8ff0}
+.v1 .a .chips b{background:#fff;color:#555;border:1px solid #e1e5ea}
+.v1 .a .chips b.on{background:#2f8ff0;color:#fff;border-color:#2f8ff0}
+.v1 .a .card{background:#fff;box-shadow:0 2px 10px rgba(20,40,80,.06)}
+.v1 .a .ds{color:#6b6b6b}
+.v1 .a .row b{color:#2f8ff0}
+.v1 .a .tag{background:#f1f5fb;color:#3b5b8a}
+.v1 .a .ic{background:#eaf4fe;color:#2f8ff0}
+.v1 .b{background:#fff8f0}
+.v1 .b .sb,.v1 .b .top{background:#fff8f0}
+.v1 .b .tabs b{color:#c4a991}
+.v1 .b .tabs b.on{color:#3d2b1f;border-color:#ff8a5b}
+.v1 .b .top{color:#3d2b1f}
+.v1 .b .banner{background:#ffe7d6}
+.v1 .b .t{color:#3d2b1f;font-weight:500}
+.v1 .b .p{color:#8a5a3c}
+.v1 .b .m{background:#ff8a5b;color:#fff}
+.v1 .b .n{color:#e3622f}
+.v1 .b .dots i{background:#f2d3bd}
+.v1 .b .dots i.on{width:18px;background:#ff8a5b}
+.v1 .b .chips b{background:#fff;color:#8a6a55;border:1.5px solid #f3dccb}
+.v1 .b .chips b.on{background:#3d2b1f;color:#fff;border-color:#3d2b1f}
+.v1 .b .card{background:#fff;border:1.5px solid #f3e3d6}
+.v1 .b .ds{color:#a07f68}
+.v1 .b .nm{color:#3d2b1f}
+.v1 .b .row b{color:#e3622f}
+.v1 .b .tag{background:#e9f6ef;color:#2f7a52}
+.v1 .b .ic{background:#fff1e6;color:#ff8a5b}
+.v1 .b .card:nth-of-type(2) .ic{background:#e9f6ef;color:#2f9b62}
+.v1 .c{background:#0f1729;color:#e8ecf4}
+.v1 .c .sb,.v1 .c .top{background:#0f1729}
+.v1 .c .tabs b{color:#5b6680}
+.v1 .c .tabs b.on{color:#fff;border-color:#d6b16a}
+.v1 .c .banner{background:linear-gradient(160deg,#1b2742,#121c33);border:1px solid #2a3756}
+.v1 .c .t{color:#fff}
+.v1 .c .p{color:#9aa6c0}
+.v1 .c .m{background:transparent;border:1px solid #d6b16a;color:#d6b16a}
+.v1 .c .n{color:#e9c983}
+.v1 .c .dots i{background:#2a3756}
+.v1 .c .dots i.on{width:18px;background:#d6b16a}
+.v1 .c .chips b{background:#18233c;color:#9aa6c0;border:1px solid #26324f}
+.v1 .c .chips b.on{background:#d6b16a;color:#0f1729;border-color:#d6b16a}
+.v1 .c .card{background:#16213a;border:1px solid #23304e}
+.v1 .c .ds{color:#8692ad}
+.v1 .c .nm{color:#fff}
+.v1 .c .row{color:#a9b3c9}
+.v1 .c .row b{color:#e9c983}
+.v1 .c .tag{background:#23304e;color:#c3cbe0}
+.v1 .c .ic{background:#1f2c4a;color:#d6b16a}
+.v1 .d{background:#fff}
+.v1 .d .sb,.v1 .d .top{background:#fff}
+.v1 .d .tabs{border-bottom:1px solid #eee}
+.v1 .d .tabs b{color:#b3b3b3}
+.v1 .d .tabs b.on{color:#111;border-color:#111}
+.v1 .d .banner{background:#00c389;color:#fff;border-radius:6px}
+.v1 .d .t{font-weight:800;font-size:22px}
+.v1 .d .p{color:#e6fff6}
+.v1 .d .m{background:#111;color:#00e0a0}
+.v1 .d .n{color:#fff;font-size:34px}
+.v1 .d .dots i{background:#ddd;border-radius:0}
+.v1 .d .dots i.on{width:18px;background:#111}
+.v1 .d .chips b{background:#f3f3f3;color:#666;border-radius:4px}
+.v1 .d .chips b.on{background:#111;color:#fff}
+.v1 .d .card{background:#fff;border:1.5px solid #111;border-radius:6px}
+.v1 .d .card .ds{color:#777}
+.v1 .d .nm{color:#111}
+.v1 .d .row b{color:#111;background:linear-gradient(transparent 60%,#a6f5d8 60%)}
+.v1 .d .tag{background:#111;color:#fff;border-radius:3px}
+.v1 .d .ic{background:#f3f3f3;color:#111;border-radius:4px}
+.v2 .col{width:340px}
+.v2 .label{font-size:15px;font-weight:700;margin-bottom:4px}
+.v2 .label span{display:inline-block;color:#fff;border-radius:6px;padding:1px 8px;margin-right:6px;font-size:13px}
+.v2 .desc{font-size:13px;color:#555;line-height:1.5;margin-bottom:12px;min-height:58px}
+.v2 .sw{display:flex;gap:6px;margin-bottom:12px}
+.v2 .sw i{width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,0,0,.08)}
+.v2 .phone{width:340px;height:700px;border-radius:38px;overflow:hidden;border:8px solid #1b1b1d;position:relative;box-shadow:0 18px 40px rgba(0,0,0,.16)}
+.v2 .sb{height:30px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:12px;font-weight:700}
+.v2 .top{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-weight:700;font-size:17px}
+.v2 .top svg{width:22px;height:22px}
+.v2 .tabs{display:flex;gap:22px;padding:0 20px;font-size:16px;font-weight:700}
+.v2 .tabs b{padding:10px 0 9px;border-bottom:3px solid transparent;color:#a3abb8}
+.v2 .banner{margin:14px 16px 0;border-radius:24px;padding:20px;position:relative;height:200px;overflow:hidden}
+.v2 .banner .t{font-size:21px;line-height:1.3;font-weight:400}
+.v2 .banner .p{font-size:12px;margin-top:6px;text-decoration:underline}
+.v2 .banner .m{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-top:14px;color:#fff}
+.v2 .banner .n{position:relative;z-index:1;font-size:30px;font-weight:800;letter-spacing:-1px}
+.v2 .banner .art{position:absolute;right:6px;bottom:6px;width:120px;height:120px}
+.v2 .dots{display:flex;gap:5px;justify-content:center;margin:10px 0 2px}
+.v2 .dots i{width:6px;height:6px;border-radius:3px;background:#d6dbe3}
+.v2 .chips{display:flex;gap:7px;padding:10px 16px}
+.v2 .chips b{white-space:nowrap;font-size:12.5px;padding:7px 12px;border-radius:999px;font-weight:600;background:#fff;color:#6b7280;border:1px solid #e6e9ef}
+.v2 .card{margin:0 16px 10px;border-radius:20px;padding:15px 64px 15px 16px;position:relative;background:#fff;box-shadow:0 3px 14px rgba(30,45,80,.06)}
+.v2 .card .ds{font-size:12px;margin-top:14px;color:#7b8494}
+.v2 .card .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;font-weight:800;margin:3px 0 6px}
+.v2 .card .row{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#4b5563}
+.v2 .card .row b{font-size:17px}
+.v2 .card .tag{position:absolute;right:14px;top:12px;font-size:11px;padding:3px 9px;border-radius:999px}
+.v2 .card .ic{position:absolute;right:16px;bottom:16px;width:40px;height:40px;border-radius:14px;display:flex;align-items:center;justify-content:center}
+.v2 .card .ic svg{width:22px;height:22px}
+.v2 .i{background:#f6f5fd}
+.v2 .i .sb,.v2 .i .top,.v2 .i .tabs{background:#fff}
+.v2 .i .tabs{border-bottom:1px solid #eeeaf8}
+.v2 .i .tabs b.on{color:#1d2433;border-color:#8b7cf6}
+.v2 .i .banner{background:linear-gradient(150deg,#ffffff 0%,#efebff 60%,#e6f4ff 100%);box-shadow:0 6px 18px rgba(139,124,246,.14)}
+.v2 .i .t{color:#2b2550}
+.v2 .i .p{color:#6b5fc7}
+.v2 .i .m{background:#8b7cf6}
+.v2 .i .n{background:linear-gradient(90deg,#7c6cf0,#5aa9f5);-webkit-background-clip:text;color:transparent}
+.v2 .i .dots i.on{width:18px;background:#8b7cf6}
+.v2 .i .chips b.on{background:#8b7cf6;color:#fff;border-color:#8b7cf6}
+.v2 .i .row b{color:#7c6cf0}
+.v2 .i .tag{background:#f1eeff;color:#5a4bc9}
+.v2 .i .ic{background:#f1eeff;color:#8b7cf6}
+.v2 .i .card.alt .ic{background:#e7f4ff;color:#3d95e8}
+.v2 .i .card.alt .tag{background:#e7f4ff;color:#2c6fb3}
+.v2 .r{background:#f3faf8}
+.v2 .r .sb,.v2 .r .top,.v2 .r .tabs{background:#fff}
+.v2 .r .tabs{border-bottom:1px solid #e3f2ec}
+.v2 .r .tabs b.on{color:#1d2433;border-color:#2cc28f}
+.v2 .r .banner{background:linear-gradient(150deg,#ffffff 0%,#e3f8ef 60%,#fff3e6 100%);box-shadow:0 6px 18px rgba(44,194,143,.14)}
+.v2 .r .t{color:#173b30}
+.v2 .r .p{color:#1f9a70}
+.v2 .r .m{background:#2cc28f}
+.v2 .r .n{background:linear-gradient(90deg,#1fb985,#4fb3f0);-webkit-background-clip:text;color:transparent}
+.v2 .r .dots i.on{width:18px;background:#2cc28f}
+.v2 .r .chips b.on{background:#2cc28f;color:#fff;border-color:#2cc28f}
+.v2 .r .row b{color:#1fa979}
+.v2 .r .tag{background:#e5f7ef;color:#16805c}
+.v2 .r .ic{background:#e5f7ef;color:#22b281}
+.v2 .r .save{display:inline-flex;align-items:center;gap:4px;margin-top:8px;font-size:11.5px;font-weight:700;color:#e0772e;background:#fff2e6;padding:3px 9px;border-radius:999px}
+.v2 .mg{background:#f3f7fc}
+.v2 .mg .sb,.v2 .mg .top,.v2 .mg .tabs{background:#fff}
+.v2 .mg .tabs{border-bottom:1px solid #e8eef6}
+.v2 .mg .tabs b.on{color:#1d2433;border-color:#3b9cf2}
+.v2 .sum{margin:14px 16px 0;border-radius:24px;padding:18px 20px;background:linear-gradient(150deg,#ffffff 0%,#e8f3ff 65%,#fdf0ff 100%);box-shadow:0 6px 18px rgba(59,156,242,.13);position:relative;overflow:hidden}
+.v2 .sum .k{font-size:12.5px;color:#5a6b85}
+.v2 .sum .v{font-size:28px;font-weight:800;letter-spacing:-.8px;color:#1d2433;margin:2px 0 12px}
+.v2 .sum .mini{display:flex;gap:8px}
+.v2 .sum .mini div{flex:1;background:rgba(255,255,255,.85);border-radius:14px;padding:9px 11px}
+.v2 .sum .mini small{display:block;font-size:11px;color:#7b8494}
+.v2 .sum .mini b{font-size:14px;color:#1d2433}
+.v2 .sum .mini b.bl{color:#2f8ff0}
+.v2 .sum svg{position:absolute;right:10px;top:10px;width:78px;height:78px}
+.v2 .loan{margin:12px 16px 0;background:#fff;border-radius:22px;padding:16px;box-shadow:0 3px 14px rgba(30,45,80,.06)}
+.v2 .loan .h{display:flex;justify-content:space-between;align-items:center}
+.v2 .loan .h b{font-size:15.5px}
+.v2 .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#e8f7ee;color:#1a8a4a}
+.v2 .loan .meta{font-size:11.5px;color:#8a93a3;margin-top:3px}
+.v2 .loan .bal{display:flex;justify-content:space-between;align-items:flex-end;margin-top:10px}
+.v2 .loan .bal .v{font-size:24px;font-weight:800;letter-spacing:-.6px}
+.v2 .loan .bal small{font-size:11.5px;color:#7b8494}
+.v2 .bar{height:8px;border-radius:99px;background:#eef2f8;margin:9px 0 4px;overflow:hidden}
+.v2 .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#7cc4ff,#3b9cf2)}
+.v2 .loan .pct{display:flex;justify-content:space-between;font-size:11px;color:#8a93a3}
+.v2 .facts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:11px}
+.v2 .facts div{background:#f6f8fc;border-radius:12px;padding:7px 9px}
+.v2 .facts small{display:block;font-size:10.5px;color:#8a93a3}
+.v2 .facts b{font-size:11.5px;white-space:nowrap}
+.v2 .acts{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:12px;text-align:center}
+.v2 .acts div{font-size:10px;color:#4b5563;line-height:1.25}
+.v2 .acts span{display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin:0 auto 4px;border-radius:13px}
+.v2 .acts svg{width:18px;height:18px}
+.v2 .loan.sm .bar i{background:linear-gradient(90deg,#8ce3c0,#2cc28f)}
+.v2 .loan.sm .badge{background:#fff2e6;color:#d4691f}
+</style>
+</head>
+<body>
+<h1>대출 서비스 화면 디자인 — 최종안</h1>
+<p class="sub">일반 · 정부대출은 1차 시안, 기관 · 대환 · 대출관리는 2차 시안에서 골라 합친 화면입니다. 업무마다 강조색 하나만 다르게 씁니다. 상품명·금액·금리는 모두 예시입니다.</p>
+<div class="grid">
+<div class="v1">
+<div class="col">
+<div class="label"><span style="background:#2f8ff0">일반</span>일반대출 (전체) — 소프트 3D 블루</div>
+<p class="desc">지금 프로토타입의 파란 톤을 그대로 살리고, 배너 그림을 말랑한 3D 오브젝트(계산기·코인)로 바꾼 안. 은행 앱다운 신뢰감, 수정 범위가 가장 작음.</p>
+<div class="sw"><i style="background:#2f8ff0"></i><i style="background:#eaf4fe"></i><i style="background:#a78bfa"></i><i style="background:#e879f9"></i><i style="background:#eef1f5"></i></div>
+<div class="phone a">
+ <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>대출 서비스<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+ <div class="tabs"><b class="on">대출</b><b>대환</b><b>대출관리</b></div>
+ <div class="banner">
+  <div class="t">직장인 전용<br>비대면 신용대출</div><div class="p">OO 직장인 신용대출 ›</div>
+  <div class="m">최대</div><div class="n">1억원</div>
+  <svg class="art" viewBox="0 0 130 130">
+   <defs>
+    <linearGradient id="a1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cc0ff"/><stop offset="1" stop-color="#2f6fe0"/></linearGradient>
+    <linearGradient id="a2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#dfe9f7"/></linearGradient>
+    <linearGradient id="a3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset="1" stop-color="#f5a623"/></linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#2f6fe0" flood-opacity=".3"/></filter>
+   </defs>
+   <g filter="url(#sh)" transform="rotate(-10 62 66)">
+    <rect x="28" y="18" width="70" height="96" rx="16" fill="url(#a1)"/>
+    <rect x="37" y="28" width="52" height="22" rx="7" fill="url(#a2)"/>
+    <g fill="#ffffff" opacity=".92"><rect x="37" y="58" width="14" height="12" rx="4"/><rect x="56" y="58" width="14" height="12" rx="4"/><rect x="75" y="58" width="14" height="12" rx="4"/>
+    <rect x="37" y="75" width="14" height="12" rx="4"/><rect x="56" y="75" width="14" height="12" rx="4"/><rect x="37" y="92" width="14" height="12" rx="4"/><rect x="56" y="92" width="14" height="12" rx="4"/></g>
+    <rect x="75" y="75" width="14" height="29" rx="4" fill="#ff8fd8"/>
+   </g>
+   <circle cx="104" cy="104" r="17" fill="url(#a3)" filter="url(#sh)"/><text x="104" y="110" text-anchor="middle" font-size="17" font-weight="800" fill="#b86e00">₩</text>
+   <circle cx="20" cy="40" r="7" fill="#c9b8ff"/><circle cx="114" cy="30" r="4" fill="#9ed0ff"/>
+  </svg>
+ </div>
+ <div class="dots"><i class="on"></i><i></i><i></i></div>
+ <div class="chips"><b class="on">전체</b><b>일반대출</b><b>정부대출</b><b>기관대출</b></div>
+ <div class="card"><span class="tag">일반대출 · 신용</span><div class="ds">바로 쓰는 직장인 신용대출</div><div class="nm">OO 직장인 신용대출</div><div class="row">최대 <b>1억원</b> | 기간 1년 ~ 5년</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg></div></div>
+ <div class="card"><span class="tag">일반대출 · 전월세</span><div class="ds">쉽고 빠른 전월세보증금대출</div><div class="nm">OO 스마트 전세대출</div><div class="row">최대 <b>2억 2,200만원</b> | 기간 2년</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9H3z"/></svg></div></div>
+</div>
+</div>
+</div>
+<div class="v1">
+<div class="col">
+<div class="label"><span style="background:#ff8a5b">정부</span>정부대출 — 파스텔 플랫 일러스트</div>
+<p class="desc">따뜻한 크림·살구색에 집·나무·해가 있는 장면 일러스트. 전세·내 집 마련·정책자금처럼 "생활"과 맞닿은 상품에 어울리고 친근함이 강함.</p>
+<div class="sw"><i style="background:#ff8a5b"></i><i style="background:#ffe7d6"></i><i style="background:#2f9b62"></i><i style="background:#3d2b1f"></i><i style="background:#fff8f0"></i></div>
+<div class="phone b">
+ <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>대출 서비스<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+ <div class="tabs"><b class="on">대출</b><b>대환</b><b>대출관리</b></div>
+ <div class="banner">
+  <div class="t">무주택 세대주<br>정책 전세자금</div><div class="p">정책 전세자금 (버팀목형) ›</div>
+  <div class="m">최대</div><div class="n">1억2천만원</div>
+  <svg class="art" viewBox="0 0 130 130" style="width:118px;height:118px;right:0;bottom:0">
+   <circle cx="100" cy="30" r="14" fill="#ffc85c"/>
+   <ellipse cx="68" cy="122" rx="62" ry="10" fill="#ffd2b5"/>
+   <rect x="24" y="64" width="62" height="54" fill="#fffaf5"/>
+   <path d="M16 68 L55 34 L94 68 Z" fill="#ff8a5b"/>
+   <rect x="47" y="88" width="17" height="30" rx="2" fill="#7a5038"/>
+   <rect x="31" y="76" width="12" height="12" rx="2" fill="#9fd8f0"/><rect x="68" y="76" width="12" height="12" rx="2" fill="#9fd8f0"/>
+   <rect x="72" y="40" width="9" height="16" fill="#e3622f"/>
+   <rect x="103" y="92" width="5" height="26" fill="#7a5038"/>
+   <circle cx="105" cy="84" r="15" fill="#5cc58a"/><circle cx="114" cy="94" r="10" fill="#3fae72"/>
+   <circle cx="14" cy="112" r="8" fill="#5cc58a"/>
+   <path d="M40 22 q6 -8 12 0 q6 -8 12 0" stroke="#e8b89a" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </svg>
+ </div>
+ <div class="dots"><i></i><i class="on"></i><i></i></div>
+ <div class="chips"><b>전체</b><b>일반대출</b><b class="on">정부대출</b><b>기관대출</b></div>
+ <div class="card"><span class="tag">정부대출 · 전월세</span><div class="ds">무주택 세대주 전세자금</div><div class="nm">정책 전세자금 (버팀목형)</div><div class="row">최대 <b>1억 2,000만원</b> | 기간 2년</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9H3z"/></svg></div></div>
+ <div class="card"><span class="tag">정부대출 · 주택담보</span><div class="ds">무주택 서민 내 집 마련</div><div class="nm">정책 주택구입자금 (디딤돌형)</div><div class="row">최대 <b>2억 5,000만원</b> | 기간 10년 ~ 30년</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 10c0-4 14-4 14 0s-14 4-14 8 14 4 14 0"/></svg></div></div>
+</div>
+</div>
+</div>
+<div class="v2">
+<div class="col">
+<div class="label"><span style="background:#8b7cf6">기관</span>기관대출 — 라벤더 소프트</div>
+<p class="desc">어두운 남색·금색 대신 연보라→하늘색 배너. 회사 건물과 사원증, 방패(보증)를 둥근 3D 그림으로 그려 "소속 기관이 받쳐 준다"는 안심감을 줍니다.</p>
+<div class="sw"><i style="background:#8b7cf6"></i><i style="background:#efebff"></i><i style="background:#5aa9f5"></i><i style="background:#e7f4ff"></i><i style="background:#f6f5fd"></i></div>
+<div class="phone i">
+ <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>대출 서비스<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+ <div class="tabs"><b class="on">대출</b><b>대환</b><b>대출관리</b></div>
+ <div class="banner">
+  <div class="t">협약기관 임직원<br>우대금리 신용대출</div><div class="p">OO 협약기관 임직원 신용대출 ›</div>
+  <div class="m">최대</div><div class="n">1억5천만원</div>
+  <svg class="art" viewBox="0 0 130 130">
+   <defs>
+    <linearGradient id="i1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c9bfff"/><stop offset="1" stop-color="#8b7cf6"/></linearGradient>
+    <linearGradient id="i2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#bfe3ff"/><stop offset="1" stop-color="#5aa9f5"/></linearGradient>
+    <linearGradient id="i3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef0fb"/></linearGradient>
+    <filter id="is" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#7c6cf0" flood-opacity=".28"/></filter>
+   </defs>
+   <g filter="url(#is)">
+    <rect x="30" y="22" width="54" height="90" rx="12" fill="url(#i1)"/>
+    <g fill="#fff" opacity=".85"><rect x="40" y="34" width="12" height="10" rx="3"/><rect x="62" y="34" width="12" height="10" rx="3"/><rect x="40" y="52" width="12" height="10" rx="3"/><rect x="62" y="52" width="12" height="10" rx="3"/><rect x="40" y="70" width="12" height="10" rx="3"/><rect x="62" y="70" width="12" height="10" rx="3"/></g>
+    <rect x="49" y="90" width="16" height="22" rx="4" fill="#fff" opacity=".9"/>
+   </g>
+   <g filter="url(#is)" transform="rotate(10 92 86)">
+    <rect x="74" y="62" width="40" height="52" rx="9" fill="url(#i3)"/>
+    <rect x="88" y="58" width="12" height="8" rx="3" fill="#a99cff"/>
+    <circle cx="94" cy="80" r="8" fill="#ffd3e6"/><rect x="83" y="93" width="22" height="4" rx="2" fill="#c9bfff"/><rect x="86" y="101" width="16" height="4" rx="2" fill="#dfe4f3"/>
+   </g>
+   <g filter="url(#is)"><path d="M14 66 l14 -6 l14 6 v10 c0 10 -7 16 -14 19 c-7 -3 -14 -9 -14 -19 z" fill="url(#i2)"/><path d="M21 77 l5 5 l9 -9" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+   <circle cx="110" cy="26" r="5" fill="#ffd3e6"/><circle cx="20" cy="30" r="3.5" fill="#c9bfff"/>
+  </svg>
+ </div>
+ <div class="dots"><i></i><i></i><i class="on"></i></div>
+ <div class="chips"><b>전체</b><b>일반대출</b><b>정부대출</b><b class="on">기관대출</b></div>
+ <div class="card"><span class="tag">기관대출 · 신용</span><div class="ds">협약기관 임직원 전용 우대</div><div class="nm">OO 협약기관 임직원 신용대출</div><div class="row">최대 <b>1억 5,000만원</b> | 기간 1년 ~ 5년</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="10" r="2.5"/><path d="M9 16h6"/></svg></div></div>
+ <div class="card alt"><span class="tag">기관대출 · 전월세</span><div class="ds">보증기관 보증으로 한도 UP</div><div class="nm">OO 보증부 전세대출</div><div class="row">최대 <b>5억원</b> | 기간 2년</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div></div>
+</div>
+</div>
+</div>
+<div class="v2">
+<div class="col">
+<div class="label"><span style="background:#2cc28f">대환</span>대환 — 민트 & 피치</div>
+<p class="desc">검정 굵은 선을 걷어 내고 민트→살구 배너로. 동전 두 개가 둥근 화살표로 자리를 바꾸는 그림 + "12.9% → 4.5%" 말풍선으로 갈아타기 이득을 부드럽게 보여 줍니다.</p>
+<div class="sw"><i style="background:#2cc28f"></i><i style="background:#e3f8ef"></i><i style="background:#ffb27a"></i><i style="background:#fff3e6"></i><i style="background:#4fb3f0"></i></div>
+<div class="phone r">
+ <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>대출 서비스<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+ <div class="tabs"><b>대출</b><b class="on">대환</b><b>대출관리</b></div>
+ <div class="banner">
+  <div class="t">고금리 대출<br>이자 줄이는 갈아타기</div><div class="p">OO 신용대출 갈아타기 ›</div>
+  <div class="m">최대</div><div class="n">1억원</div>
+  <svg class="art" viewBox="0 0 130 130">
+   <defs>
+    <linearGradient id="r1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd9b8"/><stop offset="1" stop-color="#ff9f5e"/></linearGradient>
+    <linearGradient id="r2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a8f0d2"/><stop offset="1" stop-color="#22b281"/></linearGradient>
+    <filter id="rs" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#1fa979" flood-opacity=".25"/></filter>
+   </defs>
+   <path d="M38 40 a40 40 0 0 1 56 -6" stroke="#9fe3c6" stroke-width="7" fill="none" stroke-linecap="round"/>
+   <path d="M88 24 l10 9 l-13 4 z" fill="#9fe3c6"/>
+   <path d="M94 104 a40 40 0 0 1 -56 6" stroke="#ffcfa8" stroke-width="7" fill="none" stroke-linecap="round"/>
+   <path d="M44 120 l-10 -9 l13 -4 z" fill="#ffcfa8"/>
+   <g filter="url(#rs)"><circle cx="36" cy="70" r="22" fill="url(#r1)"/><circle cx="36" cy="70" r="15" fill="none" stroke="#fff" stroke-width="2" opacity=".7"/><text x="36" y="76" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">₩</text></g>
+   <g filter="url(#rs)"><circle cx="96" cy="70" r="22" fill="url(#r2)"/><circle cx="96" cy="70" r="15" fill="none" stroke="#fff" stroke-width="2" opacity=".7"/><text x="96" y="76" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">₩</text></g>
+  </svg>
+  <div style="position:absolute;right:14px;top:16px;background:#fff;border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;color:#1d2433;box-shadow:0 3px 10px rgba(0,0,0,.06)"><span style="color:#e0772e;text-decoration:line-through">12.9%</span> → <span style="color:#1fa979">4.5%</span></div>
+ </div>
+ <div class="dots"><i class="on"></i><i></i></div>
+ <div class="chips"><b class="on">전체</b><b>신용</b><b>주택담보</b><b>전월세</b></div>
+ <div class="card"><span class="tag">대환 · 신용</span><div class="ds">고금리 신용대출 갈아타기</div><div class="nm">OO 신용대출 갈아타기</div><div class="row">최대 <b>1억원</b> | 연 4.5% ~</div>
+  <div class="save">월 이자 약 8만원 ↓ (예시)</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></div></div>
+ <div class="card"><span class="tag">대환 · 주택담보</span><div class="ds">주담대 이자 줄이기</div><div class="nm">OO 주택담보대출 갈아타기</div><div class="row">최대 <b>10억원</b> | 연 3.8% ~</div>
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9H3z"/><path d="M9 15l3 3 3-3"/></svg></div></div>
+</div>
+</div>
+</div>
+<div class="v2">
+<div class="col">
+<div class="label"><span style="background:#3b9cf2">관리</span>대출관리 — 스카이 대시보드</div>
+<p class="desc">맨 위에 "내 대출 한눈에" 요약 카드(총 잔액·다음 납입), 아래 대출별 카드에 상환 진행 막대와 6개 기능을 둥근 아이콘 버튼으로. 표·글자 대신 숫자와 색으로 읽히게 했습니다.</p>
+<div class="sw"><i style="background:#3b9cf2"></i><i style="background:#e8f3ff"></i><i style="background:#fdf0ff"></i><i style="background:#2cc28f"></i><i style="background:#f3f7fc"></i></div>
+<div class="phone mg">
+ <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>대출 서비스<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+ <div class="tabs"><b>대출</b><b>대환</b><b class="on">대출관리</b></div>
+ <div class="sum">
+  <svg viewBox="0 0 80 80"><defs><linearGradient id="m1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#cfe8ff"/><stop offset="1" stop-color="#5fb0f7"/></linearGradient><linearGradient id="m2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe7a8"/><stop offset="1" stop-color="#f7b733"/></linearGradient><filter id="ms"><feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#3b9cf2" flood-opacity=".25"/></filter></defs>
+   <g filter="url(#ms)"><rect x="14" y="16" width="48" height="52" rx="10" fill="url(#m1)"/><rect x="14" y="16" width="48" height="13" rx="6" fill="#3b9cf2"/><g fill="#fff"><circle cx="27" cy="40" r="3"/><circle cx="38" cy="40" r="3"/><circle cx="49" cy="40" r="3"/><circle cx="27" cy="53" r="3"/><circle cx="38" cy="53" r="3"/></g><rect x="24" y="11" width="5" height="10" rx="2.5" fill="#1f7fd6"/><rect x="47" y="11" width="5" height="10" rx="2.5" fill="#1f7fd6"/></g>
+   <g filter="url(#ms)"><circle cx="60" cy="60" r="13" fill="url(#m2)"/><path d="M54 60 l4 4 l8 -8" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+  </svg>
+  <div class="k">내 대출 총 잔액 · 2건</div>
+  <div class="v">3,380만원</div>
+  <div class="mini"><div><small>다음 납입일</small><b class="bl">11.14 (D-10)</b></div><div><small>이번 달 납입</small><b>79만 8,530원</b></div></div>
+ </div>
+ <div class="loan">
+  <div class="h"><b>OO 직장인 신용대출</b><span class="badge">정상</span></div>
+  <div class="meta">LA-2025-000123 · 일반 · 2025.03.10 실행 (20개월)</div>
+  <div class="bal"><div><small>잔액</small><div class="v">2,140만원</div></div><small>대출금 3,000만원</small></div>
+  <div class="bar"><i style="width:29%"></i></div>
+  <div class="pct"><span>상환 29%</span><span>만기 2030.03.08</span></div>
+  <div class="facts"><div><small>금리</small><b>연 5.10%</b></div><div><small>월 납입</small><b>56만 7,420원</b></div><div><small>상환</small><b>원리금균등</b></div></div>
+  <div class="acts">
+   <div><span style="background:#e8f3ff;color:#3b9cf2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg></span>상환<br>스케줄</div>
+   <div><span style="background:#e5f7ef;color:#22b281"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 11l3-3 3 3"/></svg></span>중도<br>상환</div>
+   <div><span style="background:#f1eeff;color:#8b7cf6"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19L19 5M7 7h.01M17 17h.01"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/></svg></span>금리<br>인하요구</div>
+   <div><span style="background:#fff2e6;color:#e0772e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></span>청약<br>철회</div>
+   <div><span style="background:#e7f6fb;color:#2aa3c4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 2M9 3h6"/></svg></span>기간<br>연장</div>
+   <div><span style="background:#fdeff6;color:#d9558f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 14h6M10 17h4"/></svg></span>증명서<br>발급</div>
+  </div>
+ </div>
+ <div class="loan sm">
+  <div class="h"><b>OO 신용대출 갈아타기</b><span class="badge">철회 가능 D-9</span></div>
+  <div class="meta">RA-2026-482913 · 대환 · 2026.10.30 실행</div>
+  <div class="bal"><div><small>잔액</small><div class="v">1,240만원</div></div><small>연 4.50%</small></div>
+  <div class="bar"><i style="width:2%"></i></div>
+ </div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>
