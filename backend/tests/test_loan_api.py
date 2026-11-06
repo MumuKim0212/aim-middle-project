@@ -1,4 +1,4 @@
-"""대출 API 흐름 점검: 로그인 → 신청(신용대출, 체험 고객) → 실행(계좌 입금) → 내 대출·중도상환·타인 접근 차단·오류 코드.
+"""대출 API 흐름 점검: 로그인 → 신청(신용대출, 체험 고객) → 실행(계좌 입금) → 내 대출·중도상환·타인 접근 차단·오류 코드, 서버 재시작 뒤 신청 복원, 증빙 업로드, 로그인·서명 참조.
 
 주의: DB 를 바꾸는 시나리오가 들어 있다. 개발 DB 가 아니라 같은 서버(5432)의 시험 DB(aimbank_loantest)로 돌린다.
 앱은 시작할 때 시드는 넣지만 테이블은 만들지 않으므로 먼저 마이그레이션한다(DB 는 없으면 psql -U postgres -c "CREATE DATABASE aimbank_loantest OWNER aimbank;").
@@ -11,13 +11,18 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.db import SessionLocal  # noqa: E402
+from app.loan import config as loan_config  # noqa: E402
+from app.loan.router import _SESSIONS  # noqa: E402
 from app.main import app  # noqa: E402
 
 USERS = {"user1": ("Test1234!", "482915"), "user2": ("Test5678!", "739204")}
 ANSWERS = ["O", "O", "X"]  # 일반대출 이해 확인 문제 3개의 정답(화면에는 정답을 내려주지 않는다)
+PDF = b"%PDF-1.4\n" + b"x" * 50
 
 
 @pytest.fixture(scope="module")
@@ -35,22 +40,41 @@ def login(server, uid, verify=True) -> TestClient:
     return c
 
 
-def apply_until_contract(c: TestClient, debit_account_id=1) -> str:
+def apply_until_contract(c: TestClient, debit_account_id=1, restart=False) -> str:
+    def reboot():  # restart=True 면 요청마다 메모리의 진행 상태를 지운다(서버를 다시 켠 것과 같다): DB 에서 복원되어야 이어진다
+        if restart:
+            _SESSIONS.clear()
+
     app_id = c.post("/api/loans/applications", json={"productId": "g1", "scenarioKey": "KIM_OK"}).json()["applicationId"]
     base = f"/api/loans/applications/{app_id}"
+    reboot()
     req = c.get(f"{base}/consents").json()["required"]
     assert c.post(f"{base}/consents", json={"agreed": {r["code"]: True for r in req}}).status_code == 200
+    reboot()
     assert c.post(f"{base}/profile", json={"ackUnsuitable": True}).status_code == 200
+    reboot()
     assert c.post(f"{base}/docs", json={}).status_code == 200
+    reboot()
     assert c.post(f"{base}/review").json()["result"] == "APPROVED"
-    cands = c.get(f"{base}/recommendations").json()["items"]
+    reboot()
+    cands = c.get(f"{base}/recommendations").json()["items"]  # 추천 후보는 복원하지 않으므로 선택 직전에 다시 조회한다
     assert c.post(f"{base}/choose", json={"variant": cands[0]["variant"]}).status_code == 200
+    reboot()
     assert c.post(f"{base}/terms", json={"debitAccountId": debit_account_id}).status_code == 200
+    reboot()
     assert c.post(f"{base}/price", json={}).status_code == 200
+    reboot()
     assert len(c.get(f"{base}/quiz").json()["items"]) == 3
     assert c.post(f"{base}/explain", json={"scrolled": True, "answers": ANSWERS}).status_code == 200
+    reboot()
     assert c.post(f"{base}/contract", json={"confirmations": [True] * 5}).status_code == 200
+    reboot()
     return app_id
+
+
+def row(sql, **params):
+    with SessionLocal() as s:
+        return s.execute(text(sql), params).all()
 
 
 def balance(c, aid=1) -> int:
@@ -120,3 +144,60 @@ def test_step_errors_use_standard_codes(server):
     r = u1.post(f"/api/loans/applications/{app_id}/consents", json={"agreed": {}})
     assert (r.status_code, r.json()["code"]) == (403, "LOAN_CONSENT_REQUIRED")
     assert u1.post("/api/loans/applications", json={"productId": "nope"}).json()["code"] == "LOAN_NOT_FOUND"
+
+
+def test_restart_between_steps_restores_application(server):
+    u1, u2 = login(server, "user1"), login(server, "user2", verify=False)
+    before = balance(u1)
+    app_id = apply_until_contract(u1, restart=True)
+    _SESSIONS.clear()
+    assert u2.get(f"/api/loans/applications/{app_id}").json()["code"] == "LOAN_NOT_FOUND"  # 복원도 내 신청만
+    got = u1.get(f"/api/loans/applications/{app_id}").json()
+    assert (got["status"], got["finalRate"] is not None) == ("CONTRACTED", True)
+    _SESSIONS.clear()
+    r = u1.post(f"/api/loans/applications/{app_id}/execute", json={"accountId": 1}, headers={"Idempotency-Key": uuid.uuid4().hex})
+    assert r.status_code == 200, r.text
+    assert balance(u1) > before
+    _SESSIONS.clear()  # 끝난 신청은 복원하지 않는다
+    assert u1.get(f"/api/loans/applications/{app_id}").json()["code"] == "LOAN_NOT_FOUND"
+
+
+def test_login_and_signature_refs(server):
+    for verify, sig in ((True, "pin:"), (False, None)):
+        app_id = apply_until_contract(login(server, "user1", verify=verify))
+        auth, = row("SELECT auth_ref FROM loan_application WHERE application_id = :a", a=app_id)[0]
+        assert auth.startswith("login:")
+        assert {r[0] for r in row("SELECT auth_ref FROM consent_record WHERE application_id = :a", a=app_id)} == {auth}
+        signature, = row("SELECT signature_ref FROM contract WHERE application_id = :a", a=app_id)[0]
+        assert (signature.startswith(sig) if sig else signature is None)  # 약정 때 간편비밀번호를 확인하지 않았으면 비어 있다
+
+
+def test_upload_doc_flow(server, tmp_path, monkeypatch):
+    monkeypatch.setattr(loan_config, "UPLOAD_DIR", tmp_path)
+    u1, u2 = login(server, "user1"), login(server, "user2", verify=False)
+    app_id = u1.post("/api/loans/applications", json={"productId": "g1"}).json()["applicationId"]  # 체험 고객이 아니라 샘플이 붙지 않는다
+    base = f"/api/loans/applications/{app_id}"
+    url = f"{base}/docs/upload"
+
+    def up(c, key, data=PDF, name="a.pdf"):
+        return c.post(url, data={"docKey": key}, files={"file": (name, data, "application/pdf")})
+
+    assert up(TestClient(app), "income").json()["code"] == "LOGIN_REQUIRED"
+    assert up(u1, "income").json()["code"] == "LOAN_STATE_INVALID"  # 고객 정보 확인 전
+    req = u1.get(f"{base}/consents").json()["required"]
+    assert u1.post(f"{base}/consents", json={"agreed": {r["code"]: True for r in req}}).status_code == 200
+    assert u1.post(f"{base}/profile", json={"ackUnsuitable": True}).status_code == 200
+    r = up(u2, "income")
+    assert (r.status_code, r.json()["code"]) == (404, "LOAN_NOT_FOUND")  # 남의 신청
+    for bad in (up(u1, "income", b"MZ\x90\x00 exe"), up(u1, "income", b""), up(u1, "nope"), u1.post(url, data={"docKey": "income"})):
+        assert (bad.status_code, bad.json()["code"]) == (400, "VALIDATION_FAILED")
+    assert list(tmp_path.iterdir()) == []  # 거절된 파일은 저장하지 않는다
+    r = up(u1, "income", name="../../evil.pdf")
+    assert (r.status_code, r.json()["docKey"], "DOC-MISSING" in r.json()["defects"]) == (201, "income", True)
+    r = up(u1, "emp")
+    assert (r.status_code, r.json()["defects"]) == (201, [])
+    assert len(list((tmp_path / app_id).iterdir())) == 2
+    assert [x[0] for x in row("SELECT file_name FROM evidence WHERE application_id = :a AND source = 'UPLOAD' ORDER BY evidence_id", a=app_id)] == ["evil.pdf", "a.pdf"]
+    r = u1.post(f"{base}/docs", json={})
+    assert (r.status_code, r.json()["defects"], r.json()["status"]) == (200, [], "DOCS_SUBMITTED")
+    assert up(u1, "income").json()["code"] == "LOAN_STATE_INVALID"  # 제출이 끝난 뒤

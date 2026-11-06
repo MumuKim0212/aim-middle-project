@@ -45,6 +45,8 @@ RATE_CUT_STEP = Decimal("0.3")
 # ---- 증빙 파일 ----
 ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png"}
 MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_UPLOADS_PER_APP = 20               # 신청 1건당 업로드 파일 수
+UPLOAD_DIR = DATA_DIR / "evidence"     # 업로드 파일 저장 위치(파일 이름은 서버가 만든 id)
 MAGIC = {".pdf": b"%PDF", ".png": b"\x89PNG", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff"}
 
 # ---- 유효기간 ----

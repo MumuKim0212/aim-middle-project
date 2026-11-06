@@ -1,4 +1,4 @@
-"""계좌 서비스(계좌.md). 라우터와 자연어 도구가 같은 함수를 쓴다(공통.md 9장).
+"""계좌 서비스(계좌.md). 라우터가 이 함수들을 쓴다.
 
 모든 함수는 `user` 를 서버가 세션에서 넣어 준 값으로만 받고, 계좌는 항상 user_id 로 걸러 찾는다(R3·R4).
 돈이 움직이는 함수는 한 트랜잭션 안에서 행을 잠근 채 처리하고 끝에서 commit 한다.
@@ -636,6 +636,9 @@ def _close_blocker(db: Session, acc: m.Account) -> tuple[int, str, str] | None:
         return 409, "ACCOUNT_LINKED_SAVINGS", "연결된 예적금이 있어 해지할 수 없습니다."
     if count_active_cards(db, acc.id):
         return 409, "ACCOUNT_LINKED_CARD", "연결된 카드가 있어 해지할 수 없습니다."
+    from ..loan.management import count_active_debit_loans  # 대출 쪽이 이 모듈을 먼저 불러오므로 순환을 피하려고 여기서 불러온다
+    if count_active_debit_loans(db, acc.id):
+        return 409, "ACCOUNT_LINKED_LOAN", "연결된 대출 자동이체가 있어 해지할 수 없습니다."
     return None
 
 

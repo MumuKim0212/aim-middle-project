@@ -1,6 +1,7 @@
 """[역할] 증빙 처리(main 5.4): 필요 서류 목록, 파일 검사(확장자·크기·파일 시그니처·해시), 결함 코드 판정."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import config
@@ -58,13 +59,38 @@ def inspect_file(path: str | Path) -> dict:
     return {"ok": True, "name": p.name, "size": size, "sha256": sha256(p.read_bytes()), "reason": None}
 
 
-def save(db: Database, application_id: str, doc: dict, source: str, info: dict | None, defects: list[str]) -> None:
-    db.insert("evidence", {"evidence_id": new_id("evd"), "application_id": application_id, "doc_key": doc["key"],
+def inspect_bytes(data: bytes) -> str:
+    """업로드 본문 검사: 비어 있지 않고 10MB 이하이며 앞부분 시그니처가 pdf/png/jpg 중 하나여야 한다. 확장자·Content-Type 은 믿지 않고 시그니처로 정한 확장자를 돌려준다."""
+    if not data or len(data) > config.MAX_FILE_BYTES:
+        raise ValidationError("파일은 비어 있지 않고 10MB 이하여야 합니다.")
+    ext = next((e for e, magic in config.MAGIC.items() if data.startswith(magic)), None)
+    if ext is None:
+        raise ValidationError("PDF, JPG, PNG 파일만 올릴 수 있습니다.")
+    return ext
+
+
+def safe_name(filename: str, ext: str) -> str:
+    """화면 표시용 파일 이름: 경로 부분과 제어문자를 버리고 200자로 자른다. 저장 경로에는 쓰지 않는다."""
+    name = re.sub(r"[\x00-\x1f\x7f]", "", filename.replace("\\", "/").rsplit("/", 1)[-1]).strip()[:200]
+    return name or f"upload{ext}"
+
+
+def write_upload(application_id: str, evidence_id: str, ext: str, data: bytes) -> None:
+    """파일 경로는 서버가 만든 id 로만 짓는다(올린 이름은 쓰지 않는다)."""
+    d = config.UPLOAD_DIR / application_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{evidence_id}{ext}").write_bytes(data)
+
+
+def save(db: Database, application_id: str, doc: dict, source: str, info: dict | None, defects: list[str]) -> str:
+    evidence_id = new_id("evd")
+    db.insert("evidence", {"evidence_id": evidence_id, "application_id": application_id, "doc_key": doc["key"],
                            "doc_type": doc["name"], "source": source, "file_name": (info or {}).get("name"),
                            "file_size": (info or {}).get("size"), "file_sha256": (info or {}).get("sha256"),
                            "extracted": {}, "confidence": {}, "defect_codes": defects,
                            "status": "OK" if not defects else ("INVALID" if "DOC-INVALID" in defects else "DEFECT"),
                            "created_at": now_iso()})
+    return evidence_id
 
 
 def judge(docs: list[dict], attached: dict[str, dict], scenario_defects: list[str], refi_doc_expired: bool) -> list[str]:

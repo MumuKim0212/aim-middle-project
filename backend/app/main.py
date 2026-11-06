@@ -26,8 +26,9 @@ from .auth.deps import current_user
 from .auth.router import me_router, router as auth_router
 from . import ledger_query
 from .ledger import router as ledger_router
+from .loan.batch import auto_debit_loop
 from .loan.errors import LoanError
-from .loan.router import router as loan_router
+from .loan.router import dev_router as loan_dev_router, router as loan_router
 from .loan.summary import home_summary
 from .seed import seed
 
@@ -39,8 +40,10 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         seed(db)
     batch = asyncio.create_task(auto_pay_loop())  # 적금 자동이체 배치(매일 00:10 KST)
+    loan_batch = asyncio.create_task(auto_debit_loop())  # 대출 월 상환 자동이체 배치(매일 00:20 KST)
     yield
     batch.cancel()
+    loan_batch.cancel()
 
 
 app = FastAPI(title="AIM Bank API", version="0.1.0", lifespan=lifespan)
@@ -125,6 +128,7 @@ app.include_router(accounts_router)
 app.include_router(loan_router)
 if account_service.dev_mode():  # 시연용 API 는 APP_ENV=dev 에서만 연다(운영에서는 404)
     app.include_router(dev_router)
+    app.include_router(loan_dev_router)
 
 
 @app.get("/api/health")

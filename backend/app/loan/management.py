@@ -1,16 +1,22 @@
 """[역할] 대출관리(M01~M12): 계좌 조회·전체 상환 스케줄·중도상환·금리인하요구·청약철회·기간연장·증명서."""
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from decimal import Decimal as D
 
+from fastapi import HTTPException
+from sqlalchemy.orm import Session as DbSession
+
 from . import config as K
-from .calculators import months_between, monthly_payment, schedule, to_won
+from .calculators import add_months, months_between, monthly_payment, schedule, to_won
 from .database import Database, now_iso
 from .errors import DuplicateRequest, NotFound, ValidationError
 from .ids import new_id
 from .security import sha256
 from ..accounts import service as account_service
+
+log = logging.getLogger("loan.management")
 
 
 def accounts(db: Database, user_id: int | None = None) -> list[dict]:
@@ -82,6 +88,61 @@ def prepay(db: Database, contract_no: str, principal: int, idempotency_key: str,
             db.execute("UPDATE collateral SET status = 'RELEASED', released_at = ? WHERE contract_no = ? AND status = 'SET'", (now_iso(), contract_no))
         db.audit("loan_account", contract_no, "PREPAY", {"principal": principal})
     return {**q, "balance": new_bal}
+
+
+def count_active_debit_loans(session: DbSession, account_id: int) -> int:
+    """그 계좌를 자동이체 출금 계좌로 쓰는 진행 중 대출 수(공통.md 8장 인터페이스). 저축예금 해지 검사에 쓴다."""
+    return Database(session).one("SELECT COUNT(*) AS n FROM loan_account WHERE debit_account_id = ? AND status IN ('ACTIVE', 'OVERDUE', 'ACCELERATED')",
+                                 (account_id,))["n"]
+
+
+def _debit_one(db: Database, contract_no: str, today: date) -> bool:
+    """납입일이 된 한 회차를 자동이체 계좌에서 출금한다. 출금하면 True, 할 일이 없거나 미납이면 False."""
+    acc = db.one("SELECT * FROM loan_account WHERE contract_no = ? FOR UPDATE", (contract_no,))  # 잠근 채 납입일을 넘기므로 같은 회차를 두 번 받지 않는다
+    if acc["status"] != "ACTIVE" or acc["next_due_date"] is None or acc["next_due_date"] > today.isoformat() or acc["balance"] <= 0:
+        return False
+    due, start = acc["next_due_date"], date.fromisoformat(acc["start_date"])
+    done = db.one("SELECT COUNT(*) AS n FROM payment_txn WHERE contract_no = ? AND method = 'AUTO_DEBIT' AND result = 'DONE'", (contract_no,))["n"]
+    row = schedule(acc["balance"], D(str(acc["rate"])), max(acc["term_months"] - done, 1), acc["repay_method"], start, done)[0]  # 중도상환·기간연장이 반영된 현재 잔액 기준 회차
+    amount = row["principal"] + row["interest"]
+    try:
+        with db.tx():
+            txn = account_service.loan_repay(db.session, acc["user_id"], acc["debit_account_id"], amount, contract_no, "대출 자동이체")
+    except HTTPException as e:  # 잔액 부족 등: 출금하지 않고 미납으로 남긴다(납입일 그대로, 다음 실행에서 다시 시도)
+        # shortcut: 연체 상태(OVERDUE)·연체 이자·delinquency 기록은 만들지 않는다. 연체 정책이 정해지면 여기서 상태를 바꾼다
+        if not db.one("SELECT 1 FROM payment_txn WHERE contract_no = ? AND due_date = ? AND result = 'FAILED'", (contract_no, due)):
+            db.insert("payment_txn", {"payment_id": new_id("pay"), "contract_no": contract_no, "due_date": due, "amount": amount,
+                                      "allocation": {"reason": e.detail.get("code") if isinstance(e.detail, dict) else None}, "method": "AUTO_DEBIT",
+                                      "result": "FAILED", "account_txn_ref": None, "paid_at": now_iso()})
+        return False
+    new_bal = acc["balance"] - row["principal"]
+    db.insert("payment_txn", {"payment_id": new_id("pay"), "contract_no": contract_no, "due_date": due, "amount": amount,
+                              "allocation": {"interest": row["interest"], "principal": row["principal"]}, "method": "AUTO_DEBIT",
+                              "result": "DONE", "account_txn_ref": txn, "paid_at": now_iso()})
+    db.update("loan_account", {"contract_no": contract_no}, {"balance": new_bal, "status": "PAID_OFF" if new_bal == 0 else "ACTIVE",
+                                                              "next_due_date": None if new_bal == 0 else add_months(start, done + 2).isoformat(), "updated_at": now_iso()})
+    if new_bal == 0:
+        db.execute("UPDATE collateral SET status = 'RELEASED', released_at = ? WHERE contract_no = ? AND status = 'SET'", (now_iso(), contract_no))
+    db.audit("loan_account", contract_no, "AUTO_DEBIT", {"seq": done + 1, "amount": amount})
+    return True
+
+
+def auto_debit(session: DbSession, today: date | None = None) -> int:
+    """월 상환 자동이체 배치: 납입일(next_due_date)이 지난 ACTIVE 대출의 월 상환액을 자동이체 계좌에서 출금해 처리한 회차 수를 돌려준다.
+    밀린 회차는 한 번에 따라잡고, 잔액이 모자라면 그 회차는 미납으로 두고 멈춘다. 대출 한 건의 실패가 다른 대출을 막지 않는다."""
+    db, today = Database(session), today or account_service.today_kst()
+    nos = [r["contract_no"] for r in db.all("SELECT contract_no FROM loan_account WHERE status = 'ACTIVE' AND user_id IS NOT NULL AND debit_account_id IS NOT NULL "
+                                            "AND next_due_date <= ? ORDER BY contract_no", (today,))]
+    paid = 0
+    for no in nos:
+        try:
+            while _debit_one(db, no, today):
+                paid += 1
+            session.commit()
+        except Exception:
+            session.rollback()
+            log.exception("대출 자동이체 실패 contract_no=%s", no)
+    return paid
 
 
 def rate_cut(db: Database, contract_no: str, reasons: list[str]) -> dict:

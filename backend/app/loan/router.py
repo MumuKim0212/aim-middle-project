@@ -8,31 +8,38 @@
   POST /api/loans/applications/{id}/<단계>        precheck, consents, existing, targets, profile, policy-check,
                                                  guarantee, affiliation, docs, review, choose, compare, terms, price,
                                                  explain, contract, collateral, execute(간편비밀번호 재확인 + Idempotency-Key)
+  POST /api/loans/applications/{id}/docs/upload   증빙 파일 1건(multipart: docKey, file). pdf·jpg·png, 10MB 이하
+  POST /api/dev/loans/auto-debit/run              월 상환 자동이체 배치를 지금 실행(APP_ENV=dev 에서만, main.py 가 연다)
 
-신청 진행 상태(Session)는 서버 메모리에 둔다. shortcut: 서버를 다시 켜거나 30분 지나면 진행 중 신청이 사라져 처음부터 다시 해야 한다(확정된 단계는 DB 에 남는다), 여러 서버로 늘릴 때 DB 에서 복원하도록 바꾼다.
-증빙 파일 업로드는 아직 없다(서버 경로를 받지 않는다). 체험 고객 샘플·공공 자동 연동만 쓸 수 있다.
+신청 진행 상태(Session)는 서버 메모리에 30분 두고, 단계가 커밋될 때마다 loan_application.session_state 에도 남긴다.
+메모리에 없으면(서버를 다시 켰거나 30분이 지났으면) 내 미완료 신청을 거기서 복원한다.
+증빙 파일은 업로드 API 로만 받는다(서버 경로를 받지 않는다). 체험 고객 샘플·공공 자동 연동도 쓸 수 있다.
 """
 from __future__ import annotations
 
 import re
 import time
+from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Form, Header, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+from sqlalchemy import event
 from sqlalchemy.orm import Session as DbSession
 
 from .. import models as m
-from ..auth.deps import current_user, require_pin_verified, validation_error
+from ..auth.deps import current_user, pin_verified, require_pin_verified, validation_error
 from ..db import get_db
+from . import config as K
 from . import management as M
 from .application import Session, product_row, products
 from .database import Database
-from .errors import InvalidTransition, NotFound, SagaFailed
+from .errors import InvalidTransition, NotFound, SagaFailed, ValidationError
 from .security import RATE_LIMITER
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
+dev_router = APIRouter(prefix="/api/dev/loans", tags=["dev"])
 
 SESSION_TTL = 30 * 60
 _SESSIONS: dict[str, dict] = {}  # application_id → {"s": Session, "t": 마지막 사용 시각, "cands": 추천 후보}
@@ -54,16 +61,33 @@ def out(x: Any) -> Any:
 
 
 def _entry(dbs: DbSession, user: m.User, app_id: str) -> dict:
-    """내 신청만 찾는다. 없는 신청·남의 신청·만료된 신청은 똑같이 404 다."""
+    """내 신청만 찾는다. 메모리에 없으면 DB 에서 복원한다. 없는 신청·남의 신청·끝났거나 만료된 신청은 똑같이 404 다."""
     now = time.time()
     for k in [k for k, e in _SESSIONS.items() if now - e["t"] > SESSION_TTL]:
         del _SESSIONS[k]
     e = _SESSIONS.get(app_id)
     if e is None or e["s"].user_id != user.id:
-        raise NotFound("신청을 찾을 수 없습니다. 만료되었다면 처음부터 다시 신청해 주세요.")
+        s = Session.restore(Database(dbs), app_id, user.id)
+        if s is None:
+            raise NotFound("신청을 찾을 수 없습니다. 만료되었다면 처음부터 다시 신청해 주세요.")
+        e = _SESSIONS[app_id] = {"s": s, "t": now, "cands": []}
     e["t"] = now
     e["s"].db = Database(dbs)  # 요청마다 DB 세션이 달라지므로 다시 묶는다
+    # 이 요청이 커밋될 때 진행 상태도 같은 트랜잭션에 저장한다(단계마다 dbs.commit() 을 부르므로 한 곳에서 처리)
+    event.listen(dbs, "before_commit", lambda _: Database(dbs).update(
+        "loan_application", {"application_id": app_id}, {"session_state": e["s"].snapshot()}))
     return e
+
+
+def _login_ref(request: Request) -> str | None:
+    """auth_ref: 로그인 시각으로 어느 로그인 세션에서 한 일인지 남긴다(세션 쿠키에 따로 id 가 없다)."""
+    t = request.session.get("login_at")
+    return f"login:{int(t)}" if t else None
+
+
+def _pin_ref(request: Request) -> str | None:
+    """signature_ref: 5분 안에 간편비밀번호를 확인했을 때만 그 확인 시각을 남긴다(약정 단계는 확인을 요구하지 않아 없을 수 있다)."""
+    return f"pin:{int(request.session['pin_verified_at'])}" if pin_verified(request) else None
 
 
 def _need(s: Session, *attrs: str) -> None:
@@ -100,9 +124,9 @@ class StartIn(BaseModel):
 
 
 @router.post("/applications", status_code=201)
-def start_application(body: StartIn, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+def start_application(body: StartIn, request: Request, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     db = Database(dbs)
-    s = Session.start(db, body.productId, body.scenarioKey, channel="WEB", user_id=user.id)
+    s = Session.start(db, body.productId, body.scenarioKey, channel="WEB", user_id=user.id, auth_ref=_login_ref(request))
     dbs.commit()
     _SESSIONS[s.app_id] = {"s": s, "t": time.time(), "cands": []}
     return out({**_app_state(s), "product": s.product})
@@ -211,9 +235,9 @@ def required_consents(app_id: str, user: m.User = Depends(current_user), dbs: Db
 
 
 @router.post("/applications/{app_id}/consents")
-def give_consents(app_id: str, body: ConsentsIn, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+def give_consents(app_id: str, body: ConsentsIn, request: Request, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     s, _ = _step(dbs, user, app_id)
-    s.give_consents(body.agreed)
+    s.give_consents(body.agreed, _login_ref(request))
     dbs.commit()
     return out(_app_state(s))
 
@@ -293,6 +317,20 @@ def submit_docs(app_id: str, body: DocsIn, user: m.User = Depends(current_user),
     return out({"defects": defects, **_app_state(s)})
 
 
+@router.post("/applications/{app_id}/docs/upload", status_code=201)
+def upload_doc(app_id: str, docKey: Annotated[str, Form(max_length=20)], file: UploadFile, request: Request,
+               user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+    """증빙 파일 1건. 종류는 파일 앞부분(pdf·jpg·png)으로 판정하고, 올린 이름은 저장 경로에 쓰지 않는다.
+    shortcut: FastAPI 가 multipart 본문을 로그인 확인보다 먼저 읽는다(큰 본문은 임시 파일로 쌓인다). 운영에서는 앞단(프록시)에서 본문 크기를 제한한다."""
+    s, _ = _step(dbs, user, app_id)
+    _need(s, 'applicant')
+    if int(request.headers.get("content-length") or 0) > K.MAX_FILE_BYTES + 64 * 1024:  # 본문 머리말 여유
+        raise ValidationError("파일은 비어 있지 않고 10MB 이하여야 합니다.")
+    defects = s.upload_doc(docKey, file.filename or "", file.file.read(K.MAX_FILE_BYTES + 1))
+    dbs.commit()
+    return out({"docKey": docKey, "defects": defects, **_app_state(s)})
+
+
 @router.post("/applications/{app_id}/review")
 def run_review(app_id: str, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     s, e = _step(dbs, user, app_id)
@@ -335,10 +373,10 @@ def compare(app_id: str, body: CompareIn, user: m.User = Depends(current_user), 
 
 
 @router.post("/applications/{app_id}/terms")
-def set_terms(app_id: str, body: TermsIn, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+def set_terms(app_id: str, body: TermsIn, request: Request, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     s, _ = _step(dbs, user, app_id)
     _need(s, 'applicant', 'review')
-    terms = s.set_terms(body.amount, body.term, body.repay, body.paymentDay, body.debitAccountId)
+    terms = s.set_terms(body.amount, body.term, body.repay, body.paymentDay, body.debitAccountId, _login_ref(request))
     dbs.commit()
     return out({"terms": terms, **_app_state(s)})
 
@@ -367,10 +405,10 @@ def explain(app_id: str, body: ExplainIn, user: m.User = Depends(current_user), 
 
 
 @router.post("/applications/{app_id}/contract")
-def sign_contract(app_id: str, body: ContractIn, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+def sign_contract(app_id: str, body: ContractIn, request: Request, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     s, _ = _step(dbs, user, app_id)
     _need(s, 'terms', 'final_rate')
-    cno = s.sign_contract(body.confirmations)
+    cno = s.sign_contract(body.confirmations, _pin_ref(request))
     dbs.commit()
     return out({"contractNo": cno, **_app_state(s)})
 
@@ -485,3 +523,11 @@ def certificate(no: str, body: CertIn, user: m.User = Depends(current_user), dbs
     cert = M.certificate(db, no, body.type)
     dbs.commit()
     return out({"certNo": cert})
+
+
+# ───────────── 개발 모드 시연 (APP_ENV=dev) ─────────────
+
+@dev_router.post("/auto-debit/run")
+def dev_auto_debit(today: date | None = None, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+    """월 상환 자동이체 배치를 지금 돌린다(전체 회원 대상, today 를 주면 그 날짜 기준)."""
+    return {"paid": M.auto_debit(dbs, today)}

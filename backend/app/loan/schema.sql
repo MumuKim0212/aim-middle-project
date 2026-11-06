@@ -128,7 +128,8 @@ CREATE TABLE IF NOT EXISTS loan_application (
     scenario_key    VARCHAR(20),                              -- 체험 고객 키(데모 전용, 통합 시 제거)
     created_at      TIMESTAMPTZ  NOT NULL,
     updated_at      TIMESTAMPTZ  NOT NULL,
-    expires_at      TIMESTAMPTZ  NOT NULL
+    expires_at      TIMESTAMPTZ  NOT NULL,
+    session_state   JSONB                                     -- 서버 메모리에만 있던 신청 진행 상태(서버를 다시 켠 뒤 복원용, 0003)
 );
 CREATE INDEX IF NOT EXISTS ix_app_user ON loan_application(user_id);
 CREATE INDEX IF NOT EXISTS ix_app_status ON loan_application(status);

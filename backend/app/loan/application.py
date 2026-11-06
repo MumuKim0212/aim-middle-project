@@ -2,20 +2,23 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
 
+from sqlalchemy import select
+
+from .. import models as m
 from . import catalog as C
 from . import config as K
 from . import consent, evidence, recommendation, refinance
-from .calculators import monthly_payment, schedule, to_won
+from .calculators import add_months, monthly_payment, schedule, to_won
 from .database import Database, now_iso
-from .errors import ConsentMissing, DuplicateRequest, LimitExceeded, NotFound, SagaFailed, ValidationError
+from .errors import ConsentMissing, DuplicateRequest, InvalidTransition, LimitExceeded, NotFound, SagaFailed, ValidationError
 from .ids import contract_no, loan_account_no, new_id
 from .security import keyed_hash, mask_account, sha256
-from .state_machine import transition
-from .underwriting import Applicant, adjust_plan, est_rate, review, suitability
+from .state_machine import TERMINAL, transition
+from .underwriting import Applicant, Review, adjust_plan, est_rate, review, suitability
 from .validation import JOBS, RATE_PREFS, choice, desired_amount, employee_no, int_range
 from ..accounts import service as account_service
 
@@ -95,15 +98,41 @@ class Session:
     def excluded_monthly(self) -> int:
         return sum(t["monthly"] for t in self.targets) if self.refi else 0
 
+    # ------------------------------------------------------------------ 진행 상태 보관·복원
+    def snapshot(self) -> dict:
+        """메모리에만 있는 진행 상태를 JSON 으로 만든다(loan_application.session_state 에 저장, Decimal 은 문자열이 된다).
+        shortcut: 추천 후보(router 의 cands)와 대환 유불리(refi_result)는 담지 않는다. 후보는 추천을 다시 조회하면 되고 유불리는 어디서도 읽지 않는다."""
+        return {"married": self.married, "targets": self.targets, "existing": self.existing, "defects": self.defects,
+                "applicant": asdict(self.applicant) if self.applicant else None, "review": asdict(self.review) if self.review else None,
+                "chosen_rate": self.chosen_rate, "final_rate": self.final_rate, "terms": self.terms,
+                "suit_override": self.suit_override, "contract": self.contract, "agency": self.agency}
+
+    @classmethod
+    def restore(cls, db: Database, app_id: str, user_id: int) -> "Session | None":
+        """메모리에 없는 내 미완료 신청의 진행 상태를 DB 에서 되살린다(없거나 남의 것이거나 끝났거나 만료됐으면 None)."""
+        r = db.one("SELECT product_id, scenario_key, status, session_state FROM loan_application "
+                   "WHERE application_id = ? AND user_id = ? AND expires_at > now()", (app_id, user_id))
+        if r is None or r["status"] in TERMINAL:
+            return None
+        st = json.loads(r["session_state"]) if r["session_state"] else {}
+        rv, rate = st.get("review"), lambda k: D(st[k]) if st.get(k) is not None else None
+        return cls(db, app_id, product_row(db, r["product_id"]), C.SCENARIOS.get(r["scenario_key"]), user_id=user_id,
+                   applicant=Applicant(**st["applicant"]) if st.get("applicant") else None,
+                   review=Review(**{**rv, "rate": D(rv["rate"]), "dsr": D(rv["dsr"])}) if rv else None,
+                   chosen_rate=rate("chosen_rate"), final_rate=rate("final_rate"), married=st.get("married", False),
+                   targets=st.get("targets", []), existing=st.get("existing", []), defects=st.get("defects", []),
+                   terms=st.get("terms", {}), suit_override=st.get("suit_override", False), contract=st.get("contract"), agency=st.get("agency"))
+
     # ------------------------------------------------------------------ C01 시작
     @classmethod
-    def start(cls, db: Database, product_id: str, scenario_key: str | None = None, channel: str = "CLI", user_id: int | None = None) -> "Session":
+    def start(cls, db: Database, product_id: str, scenario_key: str | None = None, channel: str = "CLI", user_id: int | None = None,
+              auth_ref: str | None = None) -> "Session":
         p = product_row(db, product_id)
         sc = C.SCENARIOS.get(scenario_key) if scenario_key else None
         app_id, ts = new_id("lap"), now_iso()
         exp = (datetime.now(timezone.utc) + timedelta(days=K.APPLICATION_TTL_DAYS)).isoformat(timespec="seconds")
         with db.tx():
-            db.insert("loan_application", {"application_id": app_id, "user_id": user_id, "auth_ref": None, "product_id": product_id,
+            db.insert("loan_application", {"application_id": app_id, "user_id": user_id, "auth_ref": auth_ref, "product_id": product_id,
                                            "business_type": p["business_type"], "status": "DRAFT", "channel": channel,
                                            "scenario_key": scenario_key, "created_at": ts, "updated_at": ts, "expires_at": exp})
             db.audit("loan_application", app_id, "CREATE", {"product": product_id})
@@ -126,12 +155,12 @@ class Session:
     def required_consents(self) -> list[str]:
         return consent.required_codes(self.product["business_type"], self.product["inst_kind"], self.married)
 
-    def give_consents(self, agreed: dict[str, bool]) -> None:
+    def give_consents(self, agreed: dict[str, bool], auth_ref: str | None = None) -> None:
         """필수 동의를 하나라도 거부하면 다음 단계로 갈 수 없다."""
         lacking = [c for c in self.required_consents() if not agreed.get(c)]
         with self.db.tx():
             for code, ok in agreed.items():
-                consent.record(self.db, self.app_id, code, bool(ok))
+                consent.record(self.db, self.app_id, code, bool(ok), auth_ref)
             if lacking:
                 raise ConsentMissing(f"필수 동의가 필요합니다: {', '.join(lacking)}")
             transition(self.db, self.app_id, "CONSENTED", "C02")
@@ -284,6 +313,7 @@ class Session:
     def submit_docs(self, files: dict[str, str] | None = None, auto_link: bool = False, use_demo: bool = True) -> list[str]:
         """files: {doc_key: 파일 경로}. 체험 고객이면 표시용 샘플을 자동 첨부한다."""
         docs, attached = self.docs(), {}
+        uploaded = {r["doc_key"] for r in self.db.all("SELECT doc_key FROM evidence WHERE application_id = ? AND source = 'UPLOAD'", (self.app_id,))}
         with self.db.tx():
             if auto_link:
                 consent.gate(self.db, self.app_id, "PUBLIC", "소득·재직 자동 연동", self.app_id)
@@ -292,16 +322,38 @@ class Session:
                     info = evidence.inspect_file(files[d["key"]])
                     attached[d["key"]] = info
                     evidence.save(self.db, self.app_id, d, "UPLOAD", info, [] if info["ok"] else ["DOC-INVALID"])
+                elif d["key"] in uploaded:  # upload_doc 로 이미 올린 파일
+                    attached[d["key"]] = {"ok": True}
                 elif auto_link and d["auto"]:
                     attached[d["key"]] = {"ok": True}
                     evidence.save(self.db, self.app_id, d, "API", None, [])
                 elif use_demo and self.scenario:
                     attached[d["key"]] = {"ok": True}
                     evidence.save(self.db, self.app_id, d, "DEMO", {"name": d["sample"], "size": 180000, "sha256": None}, [])
-            refi_expired = any(t.get("flags", {}).get("doc_expired") for t in self.targets)
-            self.defects = evidence.judge(docs, attached, (self.scenario or {}).get("defects", []), refi_expired)
+            self.defects = self._judge_docs(docs, attached)
             transition(self.db, self.app_id, "DOCS_SUBMITTED", "C04")
         return self.defects
+
+    def _judge_docs(self, docs: list[dict], attached: dict[str, dict]) -> list[str]:
+        refi_expired = any(t.get("flags", {}).get("doc_expired") for t in self.targets)
+        return evidence.judge(docs, attached, (self.scenario or {}).get("defects", []), refi_expired)
+
+    def upload_doc(self, doc_key: str, filename: str, data: bytes) -> list[str]:
+        """C04 증빙 파일 1건 접수(source=UPLOAD). 파일 종류는 시그니처로 정하고, 올린 이름은 표시용으로만 저장한다. 결함 코드를 돌려준다."""
+        if self.status() not in ("PROFILED", "DOCS_REQUIRED"):  # submit_docs 가 DOCS_SUBMITTED 로 갈 수 있는 상태에서만
+            raise InvalidTransition()
+        docs = self.docs()
+        doc = next((d for d in docs if d["key"] == doc_key), None)
+        if doc is None:
+            raise ValidationError("제출할 수 없는 서류입니다.")
+        if self.db.one("SELECT COUNT(*) AS n FROM evidence WHERE application_id = ? AND source = 'UPLOAD'", (self.app_id,))["n"] >= K.MAX_UPLOADS_PER_APP:
+            raise ValidationError(f"업로드할 수 있는 파일은 신청 1건당 {K.MAX_UPLOADS_PER_APP}개까지입니다.")
+        ext = evidence.inspect_bytes(data)
+        info = {"name": evidence.safe_name(filename, ext), "size": len(data), "sha256": sha256(data)}
+        with self.db.tx():
+            evidence.write_upload(self.app_id, evidence.save(self.db, self.app_id, doc, "UPLOAD", info, []), ext, data)
+        have = {r["doc_key"]: {"ok": True} for r in self.db.all("SELECT DISTINCT doc_key FROM evidence WHERE application_id = ?", (self.app_id,))}
+        return self._judge_docs(docs, have)
 
     # ------------------------------------------------------------------ C05 심사
     def run_review(self):
@@ -340,7 +392,7 @@ class Session:
 
     # ------------------------------------------------------------------ C07 조건
     def set_terms(self, amount: int | None = None, term: int | None = None, repay: str | None = None, payment_day: int = 25,
-                  debit_account_id: int | None = None) -> dict:
+                  debit_account_id: int | None = None, auth_ref: str | None = None) -> dict:
         p, a, r = self.product, self.applicant, self.review
         amount = refinance.refi_amount(self.targets) if self.refi else (amount or min(a.amount, r.limit))
         if not self.refi and amount > min(r.limit, p["max_amount"]):
@@ -359,7 +411,7 @@ class Session:
             self.db.execute("DELETE FROM loan_terms WHERE application_id = ?", (self.app_id,))
             self.db.insert("loan_terms", {"application_id": self.app_id, "amount": amount, "term_months": term, "repay_method": repay,
                                           "payment_day": payment_day, "auto_debit_account_id": debit_account_id, "payroll_deduction": 0, "updated_at": now_iso()})
-            consent.record(self.db, self.app_id, "AUTO_DEBIT", True)
+            consent.record(self.db, self.app_id, "AUTO_DEBIT", True, auth_ref)
             transition(self.db, self.app_id, "TERMS_SET", "C07")
         return self.terms
 
@@ -381,10 +433,17 @@ class Session:
             for p in prefs:
                 if p in C.PREFS:
                     self.db.insert("pricing_preference", {"preference_id": new_id("prf"), "application_id": self.app_id, "pref_code": p,
-                                                          "rate_cut": str(C.PREFS[p][0]), "account_id": None, "card_id": None, "created_at": now_iso()})
+                                                          "rate_cut": str(C.PREFS[p][0]), "account_id": None,
+                                                          "card_id": self._active_card_id() if p == "CARD_USAGE" else None, "created_at": now_iso()})
             transition(self.db, self.app_id, "PRICED", "C08")
         self.final_rate = final
         return final
+
+    def _active_card_id(self) -> str | None:
+        """카드 사용 우대의 근거 카드: 내 사용 중(active) 카드 중 먼저 발급한 1장. shortcut: 실제 사용 실적은 확인하지 않는다, 카드 사용 실적 조회가 생기면 그 카드로 바꾼다."""
+        if self.user_id is None:
+            return None
+        return self.db.session.scalar(select(m.Card.id).where(m.Card.user_id == self.user_id, m.Card.status == "active").order_by(m.Card.issued_at, m.Card.id))
 
     def quiz(self) -> list[tuple[str, str]]:
         q = list(QUIZ)
@@ -407,14 +466,14 @@ class Session:
         return True
 
     # ------------------------------------------------------------------ C10 약정
-    def sign_contract(self, confirmations: list[bool]) -> str:
+    def sign_contract(self, confirmations: list[bool], signature_ref: str | None = None) -> str:
         need = 5 if self.refi else 4
         if len(confirmations) < need or not all(confirmations[:need]):
             raise ValidationError("약정 확인 항목을 모두 체크해야 전자서명할 수 있습니다.")
         cno = contract_no(self.refi, date.today().year)
         with self.db.tx():
             self.db.insert("contract", {"contract_no": cno, "application_id": self.app_id, "signed_at": now_iso(),
-                                        "doc_hash": sha256(f"{cno}|{self.terms}|{self.final_rate}"), "signature_ref": None, "created_at": now_iso()})
+                                        "doc_hash": sha256(f"{cno}|{self.terms}|{self.final_rate}"), "signature_ref": signature_ref, "created_at": now_iso()})
             start = date.today()
             for row in schedule(self.terms["amount"], self.final_rate, self.terms["term"], self.terms["repay"], start):
                 self.db.insert("repayment_schedule", {"contract_no": cno, **{**row, "due_date": row["due_date"].isoformat()}})
@@ -478,7 +537,7 @@ class Session:
                                         "account_hash": keyed_hash(self.account_no), "product_id": self.product["product_id"], "status": "ACTIVE",
                                         "principal": self.terms["amount"], "balance": self.terms["amount"], "rate": str(self.final_rate),
                                         "term_months": self.terms["term"], "repay_method": self.terms["repay"], "start_date": start.isoformat(),
-                                        "next_due_date": (start + timedelta(days=10)).isoformat(), "debit_account_id": self.terms.get("debit_account_id"), "updated_at": now_iso()})
+                                        "next_due_date": add_months(start, 1).isoformat(), "debit_account_id": self.terms.get("debit_account_id"), "updated_at": now_iso()})
         transition(self.db, self.app_id, "DISBURSED", "C12")
         if self.refi:
             transition(self.db, self.app_id, "PAID_OFF", "C12x")

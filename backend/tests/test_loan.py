@@ -1,13 +1,16 @@
-"""[역할] 대출 서비스 회귀·보안 테스트: 21개 정답표, 동의 게이트, 상태 전이, SQL 가드, 마스킹, 멱등성, 사가 보상, 감사 로그, 파일 검사."""
+"""[역할] 대출 서비스 회귀·보안 테스트: 21개 정답표, 동의 게이트, 상태 전이, SQL 가드, 마스킹, 멱등성, 사가 보상, 감사 로그, 파일 검사, 자동이체 배치, 신청 상태 복원, 증빙 업로드."""
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import tempfile
 import unittest
-from datetime import date
+from dataclasses import replace
+from datetime import date, timedelta
 from decimal import Decimal as D
 from pathlib import Path
+from unittest import mock
 
 import psycopg
 from fastapi import HTTPException
@@ -17,14 +20,16 @@ from sqlalchemy.orm import Session as DbSession
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import models as m  # noqa: E402
+from app.accounts import service as account_service  # noqa: E402
 from app.loan import calculators as calc  # noqa: E402
+from app.loan import config as loan_config  # noqa: E402
 from app.loan import management as M  # noqa: E402
 from app.loan.application import Session, product_row  # noqa: E402
 from app.loan.consent import gate  # noqa: E402
 from app.loan.database import Database  # noqa: E402
 from app.loan.errors import (ConsentMissing, DuplicateRequest, InvalidTransition, LimitExceeded,  # noqa: E402
                              RateLimited, SagaFailed, ValidationError)
-from app.loan.evidence import inspect_file  # noqa: E402
+from app.loan.evidence import inspect_bytes, inspect_file  # noqa: E402
 from app.loan.llm_gateway import validate  # noqa: E402
 from app.loan.scenarios import EXPECTED, run_all, run_one  # noqa: E402
 from app.loan.security import RateLimiter, contains_pii, keyed_hash, mask_account, mask_pii  # noqa: E402
@@ -70,7 +75,7 @@ class LoanCase(unittest.TestCase):
             conn.close()
 
 
-def until_execute(db, pid, scn, user_id=None):
+def until_execute(db, pid, scn, user_id=None, debit_account_id=None):
     """실행 직전(약정 완료)까지 진행한 세션."""
     s = Session.start(db, pid, scn, user_id=user_id)
     s.give_consents({c: True for c in s.required_consents()})
@@ -86,7 +91,7 @@ def until_execute(db, pid, scn, user_id=None):
         s.compare(confirm_unfavorable=True)
     else:
         s.choose(s.recommend()[0])
-    s.set_terms()
+    s.set_terms(debit_account_id=debit_account_id)
     s.price()
     s.explain(True, [a for _, a in s.quiz()])
     s.sign_contract([True] * 5)
@@ -324,6 +329,202 @@ class AccountIntegrationTests(LoanCase):
         res = M.withdraw(db, s.contract)
         self.assertTrue(res["accepted"])
         self.assertEqual(self.bal(db, 1), before + s.terms["amount"] - res["refund"])  # 받은 돈에서 원금+3일 이자를 돌려준다
+
+
+class AutoDebitTests(LoanCase):
+    """월 상환 자동이체 배치(M.auto_debit)와 저축예금 해지 검사(count_active_debit_loans)."""
+
+    @staticmethod
+    def bal(db, aid):
+        return db.one("SELECT balance FROM accounts WHERE id = ?", (aid,))["balance"]
+
+    def loan(self, db, debit_account_id=1, user_id=1):
+        s = until_execute(db, "g1", "KIM_OK", user_id=user_id, debit_account_id=debit_account_id)
+        s.execute("k-ad", account_id=1 if user_id == 1 else debit_account_id)
+        acc = M.account(db, s.contract)
+        return s.contract, acc, date.fromisoformat(acc["next_due_date"]), date.fromisoformat(acc["start_date"])
+
+    def test_pays_installment_once_per_due_date_and_advances(self):
+        db = fresh_db()
+        no, acc, due, start = self.loan(db)
+        self.assertEqual(due, calc.add_months(start, 1))  # 첫 납입일 = 상환 스케줄 1회차
+        self.assertEqual(M.auto_debit(db.session, due - timedelta(days=1)), 0)  # 납입일 전에는 받지 않는다
+        before = self.bal(db, 1)
+        row = calc.schedule(acc["balance"], D(str(acc["rate"])), acc["term_months"], acc["repay_method"], start)[0]
+        self.assertEqual(M.auto_debit(db.session, due), 1)
+        self.assertEqual(M.auto_debit(db.session, due), 0)  # 같은 날 다시 돌려도 이중 출금이 없다
+        self.assertEqual(self.bal(db, 1), before - row["principal"] - row["interest"])
+        t = db.one("SELECT * FROM transactions WHERE ref_id = ? AND type = 'loan_repayment'", (no,))
+        self.assertEqual((t["ref_type"], t["amount"]), ("loan", row["principal"] + row["interest"]))
+        p = db.one("SELECT * FROM payment_txn WHERE contract_no = ?", (no,))
+        self.assertEqual((p["method"], p["result"], p["due_date"], p["account_txn_ref"]), ("AUTO_DEBIT", "DONE", due.isoformat(), t["id"]))
+        after = M.account(db, no)
+        self.assertEqual((after["balance"], after["next_due_date"]), (acc["balance"] - row["principal"], calc.add_months(start, 2).isoformat()))
+        # 서버가 꺼져 밀린 회차는 한 번에 따라잡는다(2·3회차)
+        self.assertEqual(M.auto_debit(db.session, calc.add_months(start, 3)), 2)
+        self.assertEqual(M.account(db, no)["next_due_date"], calc.add_months(start, 4).isoformat())
+
+    def test_short_balance_stays_unpaid_and_retries(self):
+        db = fresh_db()
+        no, acc, due, _ = self.loan(db, debit_account_id=2)  # 계좌 2 는 500,000원뿐이라 월 상환액에 모자란다
+        before = self.bal(db, 2)
+        for _ in range(2):  # 다음 실행에서 다시 시도해도 미납 기록은 납입일당 1건이다
+            self.assertEqual(M.auto_debit(db.session, due), 0)
+        self.assertEqual(self.bal(db, 2), before)
+        self.assertEqual(M.account(db, no)["balance"], acc["balance"])
+        self.assertEqual(M.account(db, no)["next_due_date"], due.isoformat())
+        rows = db.all("SELECT result, allocation FROM payment_txn WHERE contract_no = ?", (no,))
+        self.assertEqual([(r["result"], r["allocation"]) for r in rows], [("FAILED", '{"reason": "INSUFFICIENT_BALANCE"}')])
+        db.execute("UPDATE accounts SET balance = 5000000 WHERE id = 2")
+        self.assertEqual(M.auto_debit(db.session, due), 1)
+        self.assertGreater(M.account(db, no)["next_due_date"], due.isoformat())
+
+    def test_last_installment_pays_off(self):
+        db = fresh_db()
+        no, acc, due, start = self.loan(db)
+        db.execute("UPDATE accounts SET balance = 1000000000 WHERE id = 1")
+        self.assertEqual(M.auto_debit(db.session, calc.add_months(start, acc["term_months"])), acc["term_months"])
+        end = M.account(db, no)
+        self.assertEqual((end["status"], end["balance"], end["next_due_date"]), ("PAID_OFF", 0, None))
+
+    def test_close_blocker_counts_active_debit_loans(self):
+        db = fresh_db()
+        user = db.session.get(m.User, 4)  # 계좌 6 은 연결된 예적금·카드가 없는 user4 의 저축예금
+        self.assertEqual(M.count_active_debit_loans(db.session, 6), 0)
+        self.assertIsNone(account_service.preview_close(db.session, user, 6)["blocker"])
+        no, *_ = self.loan(db, debit_account_id=6, user_id=4)
+        self.assertEqual(M.count_active_debit_loans(db.session, 6), 1)
+        self.assertEqual(account_service.preview_close(db.session, user, 6)["blocker"]["code"], "ACCOUNT_LINKED_LOAN")
+        with self.assertRaises(HTTPException) as ctx:
+            account_service.close_account(db.session, user, 6)
+        self.assertEqual((ctx.exception.status_code, ctx.exception.detail["code"]), (409, "ACCOUNT_LINKED_LOAN"))
+        M.withdraw(db, no)  # 철회하면 더는 진행 중 대출이 아니다
+        self.assertEqual(M.count_active_debit_loans(db.session, 6), 0)
+
+
+class SessionRestoreTests(LoanCase):
+    """신청 진행 상태를 DB 에 남겼다가(session_state) 메모리 없이 되살려 이어서 진행한다."""
+
+    @staticmethod
+    def save(db, s):
+        db.update("loan_application", {"application_id": s.app_id}, {"session_state": s.snapshot()})
+
+    def test_restore_and_finish(self):
+        db = fresh_db()  # 한 시험에서 fresh_db 를 두 번 열면 감사 로그 advisory lock 을 서로 기다린다
+        for pid, scn in (("g1", "KIM_OK"), ("r1", "KIM_OK")):  # 신용대출과 대환(대상·기존 대출 상태 포함)
+            s = until_execute(db, pid, scn, user_id=1)
+            self.save(db, s)
+            r = Session.restore(db, s.app_id, 1)
+            review = replace(s.review, stages=[list(x) for x in s.review.stages])  # JSON 을 거치면 단계 튜플이 리스트가 된다
+            self.assertEqual((r.applicant, r.review, r.final_rate, r.chosen_rate, r.terms, r.contract, r.targets, r.existing),
+                             (s.applicant, review, s.final_rate, s.chosen_rate, s.terms, s.contract, s.targets, s.existing), pid)
+            self.assertEqual(r.flow, s.flow)
+            self.assertEqual(r.execute(f"k-restore-{pid}", account_id=None if r.refi else 1), s.contract)
+            self.assertEqual(r.status(), "COMPLETED")
+            self.assertIsNone(Session.restore(db, s.app_id, 1), pid)  # 끝난 신청은 되살리지 않는다
+
+    def test_restore_is_owner_only_and_skips_expired(self):
+        db = fresh_db()
+        s = until_execute(db, "g1", "KIM_OK", user_id=1)
+        self.assertIsNone(Session.restore(db, s.app_id, 2))
+        self.assertIsNotNone(Session.restore(db, s.app_id, 1))
+        db.execute("UPDATE loan_application SET expires_at = now() - interval '1 day' WHERE application_id = ?", (s.app_id,))
+        self.assertIsNone(Session.restore(db, s.app_id, 1))
+
+    def test_restore_without_snapshot_is_fresh_session(self):
+        db = fresh_db()
+        s = Session.start(db, "g1", "KIM_OK", user_id=1)
+        r = Session.restore(db, s.app_id, 1)
+        self.assertEqual((r.status(), r.applicant, r.review, r.terms), ("DRAFT", None, None, {}))
+
+
+class ExternalRefTests(LoanCase):
+    """로그인·카드 연동 칸: auth_ref, signature_ref, card_id."""
+
+    def test_refs_are_stored(self):
+        db = fresh_db()
+        s = Session.start(db, "g1", "KIM_OK", user_id=1, auth_ref="login:100")
+        s.give_consents({c: True for c in s.required_consents()}, "login:100")
+        s.submit_profile({}, ack_unsuitable=True)
+        s.submit_docs()
+        s.run_review()
+        s.choose(s.recommend()[0])
+        s.set_terms(auth_ref="login:100")
+        s.price(["AUTO_DEBIT", "CARD_USAGE"])
+        s.explain(True, [a for _, a in s.quiz()])
+        s.sign_contract([True] * 5, "pin:200")
+        self.assertEqual(db.one("SELECT auth_ref FROM loan_application WHERE application_id = ?", (s.app_id,))["auth_ref"], "login:100")
+        refs = {r["auth_ref"] for r in db.all("SELECT auth_ref FROM consent_record WHERE application_id = ?", (s.app_id,))}
+        self.assertEqual(refs, {"login:100"})  # 필수 동의와 자동이체 동의 모두
+        self.assertEqual(db.one("SELECT signature_ref FROM contract WHERE contract_no = ?", (s.contract,))["signature_ref"], "pin:200")
+        card = db.one("SELECT id FROM cards WHERE user_id = 1 AND status = 'active' ORDER BY issued_at, id")["id"]
+        cards = {r["pref_code"]: r["card_id"] for r in db.all("SELECT pref_code, card_id FROM pricing_preference WHERE application_id = ?", (s.app_id,))}
+        self.assertEqual(cards, {"AUTO_DEBIT": None, "CARD_USAGE": card})
+
+    def test_refs_stay_null_without_values(self):
+        db = fresh_db()
+        s = until_execute(db, "g1", "KIM_OK")  # 콘솔·시험: 회원도 없다
+        self.assertEqual(db.one("SELECT auth_ref, signature_ref FROM loan_application a JOIN contract c USING (application_id) WHERE a.application_id = ?", (s.app_id,)),
+                         {"auth_ref": None, "signature_ref": None})
+        s2 = Session.start(db, "g1", "KIM_OK")
+        s2.give_consents({c: True for c in s2.required_consents()})
+        s2.submit_profile({}, ack_unsuitable=True)
+        s2.submit_docs()
+        s2.run_review()
+        s2.choose(s2.recommend()[0])
+        s2.set_terms()
+        s2.price(["CARD_USAGE"])
+        self.assertIsNone(db.one("SELECT card_id FROM pricing_preference WHERE application_id = ?", (s2.app_id,))["card_id"])
+
+
+class UploadTests(LoanCase):
+    """증빙 파일 업로드(Session.upload_doc): 시그니처·크기·개수 검사, 이름은 경로에 쓰지 않음, submit_docs 가 업로드를 제출로 센다."""
+    PDF, PNG = b"%PDF-1.4\n" + b"x" * 100, b"\x89PNG\r\n\x1a\n" + b"x" * 100
+
+    def profiled(self, db):
+        s = Session.start(db, "g1", None, user_id=1)  # 체험 고객이 아니므로 샘플이 자동으로 붙지 않는다
+        s.give_consents({c: True for c in s.required_consents()})
+        s.submit_profile({}, ack_unsuitable=True)
+        return s
+
+    def test_upload_stores_file_and_counts_as_submitted(self):
+        db = fresh_db()
+        s = self.profiled(db)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(loan_config, "UPLOAD_DIR", Path(d)):
+            self.assertIn("DOC-MISSING", s.upload_doc("income", "../../evil.pdf", self.PDF))  # 재직 서류가 아직 없다
+            # 확장자가 pdf 여도 내용이 png 면 png 로 저장되고, 올린 이름의 경로 부분은 버린다
+            self.assertEqual(s.upload_doc("emp", "C:\\x\\emp.pdf", self.PNG), [])
+            rows = db.all("SELECT * FROM evidence WHERE application_id = ? ORDER BY evidence_id", (s.app_id,))
+            self.assertEqual([(r["doc_key"], r["source"], r["file_name"], r["status"]) for r in rows],
+                             [("income", "UPLOAD", "evil.pdf", "OK"), ("emp", "UPLOAD", "emp.pdf", "OK")])
+            self.assertEqual(rows[0]["file_sha256"], hashlib.sha256(self.PDF).hexdigest())
+            self.assertEqual([p.suffix for p in sorted(Path(d, s.app_id).iterdir())], [".pdf", ".png"])
+            self.assertEqual(s.submit_docs(), [])  # 필수 서류를 업로드로 냈으니 DOC-MISSING 이 없다
+            self.assertEqual(s.status(), "DOCS_SUBMITTED")
+            with self.assertRaises(InvalidTransition):  # 제출이 끝난 뒤에는 올릴 수 없다
+                s.upload_doc("income", "a.pdf", self.PDF)
+
+    def test_rejects_bad_input(self):
+        db = fresh_db()
+        s = self.profiled(db)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(loan_config, "UPLOAD_DIR", Path(d)), \
+                mock.patch.object(loan_config, "MAX_UPLOADS_PER_APP", 2):
+            for data in (b"MZ\x90\x00 exe", b"", self.PDF + b"x" * loan_config.MAX_FILE_BYTES):  # 위장 파일, 빈 파일, 10MB 초과
+                with self.assertRaises(ValidationError):
+                    s.upload_doc("income", "a.pdf", data)
+            with self.assertRaises(ValidationError):
+                s.upload_doc("nope", "a.pdf", self.PDF)  # 이 상품에 없는 서류
+            s.upload_doc("income", "a.pdf", self.PDF)
+            s.upload_doc("income", "b.pdf", self.PDF)
+            with self.assertRaises(ValidationError):  # 신청 1건당 개수 제한
+                s.upload_doc("emp", "c.pdf", self.PDF)
+            self.assertEqual(db.one("SELECT COUNT(*) n FROM evidence WHERE application_id = ?", (s.app_id,))["n"], 2)
+            self.assertEqual(len(list(Path(d, s.app_id).iterdir())), 2)  # 거절된 파일은 디스크에 남기지 않는다
+        with self.assertRaises(InvalidTransition):
+            Session.start(db, "g1", None, user_id=1).upload_doc("income", "a.pdf", self.PDF)  # 고객 정보 확인 전
+
+    def test_inspect_bytes_by_signature(self):
+        self.assertEqual((inspect_bytes(self.PDF), inspect_bytes(self.PNG), inspect_bytes(b"\xff\xd8\xff\xe0JFIF")), (".pdf", ".png", ".jpg"))
 
 
 class AuditAndCalcTests(LoanCase):
