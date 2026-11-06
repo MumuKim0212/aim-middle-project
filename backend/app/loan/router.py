@@ -72,6 +72,11 @@ def _need(s: Session, *attrs: str) -> None:
         raise InvalidTransition()
 
 
+def _public(acc: dict) -> dict:
+    """대출 계좌 행에서 화면에 보낼 필요 없는 내부 값(계좌번호 해시, 회원 번호)을 뺀다."""
+    return {k: v for k, v in acc.items() if k not in ("account_hash", "user_id")}
+
+
 def _app_state(s: Session) -> dict:
     return {"applicationId": s.app_id, "status": s.status(), "flow": s.flow, "productId": s.product["product_id"], "contractNo": s.contract}
 
@@ -86,7 +91,7 @@ def list_products(dbs: DbSession = Depends(get_db)):
 
 @router.get("")
 def my_loans(user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
-    return out({"items": M.accounts(Database(dbs), user.id)})
+    return out({"items": [_public(a) for a in M.accounts(Database(dbs), user.id)]})
 
 
 class StartIn(BaseModel):
@@ -425,7 +430,7 @@ class CertIn(BaseModel):
 @router.get("/{no}")
 def loan_detail(no: str, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     _, acc = _mine(dbs, user, no)
-    return out(acc)
+    return out(_public(acc))
 
 
 @router.get("/{no}/schedule")

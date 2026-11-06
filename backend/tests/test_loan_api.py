@@ -80,6 +80,8 @@ def test_full_flow_credits_account_and_blocks_others(server):
     r = u1.post(f"/api/loans/applications/{app_id}/execute", json={"accountId": 1}, headers=key)
     assert (r.status_code, r.json()["code"]) == (404, "LOAN_NOT_FOUND")
     loan = u1.get(f"/api/loans/{no}").json()
+    assert "accountHash" not in loan and "userId" not in loan  # 내부 값은 내려주지 않는다
+    assert all("accountHash" not in x for x in u1.get("/api/loans").json()["items"])
     assert balance(u1) == before + loan["principal"]
     tx = u1.get("/api/accounts/1/transactions?period=custom&from=2000-01-01").json()["items"][0]
     assert (tx["type"], tx["direction"], tx["refType"], tx["refId"]) == ("loan_disbursement", "in", "loan", no)
