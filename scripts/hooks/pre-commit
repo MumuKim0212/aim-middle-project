@@ -1,0 +1,8 @@
+#!/bin/sh
+# 모델·DB 문서가 커밋에 들어 있을 때만 scripts/check_db_docs.py 로 문서와 코드를 대조한다.
+# 기본은 경고만 낸다. 막으려면 DOCCHECK_STRICT=1 git commit ... (우회는 git commit --no-verify)
+# 설치(한 번): git config core.hooksPath scripts/hooks
+staged=$(git diff --cached --name-only)
+echo "$staged" | grep -qE '^(backend/app/models\.py|docs/db/|docs/dev/[a-z]+/backend-spec\.md)' || exit 0
+PY=$(command -v python3 || command -v python) || { echo "DOCCHECK python 을 찾지 못해 건너뜁니다"; exit 0; }
+"$PY" "$(git rev-parse --show-toplevel)/scripts/check_db_docs.py"

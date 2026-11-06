@@ -134,6 +134,14 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
     cd backend
     python -m tests.card_api_scenarios
 
+## 커밋 훅 (DB 문서 검사)
+
+`models.py`나 DB 문서(`docs/db/`, `docs/dev/*/backend-spec.md`)를 커밋할 때 모델의 테이블·컬럼이 문서와 맞는지 `scripts/check_db_docs.py`로 대조합니다. 저장소를 받은 뒤 한 번만 등록합니다.
+
+    git config core.hooksPath scripts/hooks
+
+기본은 차이를 경고로만 보여 주고 커밋은 막지 않습니다. 막으려면 `DOCCHECK_STRICT=1 git commit ...`, 건너뛰려면 `git commit --no-verify`입니다. 직접 돌려 보려면 `python scripts/check_db_docs.py`입니다.
+
 ## 문서
 
 | 경로 | 내용 |
