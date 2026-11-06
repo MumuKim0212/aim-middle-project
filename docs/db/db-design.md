@@ -121,7 +121,7 @@
 | `card_applications` | id, user_id, type, product_id, payment_account_id(BIGINT), payment_day, income_range, recipient, phone, address_line1/2, agree_*, status(approved/rejected), reject_reason, granted_limit, result_card_id, requested_at | 카드 비밀번호·간편비밀번호 저장 안 함, 거절 건 90일 뒤 개인정보 비움 |
 | `card_issue_quota` | PK(user_id, type) | 행 락 전용 |
 
-## 5. 가계부 (박의혁) — 기획안 4절을 카드 모델에 맞춰 정리
+## 5. 가계부 (박의혁) — [기획안](../ledger/가계부_기획안.md) 4절을 카드 모델에 맞춰 정리
 
 ### 5.1 기획안 초안과 달라진 점 (충돌 정리)
 

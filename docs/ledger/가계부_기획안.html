@@ -6,13 +6,39 @@ p,li{color:#354b61}strong{color:#173e72}blockquote{margin:20px 0;padding:12px 18
 table{width:100%;border-collapse:collapse;margin:16px 0 22px;font-size:13px}th,td{padding:10px 11px;border:1px solid #dbe5ee;text-align:left;vertical-align:top}th{background:#eaf4fc;color:#164a84}tr:nth-child(even) td{background:#fafcfe}
 code{padding:2px 4px;border-radius:3px;background:#edf2f5;font:13px/1.5 Consolas,monospace}pre{padding:15px;overflow:auto;background:#1d3042;color:#e9f5ff}pre code{padding:0;background:none;color:inherit}a{color:#1668ad}
 nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{display:inline-block;padding:8px 12px;border-radius:7px;background:#fff}@media(max-width:700px){article{margin:0;padding:25px 18px;border:0;box-shadow:none}nav{margin:0;padding:12px;background:#fff}table{display:block;overflow:auto;white-space:nowrap}}
-</style></head><body><nav><a href="가계부_4가지_모드_체험.html">4가지 모드 체험 ↗</a> <a href="가계부_디자인_3종_비교.html">디자인 비교 ↗</a></nav><article><h1 id="_1">오늘 써도 될까? — 은행 가계부 기획안</h1>
-<h2 id="1">1. 한 줄 소개</h2>
+</style></head><body><nav><a href="가계부_4가지_모드_체험.html">4가지 모드 체험 ↗</a> <a href="가계부_디자인_3종_비교.html">디자인 비교 ↗</a></nav><article><h1>오늘 써도 될까? — 은행 가계부 기획안</h1>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>담당</td>
+<td>박의혁</td>
+</tr>
+<tr>
+<td>상태</td>
+<td>제안·시안 단계의 기획안이다. 팀 통합 구현은 끝났고(<code>backend/app/ledger*.py</code>, <code>frontend/src/features/ledger</code>) 구현된 범위는 9장에 정리했다</td>
+</tr>
+<tr>
+<td>공통 규칙</td>
+<td><a href="../common/공통.md">공통.md</a>와 <a href="../common/오류코드.md">오류코드.md</a>. 이 문서와 다르면 공통.md와 구현이 기준이다</td>
+</tr>
+<tr>
+<td>DB</td>
+<td>통합 테이블 설계는 <a href="../db/db-design.md">db-design.md 5장</a>이 정본이고, 아래 4장은 시안 단계의 초안이다</td>
+</tr>
+</tbody>
+</table>
+<h2>1. 한 줄 소개</h2>
 <p>카드 사용 내역으로 월 예산과 카드대금 반영 후 잔액을 계산하고, 결제 전에 “지금 써도 되는지” 알려주는 가계부. 같은 판단 결과를 사용자가 고른 네 가지 말투와 화면으로 보여준다.</p>
 <blockquote>
 <p>디자인은 우리은행 모바일 웹의 공통 헤더와 파란색 계열을 참고한 비공식 프로젝트 시안이다. 화면의 계좌와 거래는 모두 예시 데이터다.</p>
 </blockquote>
-<h2 id="2">2. 핵심 화면과 기능</h2>
+<h2>2. 핵심 화면과 기능</h2>
 <table>
 <thead>
 <tr>
@@ -61,7 +87,7 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 </tr>
 </tbody>
 </table>
-<h3 id="_2">네 가지 모드</h3>
+<h3>네 가지 모드</h3>
 <table>
 <thead>
 <tr>
@@ -94,7 +120,7 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 </tbody>
 </table>
 <p>모드는 <strong>표현만</strong> 바꾼다. 같은 거래와 예산이라면 결제 가능·보류 판정은 어느 모드에서나 같다. 사용자는 언제든 모드를 변경할 수 있고, 선택은 저장한다.</p>
-<h2 id="3">3. 주요 이용 흐름</h2>
+<h2>3. 주요 이용 흐름</h2>
 <ol>
 <li>로그인한 사용자가 가계부에 들어오면 이번 달 카드 지출, 남은 월 예산, 대표계좌 잔액, 예정 카드대금 반영 후 예상 잔액을 본다.</li>
 <li>“오늘 배달 2만 원 시켜도 돼?”라고 입력한다. 카테고리와 금액을 추출하고, 정보가 빠지면 금액·카테고리를 다시 묻는다.</li>
@@ -102,7 +128,7 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 <li>사용자는 금액을 줄이거나 예산을 다시 정한다. 성공한 모의 승인만 지출 원장에 반영한다.</li>
 <li>다음 달에는 지난달·지지난달과 지출을 비교하고, 절약한 항목과 증가한 항목을 거래 근거와 함께 본다.</li>
 </ol>
-<h3 id="_3">계산 원칙</h3>
+<h3>계산 원칙</h3>
 <pre><code class="language-text">이번 달 순지출 = 승인된 카드 거래 합계 − 해당 거래의 환불 합계
 남은 월 예산 = 월 예산 − 이번 달 순지출
 카테고리 잔여 = 카테고리 예산 − 해당 카테고리 순지출
@@ -110,7 +136,8 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 보류 = 결제 시도액이 월 예산 잔여, 해당 카테고리 잔여, 결제 후 예상 잔액 중 하나라도 초과
 </code></pre>
 <p>계좌 잔액과 남은 예산은 다른 값이다. 카드 승인 시점에는 예산 사용액과 미결제 카드대금이 늘고, 계좌 잔액은 카드대금이 실제 출금될 때 줄어든다. 현재 HTML은 단순 예시 계산이며 실제 청구 일정은 연결하지 않는다.</p>
-<h2 id="4">4. 데이터 구조 초안</h2>
+<h2>4. 데이터 구조 초안</h2>
+<p>팀 통합에서 달라진 점은 표의 설명과 <a href="../db/db-design.md">db-design.md 5.1</a>에 정리했다.</p>
 <table>
 <thead>
 <tr>
@@ -122,18 +149,23 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 <tbody>
 <tr>
 <td><code>users</code></td>
-<td><code>id</code>, <code>email</code>, <code>password_hash</code></td>
-<td>팀 공통 인증 사용</td>
+<td>팀 공통 <code>users</code></td>
+<td>팀 공통 인증 사용 (아이디는 <code>login_id</code>). 가계부 전용 컬럼 없음</td>
 </tr>
 <tr>
 <td><code>accounts</code></td>
-<td><code>id</code>, <code>user_id</code>, <code>balance</code>, <code>masked_number</code></td>
-<td>본인 계좌만 조회</td>
+<td><code>id</code>, <code>user_id</code>, <code>balance</code>, <code>is_primary</code></td>
+<td>본인 계좌만 조회. 마스킹 번호는 컬럼이 아니라 응답에서 만든다 (공통.md 6장)</td>
 </tr>
 <tr>
 <td><code>card_transactions</code></td>
-<td><code>id</code>, <code>user_id</code>, <code>card_id</code>, <code>amount</code>, <code>merchant</code>, <code>category</code>, <code>approved_at</code>, <code>status</code>, <code>refund_of</code></td>
-<td>승인·거절·환불 구분</td>
+<td>카드 도메인 테이블 재사용</td>
+<td>승인(<code>kind='approval'</code>)과 취소(<code>kind='cancel'</code> + <code>original_id</code>)로 구분한다. 초안의 <code>category</code>·<code>status</code>·<code>refund_of</code>는 <code>ledger_tx_category</code>와 <code>payment_attempts</code>로 나눴다</td>
+</tr>
+<tr>
+<td><code>ledger_tx_category</code></td>
+<td><code>card_transaction_id</code>, <code>user_id</code>, <code>category</code>, <code>source</code></td>
+<td>카드 거래 분류(자동·사용자 변경)</td>
 </tr>
 <tr>
 <td><code>budgets</code></td>
@@ -156,9 +188,19 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 <td>모의 결제 보류 근거 기록</td>
 </tr>
 <tr>
+<td><code>ledger_settings</code></td>
+<td><code>user_id</code>, <code>mode</code>, <code>roast_level</code></td>
+<td>말투 모드와 강도 저장</td>
+</tr>
+<tr>
+<td><code>ledger_goals</code></td>
+<td><code>user_id</code>, <code>month</code>, <code>name</code>, <code>target_amount</code></td>
+<td>월 저축 목표 (회원당 월 1건)</td>
+</tr>
+<tr>
 <td><code>chat_sessions</code>, <code>chat_messages</code></td>
 <td><code>user_id</code>, <code>role</code>, <code>content</code>, <code>intent</code>, <code>context_json</code></td>
-<td>후속 질문 맥락</td>
+<td>후속 질문 맥락. 홈 입력창과 같은 테이블을 쓴다 (공통.md 9.3)</td>
 </tr>
 <tr>
 <td><code>rag_documents</code></td>
@@ -168,16 +210,17 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 </tbody>
 </table>
 <p>금액은 정수 원 단위로 저장하고 서버에서 다시 계산한다. 사용자의 <code>user_id</code>는 요청 본문을 믿지 않고 인증 세션에서 결정한다. 카드 거래와 결제 시도 기록은 분리한다.</p>
-<h2 id="5-rag">5. 자연어와 RAG 연결</h2>
+<h2>5. 자연어와 RAG 연결</h2>
 <ul>
+<li><strong>공통 규칙:</strong> 사용자 주입, 확인 질문, 비밀값 금지 같은 에이전트 규칙은 <a href="../common/공통.md#9-자연어-연동-공통">공통.md 9장</a>을 따른다. 가계부 화면 안의 대화(<code>/api/ledger/chat</code>)는 홈 입력창 <code>/api/chat</code>과 별개이고, 홈에서 가계부 의도가 나오면 라우터가 <code>ledger</code> 에이전트로 넘긴다 (공통.md 9.3).</li>
 <li><strong>정형 데이터 질문:</strong> 잔액, 지난달 지출, 예산, 결제 가능 여부는 인증된 사용자의 DB를 조회하고 계산 함수로 답한다.</li>
 <li><strong>문서 질문:</strong> 상품 금리·가입 조건·카드 혜택·서비스 안내는 승인된 문서를 RAG로 검색해 출처와 기준일을 함께 답한다.</li>
 <li><strong>혼합 질문:</strong> “돈 남으면 어떤 적금이 좋아?”는 먼저 가계부의 실제 여유액을 계산하고, 상품 추천 근거는 RAG에서 가져온다.</li>
 <li><strong>후속 질문:</strong> “그럼 1만 원은?”처럼 금액만 바뀌면 직전 카테고리를 유지한다. 사용자별 대화 상태는 분리한다.</li>
 <li><strong>불확실성:</strong> 금액·날짜·카테고리가 모호하면 실행 전에 재질문한다. 문서에 근거가 없으면 추측하지 않는다.</li>
 </ul>
-<h2 id="6">6. 알림·보상과 실패 상황</h2>
-<p>월 예산 70%에서는 주의, 90%에서는 강한 경고, 초과 시 모의 결제 보류를 기본값으로 검토한다. 카테고리 예산도 별도로 평가한다. 긍정 알림은 “얼마를 덜 썼는지”와 근거 기간을 함께 보여준다. 실제 여행 예약이나 쿠폰 지급은 이 범위에 넣지 않는다.</p>
+<h2>6. 알림·보상과 실패 상황</h2>
+<p>초안은 월 예산 70%에서 주의, 90%에서 강한 경고, 초과 시 모의 결제 보류를 기본값으로 검토했다. 구현은 월 예산 사용률 75% 이상이거나 카테고리 사용률 80% 이상이면 주의(<code>caution</code>), 남은 예산 0 이하·카테고리 초과·예상 잔액 0 이하면 위험(<code>danger</code>)이고, 결제 시도액이 한도를 넘으면 보류한다. 카테고리 예산도 별도로 평가한다. 긍정 알림은 “얼마를 덜 썼는지”와 근거 기간을 함께 보여준다. 실제 여행 예약이나 쿠폰 지급은 이 범위에 넣지 않는다.</p>
 <table>
 <thead>
 <tr>
@@ -204,7 +247,7 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 </tr>
 <tr>
 <td>로그인하지 않음</td>
-<td>개인 계좌·카드 내역을 보여주지 않고 로그인으로 안내</td>
+<td>개인 계좌·카드 내역을 보여주지 않는다. API는 <code>401 LOGIN_REQUIRED</code>로 응답하고 프론트가 <code>/login?next=</code>로 보낸다 (공통.md 3장). 홈 입력창 <code>/api/chat</code>만 200으로 로그인 안내를 준다 (공통.md 9.3)</td>
 </tr>
 <tr>
 <td>RAG 근거 없음</td>
@@ -212,7 +255,7 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 </tr>
 </tbody>
 </table>
-<h2 id="7">7. 구현 순서</h2>
+<h2>7. 구현 순서</h2>
 <ol>
 <li>팀 공통 인증·계좌·카드 거래 모델 확인</li>
 <li>월간 집계와 예산·예상 잔액 계산 함수 구현</li>
@@ -222,6 +265,59 @@ nav{max-width:900px;margin:22px auto 0;text-align:right;font-size:13px}nav a{dis
 <li>상품·혜택 안내 RAG 연결 및 출처 검증</li>
 <li>네 가지 모드와 알림·칭찬 문구 다듬기</li>
 </ol>
-<h2 id="8">8. 현재 프로토타입 확인 결과와 한계</h2>
+<p>1~4번과 7번(화면 안의 알림·칭찬 문구)은 구현됐고, 5번은 가계부 화면 안의 대화만, 6번은 아직 구현하지 않았다. 자세한 내용은 9장.</p>
+<h2>8. 현재 프로토타입 확인 결과와 한계</h2>
 <p>현재 HTML에서 모드 변경, 예시 카드 지출 추가·삭제, 월별 조회, 예산 수정, 결제 보류, 규칙 기반 질문, 브라우저 저장을 확인했다. 10,000원 지출 추가 후 월 지출이 612,000원에서 622,000원, 남은 예산이 188,000원에서 178,000원으로 변경됐고 새 탭에서도 유지됐다. 20,000원 배달 시도는 카테고리 잔여 9,000원을 초과하여 보류됐다. 테스트 기록은 초기화했다.</p>
-<p>HTML은 금융기관 연동, 실제 승인, 서버 인증, DB, 생성형 AI, RAG, 알림 전송을 구현하지 않는다. 팀 통합 시 서버 측 재계산과 인증 검사가 필요하다.</p></article></body></html>
+<p>HTML은 금융기관 연동, 실제 승인, 서버 인증, DB, 생성형 AI, RAG, 알림 전송을 구현하지 않는다. 팀 통합 시 서버 측 재계산과 인증 검사가 필요하다.</p>
+<h2>9. 구현 현황 (2026-11-06 기준)</h2>
+<p>모든 API는 <code>/api/ledger</code> 아래에 있고 로그인이 필요하다. 화면 경로는 <code>/ledger</code>(요약), <code>/ledger/chat</code>(물어보기), <code>/ledger/history</code>(소비 내역)다.</p>
+<table>
+<thead>
+<tr>
+<th>기획안 기능</th>
+<th>상태</th>
+<th>API (<code>/api/ledger/...</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>요약</td>
+<td>구현. 남은 예산, 예상 잔액, 분류별 예산, 위험 단계(<code>safe</code>·<code>caution</code>·<code>danger</code>)</td>
+<td><code>GET /summary</code></td>
+</tr>
+<tr>
+<td>결제 전 확인</td>
+<td>구현. 판정은 서버가 하고 <code>payment_attempts</code>에 근거를 남긴다</td>
+<td><code>POST /payment-check</code></td>
+</tr>
+<tr>
+<td>소비 내역</td>
+<td>구현. 월 조회, 지출 추가·수정·삭제(직접 기록한 건만 금액·사용처 변경), CSV 내보내기</td>
+<td><code>GET·POST /transactions</code>, <code>PUT·DELETE /transactions/{id}</code>, <code>GET /transactions/export</code></td>
+</tr>
+<tr>
+<td>예산 설정</td>
+<td>구현. 월·분류 예산과 예정 출금. 잔액은 대표계좌 값을 쓰고 직접 수정하지 않는다</td>
+<td><code>PUT /budget</code>, <code>PUT /planned-outflows/{id}</code></td>
+</tr>
+<tr>
+<td>물어보기</td>
+<td>구현. 규칙 해석 + Gemini, 스트리밍 응답</td>
+<td><code>GET·POST /chat</code>, <code>POST /chat/new</code>, <code>POST /chat/stream</code></td>
+</tr>
+<tr>
+<td>네 가지 모드</td>
+<td>구현. 서버에 저장, 싸가지 모드 강도 1~3</td>
+<td><code>GET·PUT /settings</code></td>
+</tr>
+<tr>
+<td>상품·이용 안내(RAG)</td>
+<td>미구현</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>기획안에 없던 기능이 구현돼 있다: 월별 추이(<code>GET /trend</code>), 고정지출 후보와 예정 출금 등록(<code>GET /recurring</code>, <code>POST /recurring/register</code>), 월 저축 목표(<code>PUT·DELETE /goal</code>), 영수증 사진 입력(<code>POST /receipt</code>), 수입 기록(<code>GET·POST /income</code>, <code>DELETE /income/{id}</code>), 계좌 출금 내역(<code>GET /account-outflows</code>).</p>
+<p>아직 하지 않은 것: 홈 입력창(<code>/api/chat</code>)과 라우터 연동, RAG 상품 안내, 알림 전송, 실제 카드 승인 연동(승인은 모의).</p>
+<p>오류 코드는 <a href="../common/오류코드.md#52-가계부-코드">오류코드.md 5.2</a>에 정리했다. 현재 가계부 API는 오류를 <code>{ "detail": "&lt;CODE&gt;" }</code>로 돌려주어 공통.md 5장의 <code>{ code, message, details? }</code>와 다르다. 정렬은 <a href="../common/결정기록.md">결정기록.md 11.1</a>에 남겨 두었다.</p>
+</article></body></html>
