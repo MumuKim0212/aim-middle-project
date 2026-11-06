@@ -42,9 +42,10 @@ VIRTUAL: dict[str, tuple[str, str]] = {
     ),
     "income": (
         "내 계좌로 들어온 돈(수입). date, source(월급·용돈 등 이름), amount",
-        "SELECT a.occurred_at::date AS date, COALESCE(a.counterparty, a.memo, '입금') AS source, a.amount "
-        "FROM account_transactions a JOIN accounts ac ON ac.id = a.account_id "
-        "WHERE ac.user_id = :mid AND a.kind IN ('deposit', 'transfer_in')",
+        "SELECT a.created_at::date AS date, COALESCE(a.counterparty_name, a.memo, '입금') AS source, a.amount "
+        "FROM transactions a JOIN accounts ac ON ac.id = a.account_id "
+        "LEFT JOIN accounts cp ON cp.id = a.counterparty_account_id "
+        "WHERE ac.user_id = :mid AND a.type IN ('deposit', 'transfer_in') AND (cp.user_id IS NULL OR cp.user_id <> :mid)",
     ),
     "monthly_budgets": (
         "월별 총 예산. month('YYYY-MM'), total_amount",
@@ -77,7 +78,7 @@ GRANTS: dict[str, list[str]] = {
     "ledger_tx_category": ["card_transaction_id", "category"],
     "budgets": ["id", "user_id", "month", "total_amount"],
     "category_budgets": ["budget_id", "category", "amount"],
-    "account_transactions": ["account_id", "kind", "amount", "occurred_at", "counterparty", "memo"],
+    "transactions": ["account_id", "type", "amount", "created_at", "counterparty_account_id", "counterparty_name", "memo"],
     "accounts": ["id", "user_id"],
     "payment_attempts": ["user_id", "amount", "category", "result", "over_amount", "created_at"],
     "planned_outflows": ["user_id", "due_date", "amount", "type", "status"],

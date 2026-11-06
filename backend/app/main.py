@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -16,6 +17,9 @@ from sqlalchemy.orm import Session
 
 from . import models as m
 from .db import SessionLocal, engine, get_db
+from .accounts import service as account_service
+from .accounts.batch import auto_pay_loop
+from .accounts.router import dev_router, router as accounts_router
 from .auth.deps import current_user
 from .auth.router import me_router, router as auth_router
 from . import ledger_query
@@ -29,7 +33,9 @@ async def lifespan(_: FastAPI):
     ledger_query.setup(engine)  # 자유 질문용 읽기 전용 역할(권한이 없으면 자유 질문만 꺼진다)
     with SessionLocal() as db:
         seed(db)
+    batch = asyncio.create_task(auto_pay_loop())  # 적금 자동이체 배치(매일 00:10 KST)
     yield
+    batch.cancel()
 
 
 app = FastAPI(title="AIM Bank API", version="0.1.0", lifespan=lifespan)
@@ -99,6 +105,9 @@ async def validation_handler(request, exc: RequestValidationError):
 app.include_router(auth_router)
 app.include_router(me_router)
 app.include_router(ledger_router)
+app.include_router(accounts_router)
+if account_service.dev_mode():  # 시연용 API 는 APP_ENV=dev 에서만 연다(운영에서는 404)
+    app.include_router(dev_router)
 
 
 @app.get("/api/health")
@@ -156,10 +165,7 @@ def home(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     month = today.strftime("%Y-%m")
     month_start = today.replace(day=1)
 
-    accounts = db.scalars(
-        select(m.Account).where(m.Account.user_id == user.id, m.Account.status == "active")
-        .order_by(m.Account.is_primary.desc(), m.Account.id)
-    ).all()
+    accounts = account_service.list_accounts(db, user)
 
     cards = db.scalars(
         select(m.Card).where(m.Card.user_id == user.id, m.Card.status != "terminated")
@@ -184,11 +190,12 @@ def home(user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     return {
         "user": {"id": user.id, "name": user.name},
         "accounts": {
-            "totalBalance": sum(a.balance for a in accounts),
+            "totalBalance": accounts["totalBalance"],
             "items": [
-                {"id": a.id, "bankName": a.bank_name, "masked": a.account_masked,
-                 "balance": a.balance, "primary": a.is_primary}
-                for a in accounts
+                {"id": a["accountId"], "bankName": a["bankName"], "masked": a["accountMasked"],
+                 "balance": a["balance"], "primary": a["isPrimary"], "productType": a["productType"],
+                 "productName": a["productName"]}
+                for a in accounts["items"]
             ],
         },
         "cards": {
