@@ -13,18 +13,20 @@
 
 | 폴더 | 문서 | 내용 | 담당 |
 |---|---|---|---|
-| `common/` | [공통.md](common/공통.md) | 공통 규칙, 결정 기록, 파트 문서 반영 현황 | `main` 브랜치가 기준본 (작성 김경민) |
-| `common/` | [오류코드.md](common/오류코드.md) | 오류 코드 목록(공통·인증·계좌 원본, 카드 색인), 필드 오류 사유 | 공통.md와 같음 |
+| `common/` | [공통.md](common/공통.md) | 공통 규칙 (인증·접근 제어, 본인 재확인, 데이터 규칙, 공통 시드, 파트 사이 인터페이스, 자연어 구조) | `main` 브랜치가 기준본 (작성 김경민) |
+| `common/` | [오류코드.md](common/오류코드.md) | 공통·인증·계좌·카드·대출·가계부의 오류 코드와 필드 오류 사유(reason)의 유일한 원본 | 공통.md와 같음 |
 | `common/` | [결정기록.md](common/결정기록.md) | 공통 규칙의 결정 기록(10장), 파트 문서 반영 현황(11장), 변경 이력(12장) | 공통.md와 같음 |
 | `common/` | [기술스택.md](common/기술스택.md) | 스택, 환경, 폴더 구조 | 팀 |
-| `auth/` | [회원-인증.md](auth/회원-인증.md) | 회원가입, 로그인·로그아웃, 간편비밀번호, 2차 인증, 접근 제어. 실패 시나리오 확인 결과는 `auth/auth-check.md` | 김연준 |
+| `auth/` | [회원-인증.md](auth/회원-인증.md) | 회원가입, 로그인·로그아웃, 간편비밀번호, 2차 인증, 접근 제어. 실패 시나리오 확인 결과는 [auth-check.md](auth/auth-check.md) | 김연준 |
 | `account/` | [계좌.md](account/계좌.md) | 저축예금·정기예금·정기적금, 개설·이체·해지, 이자 계산 | 김연준 |
-| `card/` | [README.md](card/README.md) | 카드 기획서 개요, 기능별 상세 `00`~`08` | 김경민 |
+| `card/` | [README.md](card/README.md) | 카드 기획서 개요, 기능별 상세 `00`~`08`, 개발 회고([retrospective.md](card/retrospective.md)) | 김경민 |
 | `dev/auth/` | [backend-spec.md](dev/auth/backend-spec.md) | 회원·인증 개발 명세 (users·devices DB 설계, 구현 체크리스트) | 김연준 |
+| `dev/account/` | [backend-spec.md](dev/account/backend-spec.md) | 계좌 개발 명세 (products·accounts·transactions DB 설계, 구현 체크리스트) | 김연준 |
 | `dev/card/` | [backend-spec.md](dev/card/backend-spec.md), [frontend-spec.md](dev/card/frontend-spec.md) | 카드 개발 명세 (DB, 서버 규칙, 프론트 구조) | 김경민 |
-| `ledger/` | [README.md](ledger/README.md), [가계부_기획안.md](ledger/가계부_기획안.md) | 가계부 기획안(시안 단계, 구현 현황은 9장), 4가지 말투 모드 체험 HTML, 디자인 3종 비교 | 박의혁 |
+| `ledger/` | [README.md](ledger/README.md), [가계부_기획안.md](ledger/가계부_기획안.md) | 가계부 기획안(시안 단계, 구현 현황은 9장), 시안 캡처 | 박의혁 |
 | `db/` | [db-design.md](db/db-design.md), [erd.md](db/erd.md) | 통합 DB 설계, ERD | |
-| `loan/` | [Loan_Service_main.md](loan/Loan_Service_main.md), [README.md](loan/README.md), [대출서비스_종합정리.md](loan/대출서비스_종합정리.md) | 대출 기획서(일반·정부·기관·대환·대출관리), 서식·제출서류·프로토타입, 서버 구현 정리(`backend/app/loan/`), ERD | 임대진 |
+| `loan/` | [Loan_Service_main.md](loan/Loan_Service_main.md), [README.md](loan/README.md), [대출서비스_종합정리.md](loan/대출서비스_종합정리.md) | 대출 기획서(일반·정부·기관·대환·대출관리), 서식·제출서류·프로토타입, 서버 구현 정리(`backend/app/loan/`), ERD, 화면 디자인 가이드([디자인_가이드.md](loan/Design/디자인_가이드.md)) | 임대진 |
+| `design/` | 홈 화면 컨셉 시안 이미지 | | |
 | `references/` | 화면 캡처 | 우리WON뱅킹 참고 화면 (`card/`, `account/`, `loan/`) | |
 | `screenshots/` | 구현 화면 캡처 | | |
 
