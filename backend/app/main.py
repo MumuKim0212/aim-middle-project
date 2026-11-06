@@ -95,10 +95,12 @@ async def loan_error_handler(_: Request, e: LoanError):
 
 @app.exception_handler(StarletteHTTPException)
 async def api_error_handler(request, exc):
-    """오류는 {"code", "message", "details"?} 모양(공통.md 5장). 가계부의 기존 문자열 오류(detail)는 그대로 둔다."""
+    """오류는 {"code", "message", "details"?} 모양(공통.md 5장). 없는 경로의 404 는 NOT_FOUND 로 맞춘다."""
     d = exc.detail
     if isinstance(d, dict) and "code" in d:
         return JSONResponse(d, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+    if exc.status_code == 404 and d == "Not Found":
+        return JSONResponse({"code": "NOT_FOUND", "message": "찾을 수 없습니다."}, status_code=404)
     if exc.status_code == 405:
         return JSONResponse({"code": "METHOD_NOT_ALLOWED", "message": "허용하지 않는 요청 방식입니다.", "detail": d},
                             status_code=405, headers=getattr(exc, "headers", None))

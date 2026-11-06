@@ -39,10 +39,46 @@ from . import ledger_categorize, ledger_query
 from . import models as m
 from .accounts.service import BANK_NAME, mask
 from .db import SessionLocal, engine, get_db
-from .auth.deps import current_user
+from .auth.deps import api_error, current_user
 from .ledger_answer import enabled as answer_enabled, generate_answer, stream_answer
 from .gemini import LlmUnavailable, generate_json_image
 from .ledger_nlu import find_category_hint, income_source, is_record_command, parse_days_ago, understand
+
+# 오류 응답은 { code, message } (공통.md 5장, 코드 목록은 오류코드.md 5.2). 화면이 code 로 문구를 고르므로 code 이름은 바꾸지 않는다.
+ERROR_MESSAGES = {
+    "INVALID_MONTH": "월 형식이 올바르지 않습니다.",
+    "INVALID_MERCHANT": "사용처를 입력해 주세요.",
+    "INVALID_CATEGORY": "올바른 분류가 아닙니다.",
+    "INVALID_AMOUNT": "금액을 확인해 주세요.",
+    "INVALID_SOURCE": "수입처를 입력해 주세요.",
+    "FUTURE_DATE": "미래 날짜는 기록할 수 없습니다.",
+    "PAST_DATE": "지난 날짜는 예정 출금으로 올릴 수 없습니다.",
+    "EMPTY_TEXT": "내용을 입력해 주세요.",
+    "INVALID_MODE": "올바른 말투 모드가 아닙니다.",
+    "INVALID_ROAST_LEVEL": "올바른 말투 강도가 아닙니다.",
+    "INVALID_IMAGE": "이미지를 읽을 수 없습니다.",
+    "NOT_FOUND": "찾을 수 없습니다.",
+    "NO_ACTIVE_CARD": "사용 중인 카드가 없습니다.",
+    "NO_PRIMARY_ACCOUNT": "대표계좌가 없습니다.",
+    "NOT_DELETABLE": "지울 수 없는 항목입니다.",
+    "NOT_EDITABLE": "고칠 수 없는 항목입니다.",
+    "ONLY_CATEGORY": "자동 분류된 거래는 분류만 바꿀 수 있습니다.",
+    "HAS_CANCEL": "취소 내역이 있는 거래는 바꿀 수 없습니다.",
+    "ALREADY_REGISTERED": "이미 등록한 항목입니다.",
+    "BALANCE_TOO_LOW": "잔액이 모자랍니다.",
+    "OCR_UNAVAILABLE": "지금은 영수증을 읽을 수 없습니다.",
+}
+
+
+def err(status: int, code: str) -> HTTPException:
+    return api_error(status, code, ERROR_MESSAGES[code])
+
+
+def err_code(e: HTTPException) -> str:
+    """HTTPException 에서 code 를 꺼낸다(대화 입력이 기록 실패 사유를 문구로 바꿀 때 쓴다)."""
+    d = e.detail
+    return d["code"] if isinstance(d, dict) else str(d)
+
 
 router = APIRouter(prefix="/api/ledger", tags=["ledger"])
 
@@ -63,7 +99,7 @@ def pct(part: int, whole: int) -> int:
 
 def month_range(month: str) -> tuple[date, date]:
     if not MONTH_RE.match(month):
-        raise HTTPException(400, "INVALID_MONTH")
+        raise err(400, "INVALID_MONTH")
     y, mo = int(month[:4]), int(month[5:])
     return date(y, mo, 1), date(y + (mo == 12), mo % 12 + 1, 1)
 
@@ -606,7 +642,7 @@ def _prepare_turn(db: Session, user_id: int, body: ChatIn) -> dict:
     """질문 해석 → 계산(판정·숫자 확정) → 질문 저장. 답변 생성에 필요한 것을 모아 돌려준다."""
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, "EMPTY_TEXT")
+        raise err(400, "EMPTY_TEXT")
     mode = _body_mode(db, user_id, body.mode)
     session = _mode_session(db, user_id, mode) or _new_session(db, user_id, mode)
     recent = _recent_turns(db, session.id)
@@ -654,7 +690,7 @@ def _prepare_turn(db: Session, user_id: int, body: ChatIn) -> dict:
             when = "오늘" if u.days_ago == 0 else "어제" if u.days_ago == 1 else f"{u.days_ago}일 전"
             ctx["income"] = {"id": tx.id, "amount": u.amount, "source": u.hint or "수입", "date": day.isoformat(), "when": when}
         except HTTPException as e:
-            ctx["incomeError"] = str(e.detail)
+            ctx["incomeError"] = err_code(e)
     if u.intent == "record" and u.amount is not None:
         day = date.today() - timedelta(days=u.days_ago)
         try:
@@ -662,7 +698,7 @@ def _prepare_turn(db: Session, user_id: int, body: ChatIn) -> dict:
             when = "오늘" if u.days_ago == 0 else "어제" if u.days_ago == 1 else f"{u.days_ago}일 전"
             ctx["recorded"] = {"id": tx.id, "amount": u.amount, "category": category, "date": day.isoformat(), "when": when}
         except HTTPException as e:
-            ctx["recordError"] = str(e.detail)
+            ctx["recordError"] = err_code(e)
     if u.intent == "record" and u.amount is None:  # "등록했어?" → 이 대화방에서 방금 기록한 것을 다시 알려 준다
         prev = db.scalars(select(m.ChatMessage).where(m.ChatMessage.session_id == session.id, m.ChatMessage.role == "user")
                           .order_by(m.ChatMessage.created_at.desc(), m.ChatMessage.id.desc()).limit(10)).all()
@@ -716,7 +752,7 @@ class NewChatIn(BaseModel):
 def new_chat(body: NewChatIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """이 모드의 대화를 새로 시작한다(다른 모드의 대화는 그대로다)."""
     if body.mode not in MODES:
-        raise HTTPException(400, "INVALID_MODE")
+        raise err(400, "INVALID_MODE")
     _new_session(db, user.id, body.mode)
     return {"entries": []}
 
@@ -733,14 +769,14 @@ def ask_stream(body: ChatIn, user: m.User = Depends(current_user)):
     """
     user_id = user.id
     if not body.text.strip():
-        raise HTTPException(400, "EMPTY_TEXT")
+        raise err(400, "EMPTY_TEXT")
 
     def gen():
         with SessionLocal() as db:  # 응답이 흐르는 동안 쓸 자체 세션(요청 의존성 세션은 먼저 닫힌다)
             try:
                 t = _prepare_turn(db, user_id, body)
             except HTTPException as e:
-                yield _sse("error", {"code": e.detail})
+                yield _sse("error", {"code": err_code(e)})
                 return
             yield _sse("meta", _entry(t["msg"]))
             final = None
@@ -776,9 +812,9 @@ def get_settings(user: m.User = Depends(current_user), db: Session = Depends(get
 @router.put("/settings")
 def put_settings(body: SettingsIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     if body.mode is not None and body.mode not in MODES:
-        raise HTTPException(400, "INVALID_MODE")
+        raise err(400, "INVALID_MODE")
     if body.roastLevel is not None and body.roastLevel not in (1, 2, 3):
-        raise HTTPException(400, "INVALID_ROAST_LEVEL")
+        raise err(400, "INVALID_ROAST_LEVEL")
     row = db.get(m.LedgerSettings, user.id)
     if not row:
         row = m.LedgerSettings(user_id=user.id, mode=body.mode or "basic", roast_level=body.roastLevel or 1)
@@ -897,18 +933,18 @@ def create_tx(db: Session, user_id: int, day: date, merchant: str, category: str
     """카드 지출 한 건을 기록한다(화면 입력과 대화 입력이 같이 쓴다). 실패하면 HTTPException."""
     merchant = merchant.strip()
     if not merchant:
-        raise HTTPException(400, "INVALID_MERCHANT")
+        raise err(400, "INVALID_MERCHANT")
     if category not in CATEGORIES:
-        raise HTTPException(400, "INVALID_CATEGORY")
+        raise err(400, "INVALID_CATEGORY")
     if day > date.today():
-        raise HTTPException(400, "FUTURE_DATE")  # 미래 날짜는 기록할 수 없다 (시안과 동일)
+        raise err(400, "FUTURE_DATE")  # 미래 날짜는 기록할 수 없다 (시안과 동일)
     # 기록할 카드: 사용 중인 카드 중 신용카드를 우선한다
     card = db.scalar(
         select(m.Card).where(m.Card.user_id == user_id, m.Card.status == "active")
         .order_by(case((m.Card.type == "credit", 0), else_=1), m.Card.issued_at)
     )
     if not card:
-        raise HTTPException(409, "NO_ACTIVE_CARD")
+        raise err(409, "NO_ACTIVE_CARD")
     tx = m.CardTransaction(
         card_id=card.id, kind="approval", merchant=merchant, amount=amount, installment_months=0,
         occurred_at=datetime.combine(day, time(12, 0)))
@@ -934,12 +970,12 @@ def delete_transaction(tx_id: str, user: m.User = Depends(current_user), db: Ses
         .where(m.CardTransaction.id == tx_id, m.Card.user_id == user.id)
     ).first()
     if not row:
-        raise HTTPException(404, "NOT_FOUND")
+        raise err(404, "NOT_FOUND")
     tx, cat = row
     if cat.source != "user" or tx.kind != "approval":
-        raise HTTPException(409, "NOT_DELETABLE")
+        raise err(409, "NOT_DELETABLE")
     if db.scalar(select(m.CardTransaction.id).where(m.CardTransaction.original_id == tx.id)):
-        raise HTTPException(409, "HAS_CANCEL")
+        raise err(409, "HAS_CANCEL")
     card = db.get(m.Card, tx.card_id)
     _adjust_card_bill(db, user.id, card, tx.occurred_at.date(), -tx.amount)
     db.delete(cat)
@@ -964,16 +1000,16 @@ def edit_transaction(tx_id: str, body: TxEdit, user: m.User = Depends(current_us
         .where(m.CardTransaction.id == tx_id, m.Card.user_id == user.id)
     ).first()
     if not row:
-        raise HTTPException(404, "NOT_FOUND")
+        raise err(404, "NOT_FOUND")
     tx, cat = row
     if tx.kind != "approval":
-        raise HTTPException(409, "NOT_EDITABLE")
+        raise err(409, "NOT_EDITABLE")
     user_made = cat is not None and cat.source == "user"
     if (body.merchant is not None or body.amount is not None) and not user_made:
-        raise HTTPException(409, "ONLY_CATEGORY")
+        raise err(409, "ONLY_CATEGORY")
     if body.amount is not None and body.amount != tx.amount:
         if db.scalar(select(m.CardTransaction.id).where(m.CardTransaction.original_id == tx.id)):
-            raise HTTPException(409, "HAS_CANCEL")
+            raise err(409, "HAS_CANCEL")
         card = db.get(m.Card, tx.card_id)
         _adjust_card_bill(db, user.id, card, tx.occurred_at.date(), body.amount - tx.amount)
         tx.amount = body.amount
@@ -981,7 +1017,7 @@ def edit_transaction(tx_id: str, body: TxEdit, user: m.User = Depends(current_us
         tx.merchant = body.merchant.strip()
     if body.category is not None:
         if body.category not in CATEGORIES:
-            raise HTTPException(400, "INVALID_CATEGORY")
+            raise err(400, "INVALID_CATEGORY")
         if cat:
             cat.category = body.category  # 직접 기록한 거래는 source 그대로, 자동 분류 거래는 분류만 바꾼다
         else:
@@ -1078,12 +1114,12 @@ class RecurringIn(BaseModel):
 def register_recurring(body: RecurringIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
     """고정지출을 예정 출금(type=fixed)에 올린다. 같은 사용처는 한 번만."""
     if body.dueDate < date.today():
-        raise HTTPException(400, "PAST_DATE")
+        raise err(400, "PAST_DATE")
     key = body.merchant[:40]
     if db.scalar(select(m.PlannedOutflow.id).where(
             m.PlannedOutflow.user_id == user.id, m.PlannedOutflow.type == "fixed",
             m.PlannedOutflow.ref_id == key, m.PlannedOutflow.status == "planned")):
-        raise HTTPException(409, "ALREADY_REGISTERED")
+        raise err(409, "ALREADY_REGISTERED")
     row = m.PlannedOutflow(user_id=user.id, due_date=body.dueDate, amount=body.amount, type="fixed",
                            ref_type="recurring", ref_id=key)
     db.add(row)
@@ -1148,15 +1184,15 @@ class ReceiptIn(BaseModel):
 def read_receipt(body: ReceiptIn, user: m.User = Depends(current_user)):
     """영수증 사진을 읽어 입력 칸에 채울 값을 돌려준다. 저장은 하지 않는다(사용자가 확인한 뒤 기록)."""
     if body.mime not in RECEIPT_MIME:
-        raise HTTPException(400, "INVALID_IMAGE")
+        raise err(400, "INVALID_IMAGE")
     try:
         base64.b64decode(body.image, validate=True)
     except Exception:
-        raise HTTPException(400, "INVALID_IMAGE") from None
+        raise err(400, "INVALID_IMAGE") from None
     try:
         raw = generate_json_image(RECEIPT_SYSTEM, body.image, body.mime, RECEIPT_SCHEMA)
     except LlmUnavailable:
-        raise HTTPException(503, "OCR_UNAVAILABLE") from None
+        raise err(503, "OCR_UNAVAILABLE") from None
     amount = raw.get("amount")
     amount = amount if isinstance(amount, int) and not isinstance(amount, bool) and 0 < amount <= 100_000_000 else None
     day = None
@@ -1181,13 +1217,13 @@ def create_income(db: Session, user_id: int, day: date, source: str, amount: int
     """대표계좌에 입금을 기록하고 잔액을 늘린다(화면 입력과 대화 입력이 같이 쓴다)."""
     source = source.strip()[:30]
     if not source:
-        raise HTTPException(400, "INVALID_SOURCE")
+        raise err(400, "INVALID_SOURCE")
     if day > date.today():
-        raise HTTPException(400, "FUTURE_DATE")
+        raise err(400, "FUTURE_DATE")
     acc = db.scalar(select(m.Account).where(m.Account.user_id == user_id, m.Account.is_primary.is_(True),
                                             m.Account.status == "active"))
     if not acc:
-        raise HTTPException(409, "NO_PRIMARY_ACCOUNT")
+        raise err(409, "NO_PRIMARY_ACCOUNT")
     acc.balance += amount
     tx = m.Transaction(account_id=acc.id, type="deposit", amount=amount, balance_after=acc.balance,
                        counterparty_name=source, memo=INCOME_MEMO, created_at=datetime.combine(day, time(9, 0)))
@@ -1229,12 +1265,12 @@ def delete_income(tx_id: int, user: m.User = Depends(current_user), db: Session 
         select(m.Transaction, m.Account).join(m.Account, m.Account.id == m.Transaction.account_id)
         .where(m.Transaction.id == tx_id, m.Account.user_id == user.id)).first()
     if not row:
-        raise HTTPException(404, "NOT_FOUND")
+        raise err(404, "NOT_FOUND")
     tx, acc = row
     if tx.memo != INCOME_MEMO or tx.type not in INCOME_KINDS:
-        raise HTTPException(409, "NOT_DELETABLE")
+        raise err(409, "NOT_DELETABLE")
     if acc.balance < tx.amount:
-        raise HTTPException(409, "BALANCE_TOO_LOW")
+        raise err(409, "BALANCE_TOO_LOW")
     acc.balance -= tx.amount
     db.delete(tx)
     db.commit()
@@ -1271,9 +1307,9 @@ def put_budget(body: BudgetIn, user: m.User = Depends(current_user), db: Session
     """이번 달 월 예산과 카테고리 예산을 저장한다(없으면 만든다)."""
     for name, amount in body.categories.items():
         if name not in CATEGORIES:
-            raise HTTPException(400, "INVALID_CATEGORY")
+            raise err(400, "INVALID_CATEGORY")
         if amount <= 0:
-            raise HTTPException(400, "INVALID_AMOUNT")
+            raise err(400, "INVALID_AMOUNT")
     month = this_month()
     budget = db.scalar(select(m.Budget).where(m.Budget.user_id == user.id, m.Budget.month == month))
     if budget:
@@ -1306,7 +1342,7 @@ def put_planned(po_id: str, body: PlannedIn, user: m.User = Depends(current_user
     """예정 출금(카드대금 등) 금액을 고친다. 계좌 잔액은 계좌 도메인 소유라 여기서 바꾸지 않는다."""
     row = db.get(m.PlannedOutflow, po_id)
     if not row or row.user_id != user.id:
-        raise HTTPException(404, "NOT_FOUND")
+        raise err(404, "NOT_FOUND")
     row.amount = body.amount
     db.commit()
     return build_summary(db, user.id, this_month())
