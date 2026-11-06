@@ -80,11 +80,13 @@
 ## 12. 구현 체크리스트
 
 공통 제공물 (다른 파트가 기다리는 것, 먼저 완료)
-- [ ] users 테이블 생성 스크립트와 시드 사용자 4명 (id 1~4, 공통.md 7장)
+- [x] users 테이블 생성(Alembic)과 시드 사용자 4명 (id 1~4, 공통.md 7장, `backend/app/seed.py`)
 - [x] current_user 의존성과 get_db 제공, 사용법 공유 (6.1)
 - [x] 프론트 공통 fetch 래퍼(credentials include, 401/403 분기) 제공 또는 담당자 확인
-- [ ] 공통 base 템플릿(모바일 폭 고정, 하단 탭 바) 또는 담당자 확인
-- [ ] get_age(user), pin_verified(request), 인증 의도 함수(logout, get_my_info, update_phone, revoke_device) 시그니처 공유
+- [x] 공통 base 템플릿: 모바일 폭 420px 프레임과 햄버거 메뉴(`components/Layout`)
+- [ ] 하단 탭 바 (공통.md 2장). 아직 없다 (결정기록.md 11.1)
+- [x] get_age(user), pin_verified(request) 제공
+- [ ] 인증 의도 함수(logout, get_my_info, update_phone, revoke_device) 시그니처 공유
 
 1차 (AUTH-01~05)
 - [x] 회원가입 5단계 화면과 서버 검증 (AUTH-01)
@@ -93,7 +95,7 @@
 - [x] 세션 생성·재생성, 30분 만료, 만료 안내 (AUTH-03)
 - [x] 로그인 필요 화면 보호와 next 복귀, 외부 URL 차단 (AUTH-04)
 - [x] 로그아웃 POST 처리 (AUTH-05)
-- [ ] 404 공통 페이지 (S-10)
+- [x] 404 공통 페이지 (S-10, `App.tsx`의 `path="*"`)
 
 2차 (AUTH-08, 09, 02b)
 - [x] 간편비밀번호 설정 화면과 규칙 검증, 해시 저장 (AUTH-08, S-07)
@@ -101,11 +103,12 @@
 - [x] devices 테이블, 기기 쿠키 발급·검증·연장·해제 (AUTH-09)
 - [x] 간편 로그인 화면과 5회 잠금, 재설정 경로 (AUTH-02b, S-03a)
 - [x] 2차 인증 확인 화면과 pin_verified(request) 함수, 5분 유효 (S-08, R9)
-- [ ] POST /api/auth/pin/verify 응답 코드(PIN_MISMATCH, PIN_LOCKED)와 카드·계좌 파트 호출 연동 (5.4)
-- [ ] 내 정보에 "간편비밀번호 변경·재설정", "이 기기 등록 해제" 추가
+- [x] POST /api/auth/pin/verify 응답 코드(PIN_MISMATCH, PIN_LOCKED)와 카드·계좌·대출 파트 호출 연동 (5.4, `require_pin_verified`)
+- [x] 내 정보에 "간편비밀번호 변경", "이 기기 등록 해제" 추가 (`pages/auth/Me.tsx`)
 
 3차 (AUTH-06~07)
-- [ ] 내 정보 조회·휴대폰 번호 수정 (AUTH-06)
+- [x] 내 정보 조회 (AUTH-06, `GET /api/me`)
+- [ ] 휴대폰 번호 수정 (AUTH-06). 서버에 수정 API가 없다
 - [x] 비밀번호 변경 (AUTH-07)
 
 자연어 연동
@@ -114,6 +117,6 @@
 - [ ] 테스트 문장 12개를 공통 세트에 추가 (9.3)
 
 마무리
-- [ ] 실패 시나리오 F-01~F-07, F-15, F-16 확인, 캡처, README 기록
-- [ ] 시드 사용자 비밀번호·간편비밀번호 README 기재
+- [x] 실패 시나리오 확인과 기록 (결과는 auth/auth-check.md, 화면 캡처는 screenshots/)
+- [x] 시드 사용자 비밀번호·간편비밀번호 README 기재 (루트 README)
 - [ ] 회고에 쓸 메모(막힌 점, 해결 방법) 매일 한 줄
