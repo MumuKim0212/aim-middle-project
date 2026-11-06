@@ -212,8 +212,12 @@ check("받을 계좌가 자기 자신이면 거부", code(u2.call("POST", f"/api
 check("타인 계좌로는 못 받음", u2.call("POST", f"/api/accounts/{new['accountId']}/close", {"receivingAccountId": 1})[0] == 404)
 s, body = u2.call("POST", f"/api/accounts/{new['accountId']}/close", {"receivingAccountId": 5})
 check("ACC-15 저축예금 해지(S-08 없이): 잔액 이전", s == 200 and body["status"] == "closed" and bal(u2, 5) == 310_000 + 9_000_000 + 100_000 + 5000, body)
-s, body = u2.call("POST", "/api/accounts/5/close", {"receivingAccountId": acc["accountId"]})
-check("대표계좌 해지 시 대표 이전", s == 200 and u2.call("GET", f"/api/accounts/{acc['accountId']}")[1]["isPrimary"] is True and bal(u2, acc["accountId"]) == 9_415_000, body)
+check("AF-20 활성 카드(시드 card_900)가 쓰는 계좌 5 는 해지 불가", code(u2.call("POST", "/api/accounts/5/close", {"receivingAccountId": acc["accountId"]})) == "ACCOUNT_LINKED_CARD")
+s, prim = u2.call("POST", "/api/accounts", {"productType": "checking", "agreed": True, "isPrimary": True})
+check("대표계좌로 개설하면 대표가 옮겨 옴", s == 201 and prim["isPrimary"] is True and u2.call("GET", "/api/accounts/5")[1]["isPrimary"] is False, prim)
+s, body = u2.call("POST", f"/api/accounts/{prim['accountId']}/close", {})
+check("대표계좌 해지 시 대표 이전", s == 200 and u2.call("GET", "/api/accounts/5")[1]["isPrimary"] is True, body)
+u2.call("POST", f"/api/accounts/{acc['accountId']}/deposit", {"amount": 1_000_000})  # 아래 적금의 출금 계좌 잔액
 
 # AF-16 / AF-22: 중도 해지
 s, prev = u1.call("GET", "/api/accounts/3/close-preview")

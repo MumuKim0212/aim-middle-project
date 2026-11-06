@@ -9,6 +9,17 @@ import Open from './features/accounts/Open'
 import Products from './features/accounts/Products'
 import Transactions from './features/accounts/Transactions'
 import TransferFlow, { TransferDone, TransferStep1, TransferStep2, TransferStep3 } from './features/accounts/Transfer'
+import CardShell from './features/card/components/CardShell'
+import ApplyPage from './features/card/pages/ApplyPage'
+import ApplyResultPage from './features/card/pages/ApplyResultPage'
+import BillingPage from './features/card/pages/BillingPage'
+import CardDetailPage from './features/card/pages/CardDetailPage'
+import CardListPage from './features/card/pages/CardListPage'
+import CardPickerPage from './features/card/pages/CardPickerPage'
+import LimitPage from './features/card/pages/LimitPage'
+import SecurityPage from './features/card/pages/SecurityPage'
+import TerminatePage from './features/card/pages/TerminatePage'
+import TransactionsPage from './features/card/pages/TransactionsPage'
 import LedgerPage from './features/ledger/LedgerPage'
 import Login from './pages/auth/Login'
 import Me from './pages/auth/Me'
@@ -66,7 +77,19 @@ export default function App() {
             <Route path="confirm" element={<TransferStep3 />} />
             <Route path="done" element={<TransferDone />} />
           </Route>
-          <Route path="cards" element={<Placeholder title="카드" owner="김경민" />} />
+          <Route path="cards" element={<CardShell />}>
+            <Route index element={<CardListPage />} />
+            <Route path="transactions" element={<TransactionsPage />} />
+            <Route path="billing" element={<BillingPage />} />
+            <Route path="security" element={<CardPickerPage purpose="security" />} />
+            <Route path="limit" element={<CardPickerPage purpose="limit" />} />
+            <Route path="apply" element={<ApplyPage />} />
+            <Route path="apply/result" element={<ApplyResultPage />} />
+            <Route path=":cardId" element={<CardDetailPage />} />
+            <Route path=":cardId/security" element={<SecurityPage />} />
+            <Route path=":cardId/limit" element={<LimitPage />} />
+            <Route path=":cardId/terminate" element={<TerminatePage />} />
+          </Route>
           <Route path="loans" element={<Placeholder title="대출" owner="임대진" />} />
           <Route path="ledger" element={<LedgerPage />} />
           <Route path="ledger/:tab" element={<LedgerPage />} />
