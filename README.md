@@ -29,7 +29,6 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 | `docs/README.md` | 기획·설계 문서 목차 (공통, 기술스택, 오류코드, 인증, 계좌, 카드) |
 | `docs/db/db-design.md` | 통합 DB 테이블 설계 (기획 문서 기준) |
 | `docs/db/erd.md` | ERD (Mermaid, GitHub에서 바로 렌더링) |
-| `docker-compose.yml` | 개발용 PostgreSQL 17 + pgvector (호스트 포트 5432) |
 
 ## 지금 되는 것
 
@@ -47,9 +46,10 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
 
 ## 실행
 
-1. DB (PostgreSQL 17 + pgvector, 호스트 포트 5432)
+1. DB (로컬에 설치한 PostgreSQL 17, 포트 5432). 처음 한 번만 사용자와 DB를 만듭니다.
 
-       docker compose up -d
+       psql -U postgres -c "CREATE USER aimbank WITH PASSWORD 'aimbank';"
+       psql -U postgres -c "CREATE DATABASE aimbank OWNER aimbank;"
 
 2. 백엔드 (http://127.0.0.1:8000, API 문서 `/docs`)
 
@@ -72,7 +72,6 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
 - **코드를 받았는데 테이블 구조가 바뀌었다면**: `alembic upgrade head` 한 번이면 됩니다. 데이터는 그대로 남습니다.
 - **마이그레이션 도입 전부터 쓰던 로컬 DB**(서버가 시작할 때 테이블을 만들던 시절): 대출 통합(2026-11-06) 이후 구조라면 `alembic stamp head` 로 "최신"이라고 표시만 하면 됩니다. 그보다 오래됐다면 `python backend/reset_db.py --yes` 로 초기화하세요(로컬 개발 DB 의 데이터가 모두 지워집니다).
 - **모델을 고쳤다면**: `alembic revision --autogenerate -m "설명"` → 만들어진 파일을 확인·수정 → `alembic upgrade head`. 대출 테이블은 모델이 없어 SQL 로 마이그레이션을 직접 쓰고 `backend/app/loan/schema.sql` 도 같이 고칩니다. `python -m pytest backend/tests/test_migrations.py` 가 모델·schema.sql 과 마이그레이션이 어긋나면 알려 줍니다.
-- DB 컨테이너가 예전 PostgreSQL 16이면 `docker compose down -v` 로 볼륨을 지우고 다시 올립니다.
 
 ### 환경변수 (`backend/.env`)
 

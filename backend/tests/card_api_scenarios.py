@@ -1,7 +1,7 @@
 """카드 API 시나리오 (기획서 docs/card 의 T-번호 중 핵심). 실행: cd backend && python -m tests.card_api_scenarios
 
 임시 DB(cardtest)와 임시 서버(8001)를 직접 띄우고 끝나면 지운다. 개발 DB 는 건드리지 않는다.
-PostgreSQL(docker compose up -d)이 떠 있어야 한다. 기준 데이터는 seed.py (오늘 = 2026-11-04 기준 값).
+로컬 PostgreSQL 이 떠 있어야 한다. 기준 데이터는 seed.py (오늘 = 2026-11-04 기준 값).
 user1 로 로그인한 쿠키 세션으로 요청하고, 쓰기 요청 전에 간편비밀번호를 확인한다(공통.md 4장).
 """
 import json
