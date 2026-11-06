@@ -1,6 +1,5 @@
 @echo off
 cd /d "%~dp0"
-docker compose up -d
 cd backend
 if not exist .venv (
     python -m venv .venv
