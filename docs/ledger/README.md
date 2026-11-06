@@ -4,7 +4,7 @@
 
 ## 파일
 
-- [가계부 기획안](가계부_기획안.md) · [HTML로 보기](가계부_기획안.html): `.md`가 원본이고 `.html`은 보기용 사본입니다. `.md`를 고치면 `.html`도 다시 만듭니다.
+- [가계부 기획안](가계부_기획안.md)
 - [4가지 모드 체험 HTML](가계부_4가지_모드_체험.html): 말투·화면 전환과 간단한 가계부 기능
 - [디자인 3종 비교 HTML](가계부_디자인_3종_비교.html): 지옥문, 일반 은행형, 귀여운 저금통형 이미지 비교
 - `assets/`: 두 HTML에서 공통으로 사용하는 이미지
@@ -19,7 +19,6 @@
 | 착한 모드 | [03_kind.jpg](screenshots/03_kind.jpg) |
 | 숫자만 모드 | [04_numbers.jpg](screenshots/04_numbers.jpg) |
 | 디자인 3종 비교 | [05_design_comparison.jpg](screenshots/05_design_comparison.jpg) |
-| 가계부 기획안 HTML | [06_plan_html.jpg](screenshots/06_plan_html.jpg) |
 
 ## 실행
 
