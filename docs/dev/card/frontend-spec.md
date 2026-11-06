@@ -252,7 +252,7 @@ export type TerminateResult = { id: string; status: 'terminated'; terminatedAt: 
 
 ## 4. 인증 틀
 
-로그인·회원 기능(`/login`, 세션, S-07, S-08)은 회원,인증 파트([회원,인증.md](../../auth/회원,인증.md))가 만든다. 카드 프론트가 **필요로 하는 최소한의 계약**만 정한다.
+로그인·회원 기능(`/login`, 세션, S-07, S-08)은 회원,인증 파트([회원-인증.md](../../auth/회원-인증.md))가 만든다. 카드 프론트가 **필요로 하는 최소한의 계약**만 정한다.
 
 - `useAuth(): { status: 'loading' | 'authenticated' | 'anonymous'; user: { name: string } | null }` (`GET /api/auth/session`의 `user`로 확인. 이름이 더 필요하면 `GET /api/me`의 `user`)
 - `<RequireAuth />` (라우트 가드)

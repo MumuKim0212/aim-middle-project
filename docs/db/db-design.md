@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 상태 | 기획 문서 기준으로 정렬 (2026-11-05). 회원·인증·계좌·카드는 아래 기획 문서가 정본이고, 가계부·대출은 이 문서가 정리본이다 |
-| 기준 문서 | [공통.md](../common/공통.md) 6·7장, [회원,인증.md](../auth/회원,인증.md) 8장, [계좌.md](../account/계좌.md) 7장, [카드 backend-spec](../dev/card/backend-spec.md) 2장 |
+| 기준 문서 | [공통.md](../common/공통.md) 6·7장, [회원-인증.md](../auth/회원-인증.md) 8장, [계좌.md](../account/계좌.md) 7장, [카드 backend-spec](../dev/card/backend-spec.md) 2장 |
 | 관련 | [erd.md](erd.md) (같은 내용을 ERD로 그린 것), 구현은 `backend/app/models.py` |
 
 이 문서는 도메인 간 연결과 가계부·대출처럼 아직 별도 기획 문서가 없는 부분을 한곳에 모은 것이다. 회원·인증·계좌·카드 컬럼은 요약만 적고 **기획 문서의 표가 정본**이다. 다르면 기획 문서를 따른다.
@@ -51,7 +51,7 @@
 
 ## 3. 회원·인증·계좌 (김연준)
 
-### 3.1 `users` · `devices` (회원,인증.md 8장, 구현됨)
+### 3.1 `users` · `devices` (dev/auth/backend-spec.md 8장, 구현됨)
 
 | 컬럼 | 타입 | NULL | 설명 |
 |---|---|:--:|---|
@@ -127,7 +127,7 @@
 
 | 기획안 초안 | 통합안 | 이유 |
 |---|---|---|
-| `users` | `users` (회원,인증.md 8.1) | 카드·계좌와 같은 회원 테이블 사용 |
+| `users` | `users` (dev/auth/backend-spec.md 8.1) | 카드·계좌와 같은 회원 테이블 사용 |
 | `accounts` | 3.3 `accounts` 재사용 | 중복 방지, 대표계좌는 `is_primary` |
 | `card_transactions`(user_id, category, approved_at, status, refund_of) | **카드 도메인 `card_transactions` 재사용** (취소 = `kind='cancel'` + `original_id`) + `ledger_tx_category` 분리 | 거래 원장은 카드가 소유. 가계부는 읽기 + 분류만 추가 |
 | 거래 `status`(승인/거절/환불) | 거절은 `payment_attempts`로, 환불은 `cancel` 행으로 | 카드 거래에는 승인·취소만 존재 |
@@ -213,7 +213,7 @@
 
 | 항목 | 상태 |
 |---|---|
-| 로그인·회원 담당, `users` 테이블 소유 | 결정: 회원,인증.md (김연준). 구현됨 |
+| 로그인·회원 담당, `users` 테이블 소유 | 결정: 회원-인증.md (김연준). 구현됨 |
 | 일반 계좌 테이블 | 결정: 계좌.md 7장 (이 문서 3.2~3.5는 요약) |
 | 용어 통일: 대출 `customer_id`, 가계부 `member_id` → `user_id` | 결정 (공통.md 6장) |
 | 거래 원장 소유: 카드가 `card_transactions` 소유, 가계부는 읽기 전용 + `ledger_tx_category`만 추가 | 결정 (5.1) |

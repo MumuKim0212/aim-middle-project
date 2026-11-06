@@ -381,7 +381,7 @@ REST 라우터와 자연어 에이전트의 도구([08-natural-language.md](../.
 | 없는 경로 | `404`, `code: "NOT_FOUND"` |
 | 허용되지 않는 메서드 | `405`, `code: "METHOD_NOT_ALLOWED"` |
 
-`415`, `404 NOT_FOUND`, `405`는 프레임워크 수준 오류라 [오류 코드 표](../../card/00-api-common.md#3-오류-코드-표)에는 넣지 않았다. 응답 모양은 같다 (`code`, `message`).
+`415`, `404 NOT_FOUND`, `405`는 프레임워크 수준 오류라 [오류 코드 표](../../common/오류코드.md)에는 넣지 않았다. 응답 모양은 같다 (`code`, `message`).
 
 ### 7.2 필드 표기·문자열 처리
 
