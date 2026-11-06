@@ -21,9 +21,14 @@ import SecurityPage from './features/card/pages/SecurityPage'
 import TerminatePage from './features/card/pages/TerminatePage'
 import TransactionsPage from './features/card/pages/TransactionsPage'
 import LedgerPage from './features/ledger/LedgerPage'
+import LoanDetail from './features/loans/Detail'
+import LoanList from './features/loans/LoanList'
+import LoanPrepay from './features/loans/Prepay'
+import LoanSchedule from './features/loans/Schedule'
 import Login from './pages/auth/Login'
 import Me from './pages/auth/Me'
 import PasswordChange from './pages/auth/PasswordChange'
+import PhoneChange from './pages/auth/PhoneChange'
 import PinSetup from './pages/auth/PinSetup'
 import PinVerify from './pages/auth/PinVerify'
 import Reset from './pages/auth/Reset'
@@ -62,6 +67,7 @@ export default function App() {
           <Route path="me" element={<Me />} />
           <Route path="me/pin" element={<PinSetup />} />
           <Route path="me/password" element={<PasswordChange />} />
+          <Route path="me/phone" element={<PhoneChange />} />
           <Route path="auth/pin/verify" element={<PinVerify />} />
           <Route path="accounts" element={<AccountList />} />
           <Route path="accounts/open" element={<Navigate to="/products" replace />} />
@@ -90,7 +96,10 @@ export default function App() {
             <Route path=":cardId/limit" element={<LimitPage />} />
             <Route path=":cardId/terminate" element={<TerminatePage />} />
           </Route>
-          <Route path="loans" element={<Placeholder title="대출" owner="임대진" />} />
+          <Route path="loans" element={<LoanList />} />
+          <Route path="loans/:no" element={<LoanDetail />} />
+          <Route path="loans/:no/schedule" element={<LoanSchedule />} />
+          <Route path="loans/:no/prepay" element={<LoanPrepay />} />
           <Route path="ledger" element={<LedgerPage />} />
           <Route path="ledger/:tab" element={<LedgerPage />} />
         </Route>

@@ -12,7 +12,7 @@ type MeData = {
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const fmtPhone = (p: string) => p.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3')
 
-/** 내 정보(S-05): 가입 정보, 간편비밀번호 변경, 이 기기 등록 해제, 로그아웃. */
+/** 내 정보(S-05): 가입 정보, 휴대폰 번호 변경, 간편비밀번호 변경, 이 기기 등록 해제, 로그아웃. */
 export default function Me() {
   const nav = useNavigate()
   const { logout } = useAuth()
@@ -51,6 +51,7 @@ export default function Me() {
       {(msg || flash) && <p className="auth-notice" role="status">{msg ?? flash}</p>}
       <div className="auth-stack">
         <Link to="/me/password" className="auth-btn">비밀번호 변경</Link>
+        <Link to="/me/phone" className="auth-btn">휴대폰 번호 변경</Link>
         <Link to="/me/pin" className="auth-btn">간편비밀번호 변경</Link>
         {data.deviceRegistered && <button type="button" className="auth-btn" onClick={() => void revoke()}>이 기기 등록 해제</button>}
         <button type="button" className="auth-btn danger" onClick={() => void doLogout()}>로그아웃</button>

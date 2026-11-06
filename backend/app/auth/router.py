@@ -418,6 +418,20 @@ def me(request: Request, user: m.User = Depends(current_user), db: Session = Dep
             "deviceRegistered": mine, "deviceName": dev.device_name if mine else None}
 
 
+class PhoneChangeIn(BaseModel):
+    phone: str
+
+
+@me_router.post("/me/phone")
+def change_phone(body: PhoneChangeIn, user: m.User = Depends(current_user), db: Session = Depends(get_db)):
+    """휴대폰 번호만 바꾼다(AUTH-06). 대상은 세션의 사용자뿐이고 요청 본문의 user_id 는 보지 않는다(R3)."""
+    if msg := v.check_phone(body.phone):
+        raise _fail("phone", "INVALID_FORMAT", msg)
+    user.phone = v.norm_phone(body.phone)
+    db.commit()
+    return {"phone": user.phone}
+
+
 def get_age(user: m.User, today: date | None = None) -> int:
     """생년월일 기반 나이 계산(계좌 파트의 상품 가입 조건용)."""
     return v.age_on(user.birth_date, today or date.today())

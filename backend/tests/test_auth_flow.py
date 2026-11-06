@@ -263,6 +263,20 @@ check("user4(최아란, 만 19세 미만) 로그인", s == 200 and body["user"][
 s, body = u4.call("GET", "/api/me")
 check("user4 생년월일 2008-06-01", s == 200 and body["user"]["birthDate"] == "2008-06-01" and body["user"]["id"] == 4, body)
 
+# ───── 휴대폰 번호 수정 (AUTH-06, F-12) ─────
+s, body = Browser().call("POST", "/api/me/phone", {"phone": "010-9999-8888"})
+check("미인증 휴대폰 수정 401", s == 401, (s, body))
+s, body = u4.call("POST", "/api/me/phone", {"phone": "02-123-4567"})
+check("휴대폰 형식 오류 400 VALIDATION_FAILED(phone)", s == 400 and code((s, body)) == "VALIDATION_FAILED" and field0(body) == ("phone", "INVALID_FORMAT"), (s, body))
+s, body = u4.call("POST", "/api/me/phone", {"phone": "010-9999-8888", "user_id": 2})
+check("F-12 휴대폰 수정은 세션의 사용자만 바꾼다(본문 user_id 무시, 하이픈 제거 저장)", s == 200 and body.get("phone") == "01099998888", (s, body))
+s, body = u4.call("GET", "/api/me")
+check("수정한 휴대폰이 /api/me 에 반영", s == 200 and body["user"]["phone"] == "01099998888", body)
+u2 = Browser()
+login(u2, "user2", "Test2345!")
+s, body = u2.call("GET", "/api/me")
+check("F-12 다른 사용자(user2)의 휴대폰은 그대로", s == 200 and body["user"]["phone"] != "01099998888", body)
+
 passed = sum(1 for _, ok in results if ok)
 print(f"{passed}/{len(results)} 통과")
 sys.exit(0 if passed == len(results) else 1)
