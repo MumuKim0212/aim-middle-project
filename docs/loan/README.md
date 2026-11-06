@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 담당 | 임대진 |
-| 상태 | 서버 통합 완료(`backend/app/loan/`, 2026-11-06). 화면(React)과 자연어 에이전트는 아직 없음 |
+| 상태 | 서버 통합 완료(`backend/app/loan/`, 2026-11-06). 내 대출 관리 화면(React, `/loans`)은 구현, 신청 단계 화면은 아직 없음 |
 | 공통 규칙 | [공통.md](../common/공통.md). 이 폴더의 문서가 공통.md와 다르면 이 폴더를 고친다 |
 
 ## 문서
@@ -41,6 +41,7 @@
 | `POST /applications/{id}/profile` | 고객정보·적합성 판정 |
 | `POST /applications/{id}/policy-check` · `GET .../guarantee-options` · `POST .../guarantee` · `POST .../affiliation` | (정부) 정책 자격, (기관) 보증기관 선택·협약기관 재직 확인 |
 | `GET·POST /applications/{id}/docs` | 필요 서류, 증빙 제출(`autoLink`) |
+| `POST /applications/{id}/docs/upload` (multipart `docKey`, `file`) | 증빙 파일 업로드(pdf·png·jpg, 10MB, 신청당 20개). 응답 `defects` |
 | `POST /applications/{id}/review` | 심사 |
 | `GET /applications/{id}/recommendations` · `POST .../choose` · `POST .../compare` | 권장 상품 3안, 선택, (대환) 유불리 비교 |
 | `POST /applications/{id}/terms` `{ amount, term, repay, paymentDay, debitAccountId }` | 조건 확정. `debitAccountId`는 내 저축예금 |
@@ -49,4 +50,4 @@
 | `POST /applications/{id}/contract` · `/collateral` | 약정(전자서명 자리), 담보·보증 설정 |
 | `POST /applications/{id}/execute` `{ accountId }` | 실행. 본인 지급(신용·예금담보) 대출금을 `accountId` 내 저축예금에 입금 |
 
-신청 진행 상태는 서버 메모리에 30분 보관한다(만료·재시작 시 404 `LOAN_NOT_FOUND`, 처음부터 다시 신청). 자세한 한계는 [대출서비스_종합정리.md 8장](대출서비스_종합정리.md).
+신청 진행 상태는 서버 메모리에 30분 보관하고 DB(`loan_application.session_state`)에도 저장해, 재시작 뒤에도 내 진행 중 신청을 복원한다(추천 후보는 다시 조회). 매일 00:20 KST에 월 상환 자동이체 배치가 돈다. 자세한 한계는 [대출서비스_종합정리.md 8장](대출서비스_종합정리.md).

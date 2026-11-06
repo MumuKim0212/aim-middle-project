@@ -336,7 +336,7 @@ DB는 `READ COMMITTED`를 가정한다. 본인 재확인은 세션 값을 읽는
 
 ### 5.3 서비스 함수 계층
 
-REST 라우터와 자연어 에이전트의 도구([08-natural-language.md](../../card/08-natural-language.md))는 **같은 서비스 함수**를 부른다. 라우터는 `Depends(current_user)`로 받은 `user`를 넘기고, 자연어 도구는 서버가 세션에서 넣은 `user`를 넘긴다. 두 경로가 다른 규칙을 갖지 않는다. (표의 경로는 모두 `/api` 아래다.)
+REST 라우터는 **서비스 함수**를 부른다. 라우터는 `Depends(current_user)`로 받은 `user`를 넘긴다. (표의 경로는 모두 `/api` 아래다.)
 
 | 함수 | 종류 | 대응 API |
 |------|------|----------|
@@ -355,8 +355,8 @@ REST 라우터와 자연어 에이전트의 도구([08-natural-language.md](../.
 | `apply_card(user, request, idempotency_key)` | 쓰기 | `POST /card-applications` |
 | `count_active_cards(account_id)` | 조회 | 계좌 파트가 호출 (REST 없음) |
 
-- 쓰기 함수(정지·해제·분실·해지·신청)는 스스로 `pin_verified(request)`를 부른다 (4절). 거짓이면 `PinVerificationRequired`를 던지고, 라우터가 `403 PIN_VERIFICATION_REQUIRED`(details 없음)로 바꾼다. 자연어 도구는 같은 예외를 `{ status: "pin_verification_required" }`로 바꾼다 (공통.md 9.2).
-- 함수는 소유권·상태·업무 검사를 하고 도메인 오류(`CARD_NOT_FOUND`, `CARD_STATE_INVALID` 등)를 던진다. HTTP 상태로 바꾸는 일은 라우터가, 자연어 응답으로 바꾸는 일은 도구가 맡는다.
+- 쓰기 함수(정지·해제·분실·해지·신청)는 스스로 `pin_verified(request)`를 부른다 (4절). 거짓이면 `PinVerificationRequired`를 던지고, 라우터가 `403 PIN_VERIFICATION_REQUIRED`(details 없음)로 바꾼다.
+- 함수는 소유권·상태·업무 검사를 하고 도메인 오류(`CARD_NOT_FOUND`, `CARD_STATE_INVALID` 등)를 던진다. HTTP 상태로 바꾸는 일은 라우터가 맡는다.
 - `user`가 아닌 사용자 ID를 받는 함수는 만들지 않는다 (`count_active_cards`만 계좌 ID를 받는 예외).
 
 ## 6. 카드 번호·CVC·카드 비밀번호

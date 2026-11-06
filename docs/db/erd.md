@@ -486,7 +486,7 @@ erDiagram
 
 ## 3. 참고
 
-- `chat_sessions`·`chat_messages`는 구현된 가계부 대화가 쓰는 테이블이고 홈 자연어 입력창도 같은 테이블을 쓴다 (공통.md 9.3).
+- `chat_sessions`·`chat_messages`는 구현된 가계부 대화가 쓰는 테이블이다.
 - 카드의 `payment_account_id`는 FK 없는 논리 참조다 (카드 backend-spec). 결제 계좌 후보는 저축예금이고 active인 계좌만이다.
 - 대출 쪽 `inquiry_log`, `rule_version`, `llm_call_log`, `saga_instance`, `notification` 등 main 13.1의 "공통 추가" 테이블은 스켈레톤 단계라 모델·ERD에서 뺐다.
 - 업무별 확장 테이블(정부·기관·대환·대출관리)은 설계에서 제외했다.

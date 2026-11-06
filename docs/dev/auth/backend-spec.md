@@ -61,7 +61,7 @@
 | accounts | accounts.user_id -> users.id (N:1) | 한 사용자가 여러 계좌. 계좌 조회·변경은 항상 user_id 조건 포함 (R3) |
 | cards | cards.user_id -> users.id (N:1), 필요 시 cards.account_id -> accounts.id | 카드 소유자는 user_id로 직접 확인한다. 연결 계좌를 통해 간접 확인하지 않는다 |
 | transactions | transactions.account_id -> accounts.id | user와 직접 연결하지 않고 계좌를 통해 연결. 조회 시 accounts와 조인해 user_id를 확인 |
-| chat_sessions, chat_messages | chat_sessions.user_id -> users.id (N:1), chat_messages.session_id -> chat_sessions.id | 자연어 대화 기록 (구현된 가계부 대화가 쓰는 테이블). 로그인 세션별 맥락은 chat_sessions로 구분 |
+| chat_sessions, chat_messages | chat_sessions.user_id -> users.id (N:1), chat_messages.session_id -> chat_sessions.id | 대화 기록 (구현된 가계부 대화가 쓰는 테이블) |
 | 추가 기능 테이블 (적금, 가계부 등) | *.user_id -> users.id | 사용자 소유 데이터는 예외 없이 user_id 컬럼을 가진다 |
 
 - 외래키에는 ON DELETE 규칙을 두지 않는다(회원 탈퇴 미구현, 3.2).
@@ -71,7 +71,6 @@
 
 - **방식**: 프레임워크 기본 서버 세션(서명된 쿠키)을 사용한다. 5.3에서 정한 대로 세션에는 user_id와 활동 시각, 대화 맥락 등만 담는다.
 - **테이블 필요 여부**: 세션 테이블은 두지 않는다. 쿠키 세션으로 충분하고, 강제 로그아웃이나 다중 기기 관리를 하지 않기 때문이다.
-- **대화 맥락 저장 위치**: 세션에는 최근 5턴 정도만 두고, 전체 기록은 chat_messages에 남긴다. 세션 쿠키는 용량 제한(약 4KB)이 있으므로 긴 대화를 세션에 넣지 않는다.
 - **로그인 실패 기록**: 세션이 아니라 users 테이블(failed_login_count, locked_until, pin_failed_count, pin_locked_until)에 둔다. 브라우저를 바꿔도 잠금이 유지되어야 하기 때문이다.
 - **기기 등록 기록**: devices 테이블(8.1.1). 세션과 무관하게 90일 유지되므로 DB에 둔다.
 
@@ -84,9 +83,8 @@
 - [x] current_user 의존성과 get_db 제공, 사용법 공유 (6.1)
 - [x] 프론트 공통 fetch 래퍼(credentials include, 401/403 분기) 제공 또는 담당자 확인
 - [x] 공통 base 템플릿: 모바일 폭 420px 프레임과 햄버거 메뉴(`components/Layout`)
-- [ ] 하단 탭 바 (공통.md 2장). 아직 없다 (결정기록.md 11.1)
+- [x] 하단 탭 바는 만들지 않는다 (햄버거 메뉴로 대체, 공통.md 2장)
 - [x] get_age(user), pin_verified(request) 제공
-- [ ] 인증 의도 함수(logout, get_my_info, update_phone, revoke_device) 시그니처 공유
 
 1차 (AUTH-01~05)
 - [x] 회원가입 5단계 화면과 서버 검증 (AUTH-01)
@@ -108,13 +106,8 @@
 
 3차 (AUTH-06~07)
 - [x] 내 정보 조회 (AUTH-06, `GET /api/me`)
-- [ ] 휴대폰 번호 수정 (AUTH-06). 서버에 수정 API가 없다
+- [x] 휴대폰 번호 수정 (AUTH-06, `POST /api/me/phone`, `pages/auth/PhoneChange.tsx`)
 - [x] 비밀번호 변경 (AUTH-07)
-
-자연어 연동
-- [ ] 인증 의도 11개 함수 제공 (9.1)
-- [ ] 미인증 허용 의도 목록 전달 (9.2)
-- [ ] 테스트 문장 12개를 공통 세트에 추가 (9.3)
 
 마무리
 - [x] 실패 시나리오 확인과 기록 (결과는 auth/auth-check.md, 화면 캡처는 screenshots/)

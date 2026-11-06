@@ -156,7 +156,7 @@
 **`ledger_goals`** — 월 저축 목표
 `id` · `user_id` · `month`(YYYY-MM) · `name` · `target_amount` · `created_at`. 회원당 월 1건(`UNIQUE(user_id, month)`). 모은 돈은 저장하지 않고 조회 시 `payment_attempts`의 이번 달 보류 합계로 계산한다.
 
-**`chat_sessions`** · **`chat_messages`** — 가계부 대화와 홈 자연어 입력창이 함께 쓴다 (공통.md 9.3)
+**`chat_sessions`** · **`chat_messages`** — 가계부 대화가 쓴다
 세션: `id`, `user_id`, `created_at`. 메시지: `id`, `session_id` FK, `role`(`user`/`assistant`), `content`, `intent`, `context_json` JSONB, `created_at`. 사용자별 대화 분리. 비밀번호·간편비밀번호는 남기지 않는다.
 
 **`rag_documents`** — 상품·이용 안내 검색용
