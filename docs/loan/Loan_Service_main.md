@@ -10,7 +10,7 @@
 | 공통 규칙 | [공통.md](../common/공통.md)와 [오류코드.md](../common/오류코드.md)가 기준입니다. 이 폴더의 기획서는 원안이고, API 경로·오류 형식·멱등·본인 재확인은 구현 기준 문서([README.md](README.md), [대출서비스_종합정리.md](대출서비스_종합정리.md))를 따릅니다 |
 | 테스트 자료 | [Customer_Submission_Documents](Customer_Submission_Documents/README.md) (가상 고객 4명, PDF 100개, 판정 정답표) |
 | 체험 프로토타입 | [대출서비스_프로토타입.html](Prototype/대출서비스_프로토타입.html) — 모바일 웹 화면으로 네 업무와 대출관리의 흐름을 직접 눌러 보는 데모 (브라우저에서 파일을 열면 됨. 기본은 한 화면 전환, PC에서는 분할 보기로 바꿀 수 있음, 3.6). 화면·값·문구 명세: [프로토타입_구현명세.md](Prototype/프로토타입_구현명세.md) |
-| 서류 양식 | `Loan_Service/Contract Document/` (LN-01~28), `Refinancing_Service/Contract Document/` (RF-01~19) |
+| 서류 양식 | `Loan_Service/Contract_Document/` (LN-01~28), `Refinancing_Service/Contract_Document/` (RF-01~19) |
 
 ---
 
@@ -804,7 +804,7 @@ interface LlmProvider:
 ### 9.1 문서 생성·보관 (Document Service)
 | 기능 | 내용 |
 |---|---|
-| 양식 채우기 | `Contract Document` 양식(LN, RF)에 확정 데이터를 넣어 PDF 생성 |
+| 양식 채우기 | `Contract_Document` 양식(LN, RF)에 확정 데이터를 넣어 PDF 생성 |
 | 고정 | 생성 PDF의 해시를 저장. 동의·서명은 해시에 연결 (나중에 문서가 바뀌어도 동의 당시 문서를 증명) |
 | 보관함 | 고객별 계약서류 보관함, 내려받기, 이메일 교부 |
 | 열람 기록 | 설명서 열람 시간, 스크롤 완료, 이해 확인 응답 (설명의무 증빙) |
@@ -1006,66 +1006,66 @@ interface LlmProvider:
 
 ---
 
-## 부록 B. 계약서류 양식 (Contract Document)
+## 부록 B. 계약서류 양식 (Contract_Document)
 
-기획용 샘플 양식(PDF)입니다. 각 폴더의 `Contract Document`에 있습니다. 실제 사용 전 법무·준법감시 검토가 필요합니다.
+기획용 샘플 양식(PDF)입니다. 각 폴더의 `Contract_Document`에 있습니다. 실제 사용 전 법무·준법감시 검토가 필요합니다.
 
 ### B-1. 대출 서비스
 
 | 양식번호 | 서류 | 사용 단계 |
 |---|---|---|
-| LN-01 | [여신거래기본약관 (가계용)](<Loan_Service/Contract Document/01_약관동의_여신거래기본약관(가계용).pdf>) | 약관동의 |
-| LN-02 | [개인(신용)정보 수집·이용·조회 동의서](<Loan_Service/Contract Document/02_신용정보조회동의_개인(신용)정보 수집·이용·조회 동의서.pdf>) | 신용정보조회동의 |
-| LN-03 | [고객정보확인서 (적합성 확인)](<Loan_Service/Contract Document/03_적합성검사_고객정보확인서.pdf>) | 적합성검사 |
-| LN-04 | [소득·담보 증빙서류 제출 안내서](<Loan_Service/Contract Document/04_증빙제출_소득·담보 증빙서류 제출 안내서.pdf>) | 증빙제출 |
-| LN-05 | [대출 심사결과 통지서](<Loan_Service/Contract Document/05_심사결과_대출 심사결과 통지서.pdf>) | 심사결과 |
-| LN-06 | [대출 거절사유 통지서](<Loan_Service/Contract Document/06_심사결과(부적합)_대출 거절사유 통지서.pdf>) | 심사결과(부적합) |
-| LN-07 | [제휴사 대출 안내용 개인(신용)정보 제3자 제공 동의서](<Loan_Service/Contract Document/07_심사결과(부적합)_제휴사 대출 안내용 제3자 정보제공 동의서.pdf>) | 심사결과(부적합) |
-| LN-08 | [대출 원리금 자동이체 출금 동의서](<Loan_Service/Contract Document/08_대출조건설정_자동이체 출금 동의서.pdf>) | 대출조건설정 |
-| LN-09 | [대출 상환 스케줄표](<Loan_Service/Contract Document/09_금액금리확정_대출 상환 스케줄표.pdf>) | 금액금리확정 |
-| LN-10 | [대출 상품설명서 (핵심설명서 포함)](<Loan_Service/Contract Document/10_상품설명서확인_대출 상품설명서.pdf>) | 상품설명서확인 |
-| LN-11 | [금융소비자 권리 안내서](<Loan_Service/Contract Document/11_상품설명서확인_금융소비자 권리 안내서(청약철회·금리인하요구권).pdf>) | 상품설명서확인 |
-| LN-12 | [대출거래약정서 (가계용)](<Loan_Service/Contract Document/12_대출약정_대출거래약정서(가계용).pdf>) | 대출약정 |
-| LN-13 | [근저당권 설정계약서 (부동산담보대출)](<Loan_Service/Contract Document/13_담보보증설정(부동산)_근저당권 설정계약서.pdf>) | 담보보증설정(부동산) |
-| LN-14 | [전세자금 보증신청 및 채권양도 동의서](<Loan_Service/Contract Document/14_담보보증설정(전월세)_전세자금 보증신청 및 채권양도 동의서.pdf>) | 담보보증설정(전월세) |
-| LN-15 | [자동차 저당권 설정계약서](<Loan_Service/Contract Document/15_담보보증설정(자동차)_자동차 저당권 설정계약서.pdf>) | 담보보증설정(자동차) |
-| LN-16 | [예금 질권설정 승낙서 (예금담보대출)](<Loan_Service/Contract Document/16_담보보증설정(예금담보)_예금 질권설정 승낙서.pdf>) | 담보보증설정(예금담보) |
-| LN-17 | [대출금 지급 의뢰서](<Loan_Service/Contract Document/17_대출실행_대출금 지급 의뢰서.pdf>) | 대출실행 |
-| LN-18 | [대출 실행 완료 통지서](<Loan_Service/Contract Document/18_결과통보_대출 실행 완료 통지서.pdf>) | 결과통보 |
-| LN-19 | [행정정보 공동이용 동의서 (정책자금)](<Loan_Service/Contract Document/19_정부대출자격확인_행정정보 공동이용 동의서.pdf>) | 정부 G02·G04 |
-| LN-20 | [배우자·세대원 개인(신용)정보 조회 동의서](<Loan_Service/Contract Document/20_정부대출자격확인_배우자·세대원 개인(신용)정보 조회 동의서.pdf>) | 정부 G02 |
-| LN-21 | [정책자금 대출 의무사항 확인서](<Loan_Service/Contract Document/21_정부대출설명확인_정책자금 대출 의무사항 확인서.pdf>) | 정부 G10·G15 |
-| LN-22 | [협약기관 재직정보 조회·제공 동의서](<Loan_Service/Contract Document/22_협약대출소속확인_협약기관 재직정보 조회·제공 동의서.pdf>) | 기관 I02·I04-B |
-| LN-23 | [급여공제 상환 동의서 (협약대출)](<Loan_Service/Contract Document/23_협약대출조건설정_급여공제 상환 동의서.pdf>) | 기관 I09 |
-| LN-24 | [협약대출 특약서](<Loan_Service/Contract Document/24_협약대출약정_협약대출 특약서.pdf>) | 기관 I12 |
-| LN-25 | [중도상환 신청서](<Loan_Service/Contract Document/25_대출관리_중도상환 신청서.pdf>) | 대출관리 M05 (대환 공용) |
-| LN-26 | [금리인하요구 신청서](<Loan_Service/Contract Document/26_대출관리_금리인하요구 신청서.pdf>) | 대출관리 M06 (대환 공용) |
-| LN-27 | [대출 청약철회 신청서](<Loan_Service/Contract Document/27_대출관리_청약철회 신청서.pdf>) | 대출관리 M07 (대환 공용) |
-| LN-28 | [대출 조건변경(기간연장) 신청서](<Loan_Service/Contract Document/28_대출관리_대출 조건변경(기간연장) 신청서.pdf>) | 대출관리 M08 (대환 공용) |
+| LN-01 | [여신거래기본약관 (가계용)](<Loan_Service/Contract_Document/01_약관동의_여신거래기본약관(가계용).pdf>) | 약관동의 |
+| LN-02 | [개인(신용)정보 수집·이용·조회 동의서](<Loan_Service/Contract_Document/02_신용정보조회동의_개인(신용)정보 수집·이용·조회 동의서.pdf>) | 신용정보조회동의 |
+| LN-03 | [고객정보확인서 (적합성 확인)](<Loan_Service/Contract_Document/03_적합성검사_고객정보확인서.pdf>) | 적합성검사 |
+| LN-04 | [소득·담보 증빙서류 제출 안내서](<Loan_Service/Contract_Document/04_증빙제출_소득·담보 증빙서류 제출 안내서.pdf>) | 증빙제출 |
+| LN-05 | [대출 심사결과 통지서](<Loan_Service/Contract_Document/05_심사결과_대출 심사결과 통지서.pdf>) | 심사결과 |
+| LN-06 | [대출 거절사유 통지서](<Loan_Service/Contract_Document/06_심사결과(부적합)_대출 거절사유 통지서.pdf>) | 심사결과(부적합) |
+| LN-07 | [제휴사 대출 안내용 개인(신용)정보 제3자 제공 동의서](<Loan_Service/Contract_Document/07_심사결과(부적합)_제휴사 대출 안내용 제3자 정보제공 동의서.pdf>) | 심사결과(부적합) |
+| LN-08 | [대출 원리금 자동이체 출금 동의서](<Loan_Service/Contract_Document/08_대출조건설정_자동이체 출금 동의서.pdf>) | 대출조건설정 |
+| LN-09 | [대출 상환 스케줄표](<Loan_Service/Contract_Document/09_금액금리확정_대출 상환 스케줄표.pdf>) | 금액금리확정 |
+| LN-10 | [대출 상품설명서 (핵심설명서 포함)](<Loan_Service/Contract_Document/10_상품설명서확인_대출 상품설명서.pdf>) | 상품설명서확인 |
+| LN-11 | [금융소비자 권리 안내서](<Loan_Service/Contract_Document/11_상품설명서확인_금융소비자 권리 안내서(청약철회·금리인하요구권).pdf>) | 상품설명서확인 |
+| LN-12 | [대출거래약정서 (가계용)](<Loan_Service/Contract_Document/12_대출약정_대출거래약정서(가계용).pdf>) | 대출약정 |
+| LN-13 | [근저당권 설정계약서 (부동산담보대출)](<Loan_Service/Contract_Document/13_담보보증설정(부동산)_근저당권 설정계약서.pdf>) | 담보보증설정(부동산) |
+| LN-14 | [전세자금 보증신청 및 채권양도 동의서](<Loan_Service/Contract_Document/14_담보보증설정(전월세)_전세자금 보증신청 및 채권양도 동의서.pdf>) | 담보보증설정(전월세) |
+| LN-15 | [자동차 저당권 설정계약서](<Loan_Service/Contract_Document/15_담보보증설정(자동차)_자동차 저당권 설정계약서.pdf>) | 담보보증설정(자동차) |
+| LN-16 | [예금 질권설정 승낙서 (예금담보대출)](<Loan_Service/Contract_Document/16_담보보증설정(예금담보)_예금 질권설정 승낙서.pdf>) | 담보보증설정(예금담보) |
+| LN-17 | [대출금 지급 의뢰서](<Loan_Service/Contract_Document/17_대출실행_대출금 지급 의뢰서.pdf>) | 대출실행 |
+| LN-18 | [대출 실행 완료 통지서](<Loan_Service/Contract_Document/18_결과통보_대출 실행 완료 통지서.pdf>) | 결과통보 |
+| LN-19 | [행정정보 공동이용 동의서 (정책자금)](<Loan_Service/Contract_Document/19_정부대출자격확인_행정정보 공동이용 동의서.pdf>) | 정부 G02·G04 |
+| LN-20 | [배우자·세대원 개인(신용)정보 조회 동의서](<Loan_Service/Contract_Document/20_정부대출자격확인_배우자·세대원 개인(신용)정보 조회 동의서.pdf>) | 정부 G02 |
+| LN-21 | [정책자금 대출 의무사항 확인서](<Loan_Service/Contract_Document/21_정부대출설명확인_정책자금 대출 의무사항 확인서.pdf>) | 정부 G10·G15 |
+| LN-22 | [협약기관 재직정보 조회·제공 동의서](<Loan_Service/Contract_Document/22_협약대출소속확인_협약기관 재직정보 조회·제공 동의서.pdf>) | 기관 I02·I04-B |
+| LN-23 | [급여공제 상환 동의서 (협약대출)](<Loan_Service/Contract_Document/23_협약대출조건설정_급여공제 상환 동의서.pdf>) | 기관 I09 |
+| LN-24 | [협약대출 특약서](<Loan_Service/Contract_Document/24_협약대출약정_협약대출 특약서.pdf>) | 기관 I12 |
+| LN-25 | [중도상환 신청서](<Loan_Service/Contract_Document/25_대출관리_중도상환 신청서.pdf>) | 대출관리 M05 (대환 공용) |
+| LN-26 | [금리인하요구 신청서](<Loan_Service/Contract_Document/26_대출관리_금리인하요구 신청서.pdf>) | 대출관리 M06 (대환 공용) |
+| LN-27 | [대출 청약철회 신청서](<Loan_Service/Contract_Document/27_대출관리_청약철회 신청서.pdf>) | 대출관리 M07 (대환 공용) |
+| LN-28 | [대출 조건변경(기간연장) 신청서](<Loan_Service/Contract_Document/28_대출관리_대출 조건변경(기간연장) 신청서.pdf>) | 대출관리 M08 (대환 공용) |
 
 ### B-2. 대환 서비스
 
 | 양식번호 | 서류 | 사용 단계 |
 |---|---|---|
-| RF-01 | [여신거래기본약관 (가계용)](<Refinancing_Service/Contract Document/01_약관동의_여신거래기본약관(가계용).pdf>) | 약관동의 |
-| RF-02 | [개인(신용)정보 수집·이용·조회 동의서](<Refinancing_Service/Contract Document/02_신용정보조회동의_개인(신용)정보 수집·이용·조회 동의서.pdf>) | 신용정보조회동의 |
-| RF-03 | [마이데이터 개인신용정보 전송요구 동의서](<Refinancing_Service/Contract Document/03_기존대출조회_마이데이터 개인신용정보 전송요구 동의서.pdf>) | 기존대출조회 |
-| RF-04 | [대환 대상 대출 확인서](<Refinancing_Service/Contract Document/04_대환대상선택_대환 대상 대출 확인서.pdf>) | 대환대상선택 |
-| RF-05 | [고객정보확인서 (적합성 확인)](<Refinancing_Service/Contract Document/05_적합성검사_고객정보확인서.pdf>) | 적합성검사 |
-| RF-06 | [소득·담보 증빙서류 제출 안내서](<Refinancing_Service/Contract Document/06_증빙제출_소득·담보 증빙서류 제출 안내서.pdf>) | 증빙제출 |
-| RF-07 | [대환대출 심사결과 통지서](<Refinancing_Service/Contract Document/07_심사결과_대환대출 심사결과 통지서.pdf>) | 심사결과 |
-| RF-08 | [대환대출 거절사유 통지서](<Refinancing_Service/Contract Document/08_심사결과(부적합)_대환대출 거절사유 통지서.pdf>) | 심사결과(부적합) |
-| RF-09 | [제휴사 대출 안내용 개인(신용)정보 제3자 제공 동의서](<Refinancing_Service/Contract Document/09_심사결과(부적합)_제휴사 대출 안내용 제3자 정보제공 동의서.pdf>) | 심사결과(부적합) |
-| RF-10 | [대환대출 비교 안내서 (유불리 비교)](<Refinancing_Service/Contract Document/10_대환유불리비교_대환대출 비교 안내서.pdf>) | 대환유불리비교 |
-| RF-11 | [대환대출 원리금 자동이체 출금 동의서](<Refinancing_Service/Contract Document/11_대환조건설정_자동이체 출금 동의서.pdf>) | 대환조건설정 |
-| RF-12 | [대환대출 상환 스케줄표](<Refinancing_Service/Contract Document/12_금액금리확정_대환대출 상환 스케줄표.pdf>) | 금액금리확정 |
-| RF-13 | [대환대출 상품설명서 (핵심설명서 포함)](<Refinancing_Service/Contract Document/13_상품설명서확인_대환대출 상품설명서.pdf>) | 상품설명서확인 |
-| RF-14 | [금융소비자 권리 안내서](<Refinancing_Service/Contract Document/14_상품설명서확인_금융소비자 권리 안내서(청약철회·금리인하요구권).pdf>) | 상품설명서확인 |
-| RF-15 | [대환대출 거래약정서](<Refinancing_Service/Contract Document/15_대환약정_대환대출 거래약정서.pdf>) | 대환약정 |
-| RF-16 | [담보 말소·이전·설정 동의서 (담보·보증부 대환)](<Refinancing_Service/Contract Document/16_담보보증설정_담보 말소·이전·설정 동의서.pdf>) | 담보보증설정 |
-| RF-17 | [기존대출 상환자금 지급 위임장](<Refinancing_Service/Contract Document/17_대환실행_기존대출 상환자금 지급 위임장.pdf>) | 대환실행 |
-| RF-18 | [기존대출 상환(완제) 확인서](<Refinancing_Service/Contract Document/18_기존대출상환확인_기존대출 상환(완제) 확인서.pdf>) | 기존대출상환확인 |
-| RF-19 | [대환대출 실행 완료 통지서](<Refinancing_Service/Contract Document/19_결과통보_대환대출 실행 완료 통지서.pdf>) | 결과통보 |
+| RF-01 | [여신거래기본약관 (가계용)](<Refinancing_Service/Contract_Document/01_약관동의_여신거래기본약관(가계용).pdf>) | 약관동의 |
+| RF-02 | [개인(신용)정보 수집·이용·조회 동의서](<Refinancing_Service/Contract_Document/02_신용정보조회동의_개인(신용)정보 수집·이용·조회 동의서.pdf>) | 신용정보조회동의 |
+| RF-03 | [마이데이터 개인신용정보 전송요구 동의서](<Refinancing_Service/Contract_Document/03_기존대출조회_마이데이터 개인신용정보 전송요구 동의서.pdf>) | 기존대출조회 |
+| RF-04 | [대환 대상 대출 확인서](<Refinancing_Service/Contract_Document/04_대환대상선택_대환 대상 대출 확인서.pdf>) | 대환대상선택 |
+| RF-05 | [고객정보확인서 (적합성 확인)](<Refinancing_Service/Contract_Document/05_적합성검사_고객정보확인서.pdf>) | 적합성검사 |
+| RF-06 | [소득·담보 증빙서류 제출 안내서](<Refinancing_Service/Contract_Document/06_증빙제출_소득·담보 증빙서류 제출 안내서.pdf>) | 증빙제출 |
+| RF-07 | [대환대출 심사결과 통지서](<Refinancing_Service/Contract_Document/07_심사결과_대환대출 심사결과 통지서.pdf>) | 심사결과 |
+| RF-08 | [대환대출 거절사유 통지서](<Refinancing_Service/Contract_Document/08_심사결과(부적합)_대환대출 거절사유 통지서.pdf>) | 심사결과(부적합) |
+| RF-09 | [제휴사 대출 안내용 개인(신용)정보 제3자 제공 동의서](<Refinancing_Service/Contract_Document/09_심사결과(부적합)_제휴사 대출 안내용 제3자 정보제공 동의서.pdf>) | 심사결과(부적합) |
+| RF-10 | [대환대출 비교 안내서 (유불리 비교)](<Refinancing_Service/Contract_Document/10_대환유불리비교_대환대출 비교 안내서.pdf>) | 대환유불리비교 |
+| RF-11 | [대환대출 원리금 자동이체 출금 동의서](<Refinancing_Service/Contract_Document/11_대환조건설정_자동이체 출금 동의서.pdf>) | 대환조건설정 |
+| RF-12 | [대환대출 상환 스케줄표](<Refinancing_Service/Contract_Document/12_금액금리확정_대환대출 상환 스케줄표.pdf>) | 금액금리확정 |
+| RF-13 | [대환대출 상품설명서 (핵심설명서 포함)](<Refinancing_Service/Contract_Document/13_상품설명서확인_대환대출 상품설명서.pdf>) | 상품설명서확인 |
+| RF-14 | [금융소비자 권리 안내서](<Refinancing_Service/Contract_Document/14_상품설명서확인_금융소비자 권리 안내서(청약철회·금리인하요구권).pdf>) | 상품설명서확인 |
+| RF-15 | [대환대출 거래약정서](<Refinancing_Service/Contract_Document/15_대환약정_대환대출 거래약정서.pdf>) | 대환약정 |
+| RF-16 | [담보 말소·이전·설정 동의서 (담보·보증부 대환)](<Refinancing_Service/Contract_Document/16_담보보증설정_담보 말소·이전·설정 동의서.pdf>) | 담보보증설정 |
+| RF-17 | [기존대출 상환자금 지급 위임장](<Refinancing_Service/Contract_Document/17_대환실행_기존대출 상환자금 지급 위임장.pdf>) | 대환실행 |
+| RF-18 | [기존대출 상환(완제) 확인서](<Refinancing_Service/Contract_Document/18_기존대출상환확인_기존대출 상환(완제) 확인서.pdf>) | 기존대출상환확인 |
+| RF-19 | [대환대출 실행 완료 통지서](<Refinancing_Service/Contract_Document/19_결과통보_대환대출 실행 완료 통지서.pdf>) | 결과통보 |
 
 ---
 
@@ -1074,4 +1074,4 @@ interface LlmProvider:
 - 새 업무를 추가하면: 하위 문서 작성 → 2.3 프로필 열 추가 → 4.2 호출 매트릭스 열 추가 → 필요한 사유 코드(6.1.3)와 동의 코드(5.1) 등록 순서로 진행합니다.
 - 계약서류 양식을 추가·수정하면 부록 B 표도 함께 고칩니다.
 - 가상 고객 서류를 바꾸면 [README 정답표](Customer_Submission_Documents/README.md)와 11장을 함께 고칩니다.
-- 참고 자료: [대출업무_순서도.xlsx](참고자료/대출업무_순서도.xlsx) (대출·대환 업무 순서도)
+- 참고 자료: [대출업무_순서도.xlsx](references/대출업무_순서도.xlsx) (대출·대환 업무 순서도)

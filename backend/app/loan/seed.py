@@ -19,10 +19,10 @@ def seed(db: Database) -> None:
     with db.tx():
         for i, title in enumerate(C.FORMS_LN, 1):
             no = f"LN-{i:02d}"
-            db.insert("form_template", {"form_no": no, "service": "LOAN", "title": title, "file_name": f"Loan_Service/Contract Document/{i:02d}_{title}.pdf", "version_hash": sha256(no + title)})
+            db.insert("form_template", {"form_no": no, "service": "LOAN", "title": title, "file_name": f"Loan_Service/Contract_Document/{i:02d}_{title}.pdf", "version_hash": sha256(no + title)})
         for i, title in enumerate(C.FORMS_RF, 1):
             no = f"RF-{i:02d}"
-            db.insert("form_template", {"form_no": no, "service": "REFI", "title": title, "file_name": f"Refinancing_Service/Contract Document/{i:02d}_{title}.pdf", "version_hash": sha256(no + title)})
+            db.insert("form_template", {"form_no": no, "service": "REFI", "title": title, "file_name": f"Refinancing_Service/Contract_Document/{i:02d}_{title}.pdf", "version_hash": sha256(no + title)})
         for code, (title, req, form) in C.CONSENT_CODES.items():
             db.insert("consent_code", {"code": code, "title": title, "required_for": req, "form_no": form})
         for code, (grp, msg, fix) in C.REASON_CODES.items():
