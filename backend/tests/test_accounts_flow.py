@@ -2,7 +2,9 @@
 
 주의: 이체·개설·해지처럼 DB 를 바꾸는 시나리오가 들어 있다. 시험용 DB 로 띄운 서버에 돌리고, 같은 DB 를 스크립트에도 알려 준다
 (자동이체·롤백 시나리오는 서비스 함수를 직접 부른다).
-  서버(시험 DB):  DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank APP_ENV=dev \
+  시험 DB:        aimbank_accounttest (같은 서버 5432. 없으면 psql -U postgres -c "CREATE DATABASE aimbank_accounttest OWNER aimbank;" 후
+                  backend 폴더에서 아래와 같은 DATABASE_URL 로 alembic upgrade head)
+  서버(시험 DB):  DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_accounttest APP_ENV=dev \
                   python -m uvicorn app.main:app --port 8002
   실행:           DATABASE_URL=(같은 값) python tests/test_accounts_flow.py http://127.0.0.1:8002
 처음 시드 상태(python reset_db.py --yes)에서만 전부 통과한다. 다시 돌리려면 시험 DB 를 초기화한다.

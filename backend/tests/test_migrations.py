@@ -1,8 +1,8 @@
 """마이그레이션 점검: Alembic 으로 만든 DB 가 모델(ORM)과 app/loan/schema.sql 이 정의한 구조와 같은지, 서버 시작 전 확인이 동작하는지.
 
 모델이나 schema.sql 을 고치고 마이그레이션을 빠뜨리면 여기서 어긋난 열·인덱스를 알려 준다.
-시험 DB 에서 실행(전용 스키마 mig_a·mig_b 를 만들었다 지운다):
-  DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank python -m pytest backend/tests/test_migrations.py
+전용 스키마 mig_a·mig_b 를 만들었다 지우므로 개발 DB(aimbank, 5432)에서 그대로 돌려도 된다:
+  python -m pytest backend/tests/test_migrations.py
 """
 import os
 import re

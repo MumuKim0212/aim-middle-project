@@ -34,7 +34,7 @@ from app.migrations import upgrade_head  # noqa: E402
 from app.seed import seed as seed_app  # noqa: E402
 
 # 시험은 개발 DB 를 건드리지 않도록 전용 스키마(loan_test)에 마이그레이션을 돌려 테이블을 새로 만들고, 각 시험은 트랜잭션을 되돌려 서로 영향을 주지 않는다.
-# 실행(시험 DB):  DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank python -m pytest backend/tests/test_loan.py
+# 실행(개발 DB aimbank, 5432 를 그대로 써도 된다):  python -m pytest backend/tests/test_loan.py
 URL = os.environ.get("DATABASE_URL", "postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank")
 ENGINE = create_engine(URL, connect_args={"options": "-c search_path=loan_test"})
 _OPEN: list = []
@@ -260,7 +260,7 @@ class ExecutionTests(LoanCase):
 
 
 class AccountIntegrationTests(LoanCase):
-    """대출 지급·상환이 계좌(accounts·transactions)와 한 트랜잭션으로 움직이는지: 공통.md 8장, 계좌.md 7.3 loan_disbursement·loan_repayment."""
+    """대출 지급·상환이 계좌(accounts·transactions)와 한 트랜잭션으로 움직이는지: 공통.md 8장, dev/account/backend-spec.md 7.3 loan_disbursement·loan_repayment."""
 
     @staticmethod
     def bal(db, aid):

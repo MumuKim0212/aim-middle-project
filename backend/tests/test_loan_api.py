@@ -1,7 +1,9 @@
 """대출 API 흐름 점검: 로그인 → 신청(신용대출, 체험 고객) → 실행(계좌 입금) → 내 대출·중도상환·타인 접근 차단·오류 코드.
 
-주의: DB 를 바꾸는 시나리오가 들어 있다. 시험 DB 로 돌린다(앱이 시작할 때 테이블과 시드를 만든다).
-  DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5433/aimbank python -m pytest backend/tests/test_loan_api.py
+주의: DB 를 바꾸는 시나리오가 들어 있다. 개발 DB 가 아니라 같은 서버(5432)의 시험 DB(aimbank_loantest)로 돌린다.
+앱은 시작할 때 시드는 넣지만 테이블은 만들지 않으므로 먼저 마이그레이션한다(DB 는 없으면 psql -U postgres -c "CREATE DATABASE aimbank_loantest OWNER aimbank;").
+  (backend 폴더) DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_loantest alembic upgrade head
+  DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_loantest python -m pytest backend/tests/test_loan_api.py
 """
 import sys
 import uuid
