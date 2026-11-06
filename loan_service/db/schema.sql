@@ -11,9 +11,9 @@
 --   @ext <서비스>       : 아직 만들지 않은 외부 서비스와 연결할 빈 칸(NULL 허용, FK 없음)
 --
 -- 외부 서비스 (아직 테이블 없음 → 통합할 때 FK 또는 API로 연결)
---   회원·개인정보 : members.id            ← member_id, spouse_member_id
+--   회원·개인정보 : users.id              ← user_id, spouse_user_id (BIGINT)
 --   로그인·인증   : auth_session/sign 참조 ← auth_ref, signature_ref
---   은행(계좌)    : accounts.id, account_transactions.id ← account_id, debit_account_id, auto_debit_account_id, account_txn_ref
+--   은행(계좌)    : accounts.id, transactions.id ← account_id, debit_account_id, auto_debit_account_id, account_txn_ref (BIGINT)
 --   카드          : cards.id               ← card_id (우대금리 카드 실적)
 --   메인 화면     : loan_account·product_catalog를 읽어 요약 표시 (테이블 연결 없음, 조회 API)
 
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS prompt_registry (
 -- @domain 신청·심사
 CREATE TABLE IF NOT EXISTS loan_application (
     application_id  VARCHAR(40)  PRIMARY KEY,                 -- lap_<ULID>
-    member_id       VARCHAR(40),                              -- @ext 회원·개인정보 (members.id) — 통합 전에는 비워 둠
+    user_id         BIGINT,                                   -- @ext 회원·개인정보 (users.id) — 통합 전에는 비워 둠
     auth_ref        VARCHAR(64),                              -- @ext 로그인·인증 (본인인증 세션 참조)
     product_id      VARCHAR(20)  NOT NULL REFERENCES product_catalog(product_id),
     business_type   VARCHAR(10)  NOT NULL CHECK (business_type IN ('GENERAL','POLICY','INST','REFI')),
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS loan_application (
     updated_at      TIMESTAMPTZ  NOT NULL,
     expires_at      TIMESTAMPTZ  NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_app_member ON loan_application(member_id);
+CREATE INDEX IF NOT EXISTS ix_app_user ON loan_application(user_id);
 CREATE INDEX IF NOT EXISTS ix_app_status ON loan_application(status);
 
 -- @domain 신청·심사
@@ -204,8 +204,8 @@ CREATE TABLE IF NOT EXISTS inquiry_log (
 
 -- @domain 신청·심사
 CREATE TABLE IF NOT EXISTS inquiry_cache (
-    cache_key       VARCHAR(64)  PRIMARY KEY,                 -- hash(member, source, query)
-    member_id       VARCHAR(40),                              -- @ext 회원·개인정보
+    cache_key       VARCHAR(64)  PRIMARY KEY,                 -- hash(user, source, query)
+    user_id         BIGINT,                                   -- @ext 회원·개인정보
     source          VARCHAR(20)  NOT NULL,
     payload_masked  JSONB        NOT NULL,                    -- 마스킹된 결과만 저장
     fetched_at      TIMESTAMPTZ  NOT NULL,
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS household_info (                  -- 정부대출 세
     homeless        BOOLEAN      NOT NULL,
     household_income BIGINT      NOT NULL,
     net_assets      BIGINT       NOT NULL,
-    spouse_member_id VARCHAR(40),                             -- @ext 회원·개인정보 (배우자)
+    spouse_user_id  BIGINT,                                   -- @ext 회원·개인정보 (배우자)
     spouse_consent_at TIMESTAMPTZ
 );
 
@@ -283,7 +283,7 @@ CREATE TABLE IF NOT EXISTS loan_terms (
     term_months     INTEGER      NOT NULL CHECK (term_months > 0),
     repay_method    VARCHAR(10)  NOT NULL CHECK (repay_method IN ('원리금균등분할','만기일시상환','원금균등분할')),
     payment_day     INTEGER      NOT NULL CHECK (payment_day BETWEEN 1 AND 28),
-    auto_debit_account_id VARCHAR(40),                        -- @ext 은행(계좌) accounts.id
+    auto_debit_account_id BIGINT,                             -- @ext 은행(계좌) accounts.id
     payroll_deduction BOOLEAN    NOT NULL DEFAULT 0,
     updated_at      TIMESTAMPTZ  NOT NULL
 );
@@ -306,7 +306,7 @@ CREATE TABLE IF NOT EXISTS pricing_preference (              -- 우대금리 근
     application_id  VARCHAR(40)  NOT NULL REFERENCES pricing(application_id),
     pref_code       VARCHAR(20)  NOT NULL CHECK (pref_code IN ('SALARY','AUTO_DEBIT','CARD_USAGE')),
     rate_cut        NUMERIC(6,4) NOT NULL,
-    account_id      VARCHAR(40),                              -- @ext 은행(계좌) 급여 이체 계좌
+    account_id      BIGINT,                                   -- @ext 은행(계좌) 급여 이체 계좌
     card_id         VARCHAR(40),                              -- @ext 카드 cards.id (카드 사용 실적)
     created_at      TIMESTAMPTZ  NOT NULL
 );
@@ -360,8 +360,8 @@ CREATE TABLE IF NOT EXISTS disbursement (
     contract_no     VARCHAR(20)  NOT NULL REFERENCES contract(contract_no),
     payee_type      VARCHAR(12)  NOT NULL CHECK (payee_type IN ('SELF','LANDLORD','SELLER','DEALER','PAYOFF')),
     payee_masked    VARCHAR(80)  NOT NULL,
-    account_id      VARCHAR(40),                              -- @ext 은행(계좌) 지급 계좌 accounts.id
-    account_txn_ref VARCHAR(40),                              -- @ext 은행(계좌) account_transactions.id
+    account_id      BIGINT,                                   -- @ext 은행(계좌) 지급 계좌 accounts.id
+    account_txn_ref BIGINT,                                   -- @ext 은행(계좌) transactions.id
     amount          BIGINT       NOT NULL CHECK (amount > 0),
     result          VARCHAR(10)  NOT NULL CHECK (result IN ('DONE','FAILED','CANCELLED')),
     idempotency_key VARCHAR(80)  NOT NULL UNIQUE,
@@ -625,7 +625,7 @@ CREATE TABLE IF NOT EXISTS lien_change (
 -- @domain 대출관리
 CREATE TABLE IF NOT EXISTS loan_account (
     contract_no     VARCHAR(20)  PRIMARY KEY REFERENCES contract(contract_no),
-    member_id       VARCHAR(40),                              -- @ext 회원·개인정보 (메인 화면 "내 대출" 요약 조회 키)
+    user_id         BIGINT,                                   -- @ext 회원·개인정보 (메인 화면 "내 대출" 요약 조회 키)
     account_masked  VARCHAR(40)  NOT NULL,                    -- 대출 계좌번호(마스킹)
     account_hash    VARCHAR(64)  NOT NULL UNIQUE,
     product_id      VARCHAR(20)  NOT NULL REFERENCES product_catalog(product_id),
@@ -637,10 +637,10 @@ CREATE TABLE IF NOT EXISTS loan_account (
     repay_method    VARCHAR(10)  NOT NULL,
     start_date      DATE         NOT NULL,
     next_due_date   DATE,
-    debit_account_id VARCHAR(40),                             -- @ext 은행(계좌) 자동이체 출금 계좌
+    debit_account_id BIGINT,                                  -- @ext 은행(계좌) 자동이체 출금 계좌
     updated_at      TIMESTAMPTZ  NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_account_member ON loan_account(member_id);
+CREATE INDEX IF NOT EXISTS ix_account_user ON loan_account(user_id);
 
 -- @domain 대출관리
 CREATE TABLE IF NOT EXISTS payment_txn (
@@ -651,7 +651,7 @@ CREATE TABLE IF NOT EXISTS payment_txn (
     allocation      JSONB        NOT NULL,                    -- 지연배상금 → 이자 → 원금
     method          VARCHAR(12)  NOT NULL CHECK (method IN ('AUTO_DEBIT','PAYROLL','INSTANT','PREPAY')),
     result          VARCHAR(10)  NOT NULL CHECK (result IN ('DONE','FAILED')),
-    account_txn_ref VARCHAR(40),                              -- @ext 은행(계좌) account_transactions.id
+    account_txn_ref BIGINT,                                   -- @ext 은행(계좌) transactions.id
     paid_at         TIMESTAMPTZ  NOT NULL
 );
 
@@ -731,7 +731,7 @@ CREATE TABLE IF NOT EXISTS certificate (
 -- @domain 대출관리
 CREATE TABLE IF NOT EXISTS notification (
     notification_id VARCHAR(40)  PRIMARY KEY,
-    member_id       VARCHAR(40),                              -- @ext 회원·개인정보 (알림 수신자)
+    user_id         BIGINT,                                   -- @ext 회원·개인정보 (알림 수신자)
     application_id  VARCHAR(40)  REFERENCES loan_application(application_id),
     contract_no     VARCHAR(20)  REFERENCES contract(contract_no),
     event_code      VARCHAR(30)  NOT NULL,

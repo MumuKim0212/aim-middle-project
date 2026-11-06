@@ -101,7 +101,7 @@ class Session:
         app_id, ts = new_id("lap"), now_iso()
         exp = (datetime.now(timezone.utc) + timedelta(days=K.APPLICATION_TTL_DAYS)).isoformat(timespec="seconds")
         with db.tx():
-            db.insert("loan_application", {"application_id": app_id, "member_id": None, "auth_ref": None, "product_id": product_id,
+            db.insert("loan_application", {"application_id": app_id, "user_id": None, "auth_ref": None, "product_id": product_id,
                                            "business_type": p["business_type"], "status": "DRAFT", "channel": channel,
                                            "scenario_key": scenario_key, "created_at": ts, "updated_at": ts, "expires_at": exp})
             db.audit("loan_application", app_id, "CREATE", {"product": product_id})
@@ -116,7 +116,7 @@ class Session:
         self.married = married
         with self.db.tx():
             self.db.insert("household_info", {"application_id": self.app_id, "married": int(married), "homeless": int(homeless),
-                                              "household_income": hh_income, "net_assets": net_assets, "spouse_member_id": None, "spouse_consent_at": None})
+                                              "household_income": hh_income, "net_assets": net_assets, "spouse_user_id": None, "spouse_consent_at": None})
             transition(self.db, self.app_id, "POLICY_CHECKING" if all(r[1] for r in res) else "POLICY_INELIGIBLE", "G01")
         return res
 
@@ -463,7 +463,7 @@ class Session:
                                             "idempotency_key": idempotency_key, "executed_at": now_iso()})
         self.account_no = loan_account_no()
         start = date.today()
-        self.db.insert("loan_account", {"contract_no": self.contract, "member_id": None, "account_masked": mask_account(self.account_no),
+        self.db.insert("loan_account", {"contract_no": self.contract, "user_id": None, "account_masked": mask_account(self.account_no),
                                         "account_hash": keyed_hash(self.account_no), "product_id": self.product["product_id"], "status": "ACTIVE",
                                         "principal": self.terms["amount"], "balance": self.terms["amount"], "rate": str(self.final_rate),
                                         "term_months": self.terms["term"], "repay_method": self.terms["repay"], "start_date": start.isoformat(),
@@ -472,7 +472,7 @@ class Session:
         if self.refi:
             transition(self.db, self.app_id, "PAID_OFF", "C12x")
         transition(self.db, self.app_id, "COMPLETED", "C13")
-        self.db.insert("notification", {"notification_id": new_id("ntf"), "member_id": None, "application_id": self.app_id,
+        self.db.insert("notification", {"notification_id": new_id("ntf"), "user_id": None, "application_id": self.app_id,
                                         "contract_no": self.contract, "event_code": "DISBURSED",
                                         "message": "대출 실행이 완료되었습니다. 청약철회는 14일 안에 할 수 있습니다.", "sent_at": now_iso()})
 

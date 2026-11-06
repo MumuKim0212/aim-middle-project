@@ -151,8 +151,8 @@ def overview(tables, path: Path) -> None:
             ha="center", va="top", fontsize=11.5, color=MUTED)
 
     # 외부 서비스 상자
-    future = {"회원·개인정보": "members (예정)", "로그인·인증": "auth_session · e_sign (예정)",
-              "은행(계좌)": "accounts · account_transactions (예정)", "카드": "cards (예정)", "메인 화면": "홈 대시보드 (예정)"}
+    future = {"회원·개인정보": "users (BIGINT id)", "로그인·인증": "auth_session · e_sign (예정)",
+              "은행(계좌)": "accounts · transactions (BIGINT id)", "카드": "cards (예정)", "메인 화면": "홈 대시보드 (예정)"}
     ex0 = (W - (5 * ew + 4 * egap)) / 2
     ebox = {}
     for i, e in enumerate(eorder):
@@ -162,7 +162,7 @@ def overview(tables, path: Path) -> None:
         ax.text(x + ew / 2, ey + eh - 0.25, e, ha="center", va="top", fontsize=14.5, weight="bold", color="#9A5B00", zorder=3)
         ax.text(x + ew / 2, ey + eh - 0.9, future[e], ha="center", va="top", fontsize=9, color=MUTED, zorder=3)
         lines = (["대출 테이블을 읽기만 함(조회 API)", "· loan_account → 내 대출 요약", "· product_catalog → 상품 목록",
-                  "· notification → 알림", "로그인 회원의 member_id로 조회"] if e == "메인 화면"
+                  "· notification → 알림", "로그인 회원의 user_id로 조회"] if e == "메인 화면"
                  else ["연결할 빈 칸 (테이블.컬럼)"] + ["· " + s for s in sorted({f"{t}.{c}" for _, t, c in ext[e]})])
         for k, s in enumerate(lines):
             first = k == 0
