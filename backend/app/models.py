@@ -82,7 +82,7 @@ class Device(Base):
 
 
 class Product(Base):
-    """상품(계좌.md 7.1). 3행 고정: 1 저축예금, 2 정기예금, 3 정기적금. 시드로 id 를 고정하므로 BY DEFAULT."""
+    """상품(dev/account/backend-spec.md 7.1). 3행 고정: 1 저축예금, 2 정기예금, 3 정기적금. 시드로 id 를 고정하므로 BY DEFAULT."""
     __tablename__ = "products"
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     type: Mapped[str] = mapped_column(Text)  # checking | deposit | savings
@@ -100,7 +100,7 @@ class Product(Base):
 
 
 class Account(Base):
-    """계좌(계좌.md 7.2). 시드로 id 1~6 을 고정하므로 BY DEFAULT. 은행명은 컬럼이 아니라 API 상수다."""
+    """계좌(dev/account/backend-spec.md 7.2). 시드로 id 1~6 을 고정하므로 BY DEFAULT. 은행명은 컬럼이 아니라 API 상수다."""
     __tablename__ = "accounts"
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -129,7 +129,7 @@ class Account(Base):
 
 
 class Transaction(Base):
-    """계좌 거래(계좌.md 7.3). card_payment 는 이름만 예약한다(공통.md 10장). 대출 지급·상환은 ref_type='loan', ref_id=계약번호."""
+    """계좌 거래(dev/account/backend-spec.md 7.3). card_payment 는 이름만 예약한다(결정기록.md 10장). 대출 지급·상환은 ref_type='loan', ref_id=계약번호."""
     __tablename__ = "transactions"
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))

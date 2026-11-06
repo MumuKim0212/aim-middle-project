@@ -21,7 +21,7 @@ log = logging.getLogger("accounts")
 
 BANK_NAME = "AIM Bank"
 KST = timezone(timedelta(hours=9))
-CHECKING, DEPOSIT, SAVINGS = 1, 2, 3  # products.id (시드로 고정, 계좌.md 7.1)
+CHECKING, DEPOSIT, SAVINGS = 1, 2, 3  # products.id (시드로 고정, dev/account/backend-spec.md 7.1)
 PRODUCT_ID = {"checking": CHECKING, "deposit": DEPOSIT, "savings": SAVINGS}
 PRODUCT_TYPE = {v: k for k, v in PRODUCT_ID.items()}
 ACCOUNT_NO_MID = {"checking": "123", "deposit": "223", "savings": "323"}  # 1002-XXX-XXXXXX (공통.md 7.2)
@@ -82,7 +82,7 @@ def get_owned(db: Session, user_id: int, account_id: int) -> m.Account:
 
 
 def _lock(db: Session, *ids: int) -> dict[int, m.Account]:
-    """행을 id 순으로 잠그고 최신 값으로 읽는다(동시 이체·데드락 방지, 계좌.md 7장)."""
+    """행을 id 순으로 잠그고 최신 값으로 읽는다(동시 이체·데드락 방지, dev/account/backend-spec.md 7장)."""
     rows = db.scalars(select(m.Account).where(m.Account.id.in_(set(ids))).order_by(m.Account.id)
                       .with_for_update().execution_options(populate_existing=True)).all()
     return {a.id: a for a in rows}
@@ -130,7 +130,7 @@ def _tx(db: Session, acc: m.Account, type_: str, amount: int, *, cp: m.Account |
 
 def _move(db: Session, src: m.Account, dst: m.Account, amount: int, src_name: str, dst_name: str,
           memo: str | None = None) -> None:
-    """출금 계좌 transfer_out 과 입금 계좌 transfer_in 2건을 같은 트랜잭션에서 기록한다(계좌.md 7장)."""
+    """출금 계좌 transfer_out 과 입금 계좌 transfer_in 2건을 같은 트랜잭션에서 기록한다(dev/account/backend-spec.md 7장)."""
     src.balance -= amount
     _tx(db, src, "transfer_out", amount, cp=dst, name=dst_name, memo=memo)
     dst.balance += amount
@@ -471,7 +471,7 @@ def lookup_recipient(db: Session, user: m.User, account_no: str) -> dict:
 
 
 def _transferred_today(db: Session, user_id: int, day: date) -> int:
-    """오늘(KST) 이체한 합계: 내 저축예금에서 나가 다른 저축예금으로 간 transfer_out(계좌.md 7.4)."""
+    """오늘(KST) 이체한 합계: 내 저축예금에서 나가 다른 저축예금으로 간 transfer_out(dev/account/backend-spec.md 7.4)."""
     me, cp = aliased(m.Account), aliased(m.Account)
     start = _kst_day(day)
     return int(db.scalar(

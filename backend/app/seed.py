@@ -197,7 +197,7 @@ PRODUCTS = [
 
 
 def _seed_accounts(db: Session, today: date) -> None:
-    """계좌.md 7.4 시드: products 3행, 계좌 1~6(id 고정), user1 거래 내역."""
+    """dev/account/backend-spec.md 7.4 시드: products 3행, 계좌 1~6(id 고정), user1 거래 내역."""
     for id_, type_, name, desc, rate, early, lo, hi, mo_lo, mo_hi, per_user, req in PRODUCTS:
         db.add(m.Product(id=id_, type=type_, name=name, description=desc, rate=rate, early_close_rate=early,
                          min_amount=lo, max_amount=hi, min_months=mo_lo, max_months=mo_hi, max_per_user=per_user,
