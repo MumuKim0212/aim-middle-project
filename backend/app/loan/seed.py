@@ -62,10 +62,9 @@ DEMO_LOANS = [("g1", "KIM_OK"), ("r1", "KIM_OK")]  # 화면 시연용 내 대출
 
 
 def setup(session: Session, demo_user_id: int) -> None:
-    """서버 시작 때 호출한다: 대출 테이블을 만들고(IF NOT EXISTS) 기준 데이터를 넣고, 시연 회원에게 대출 2건을 만들어 준다.
+    """서버 시작 때 호출한다: 대출 기준 데이터를 넣고(테이블은 Alembic 이 만든다), 시연 회원에게 대출 2건을 만들어 준다.
     시연 대출은 실제 신청 흐름(체험 고객 KIM_OK)을 그대로 실행해 만든다. 계좌 입금은 하지 않아 계좌 시드 잔액을 바꾸지 않는다."""
     db = Database(session)
-    db.init_schema()
     seed(db)
     if not db.one("SELECT 1 FROM loan_account WHERE user_id = ?", (demo_user_id,)):
         for pid, scn in DEMO_LOANS:

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from . import models as m
 from .cards import ApiError, api_error_response, internal_error_response, router as cards_router
 from .db import SessionLocal, engine, get_db
+from .migrations import ensure_migrated
 from .accounts import service as account_service
 from .accounts.batch import auto_pay_loop
 from .accounts.router import dev_router, router as accounts_router
@@ -33,7 +34,7 @@ from .seed import seed
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    m.Base.metadata.create_all(engine)
+    ensure_migrated(engine)  # 테이블은 Alembic 이 만든다(alembic upgrade head). 최신이 아니면 여기서 멈춘다
     ledger_query.setup(engine)  # 자유 질문용 읽기 전용 역할(권한이 없으면 자유 질문만 꺼진다)
     with SessionLocal() as db:
         seed(db)

@@ -46,9 +46,6 @@ class Database:
         return cur
 
     # ---- 스키마 ----
-    def init_schema(self) -> None:
-        self._cursor().execute(config.SCHEMA_PATH.read_text(encoding="utf-8"))  # params 없이 보내야 여러 문장이 한 번에 실행된다
-
     def table_names(self) -> list[str]:
         rows = self._cursor().execute(
             "SELECT table_name AS t FROM information_schema.tables WHERE table_schema = current_schema()").fetchall()

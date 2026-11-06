@@ -8,6 +8,8 @@ if not exist .venv (
     pip install -r requirements.txt
 ) else (
     call .venv\Scripts\activate
+    pip install -q -r requirements.txt
 )
+alembic upgrade head
 uvicorn app.main:app --reload
 pause

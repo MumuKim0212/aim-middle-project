@@ -1,4 +1,6 @@
--- [역할] 대출 서비스 전체 DB 스키마(DDL, PostgreSQL). 서버 시작 때 backend/app/loan/database.py 가 실행한다(IF NOT EXISTS 라 여러 번 실행해도 안전).
+-- [역할] 대출 서비스 전체 DB 스키마(DDL, PostgreSQL)의 현재 모습. 테이블은 Alembic 마이그레이션이 만들고(backend/alembic/versions), 이 파일은
+--        ERD 생성기(docs/loan/erd/make_erd.py)와 database.py 의 허용 테이블 목록이 읽는다. 스키마를 바꿀 때는 마이그레이션을 새로 쓰고 이 파일도 같이 고친다
+--        (tests/test_migrations.py 가 어긋나면 알려 준다).
 --
 -- 작성 규칙 (팀 공통 규칙 docs/db/db-design.md 1절 준수)
 --   · 금액 BIGINT(원), 금리 NUMERIC(6,4)(연 %, 예: 4.8500), 비율 NUMERIC(8,4)

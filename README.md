@@ -58,6 +58,7 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
        .venv\Scripts\activate
        pip install -r requirements.txt
        copy .env.example .env      # 필요하면 값 수정
+       alembic upgrade head        # 테이블 만들기·갱신 (코드를 받을 때마다)
        uvicorn app.main:app --reload
 
 3. 프론트 (http://localhost:5173, `/api` 는 8000 으로 프록시)
@@ -67,8 +68,11 @@ FastAPI + SQLAlchemy 2 + PostgreSQL / React 18 + Vite + TypeScript (모바일 �
        npm run dev
 
 DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank` 입니다.
-첫 실행 때 테이블이 만들어지고 시드 데이터가 들어갑니다.
-**테이블 구조가 바뀐 뒤 처음 받았다면** 기존 로컬 DB 는 새 구조와 맞지 않으니 `python backend/reset_db.py --yes` 로 초기화하세요(로컬 개발 DB 의 데이터가 모두 지워집니다). DB 컨테이너가 예전 PostgreSQL 16이면 `docker compose down -v` 로 볼륨을 지우고 다시 올립니다.
+테이블은 Alembic 마이그레이션(`backend/alembic/`)이 만들고, 시드 데이터는 서버가 처음 켜질 때 들어갑니다. DB 가 최신 마이그레이션이 아니면 서버가 시작하지 않고 할 일을 알려 줍니다.
+- **코드를 받았는데 테이블 구조가 바뀌었다면**: `alembic upgrade head` 한 번이면 됩니다. 데이터는 그대로 남습니다.
+- **마이그레이션 도입 전부터 쓰던 로컬 DB**(서버가 시작할 때 테이블을 만들던 시절): 대출 통합(2026-11-06) 이후 구조라면 `alembic stamp head` 로 "최신"이라고 표시만 하면 됩니다. 그보다 오래됐다면 `python backend/reset_db.py --yes` 로 초기화하세요(로컬 개발 DB 의 데이터가 모두 지워집니다).
+- **모델을 고쳤다면**: `alembic revision --autogenerate -m "설명"` → 만들어진 파일을 확인·수정 → `alembic upgrade head`. 대출 테이블은 모델이 없어 SQL 로 마이그레이션을 직접 쓰고 `backend/app/loan/schema.sql` 도 같이 고칩니다. `python -m pytest backend/tests/test_migrations.py` 가 모델·schema.sql 과 마이그레이션이 어긋나면 알려 줍니다.
+- DB 컨테이너가 예전 PostgreSQL 16이면 `docker compose down -v` 로 볼륨을 지우고 다시 올립니다.
 
 ### 환경변수 (`backend/.env`)
 
@@ -122,6 +126,7 @@ DB 주소를 바꾸려면 `DATABASE_URL`을 지정합니다. 기본값은 `postg
 
 인증 시나리오(가입·잠금·접근 제어)는 **시험용 DB** 로 서버를 띄워서 돌립니다(DB 를 바꾸는 시나리오가 있습니다).
 
+    DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_authtest alembic upgrade head
     DATABASE_URL=postgresql+psycopg://aimbank:aimbank@localhost:5432/aimbank_authtest python -m uvicorn app.main:app --port 8002
     python tests/test_auth_flow.py http://127.0.0.1:8002
 

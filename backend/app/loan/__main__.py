@@ -18,7 +18,6 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     with SessionLocal() as session:
         db = Database(session)
-        db.init_schema()
         seed(db)
         session.commit()
         try:
