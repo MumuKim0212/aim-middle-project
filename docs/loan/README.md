@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 담당 | 임대진 |
-| 상태 | 서버 통합 완료(`backend/app/loan/`, 2026-11-06). 내 대출 관리 화면(React, `/loans`)은 구현, 신청 단계 화면은 아직 없음 |
+| 상태 | 서버 통합 완료(`backend/app/loan/`, 2026-11-06). 화면(React, `/loans`: 관리, `/loans/apply/...`: 신청)은 구현. 자연어는 별도 기능으로 분리 |
 | 공통 규칙 | [공통.md](../common/공통.md). 이 폴더의 문서가 공통.md와 다르면 이 폴더를 고친다 |
 
 ## 문서
@@ -29,8 +29,9 @@
 |---|---|
 | `GET /products` | 상품 목록(로그인 없이) |
 | `GET /` | 내 대출 목록 |
-| `GET /{no}` · `/{no}/schedule` · `/{no}/prepay-quote?principal=` | 대출 상세, 남은 상환 일정, 중도상환 견적 |
-| `POST /{no}/prepay` `{ principal, accountId? }` | 중도상환. 내 저축예금에서 총액 출금 (`accountId` 없으면 자동이체 계좌) |
+| `GET /{no}` · `/{no}/schedule` · `/{no}/prepay-quote?principal=` | 대출 상세(연체 중이면 `overdue: { startDate, days, stage, installment, penalty, total }`, 아니면 `null`), 남은 상환 일정, 중도상환 견적(`penalty` 포함) |
+| `POST /{no}/prepay` `{ principal, accountId? }` | 중도상환. 내 저축예금에서 총액 출금 (`accountId` 없으면 자동이체 계좌). 연체 중에도 가능하고 전액 상환이면 지연배상금(`penalty`)이 더해진다 |
+| `PUT /{no}/auto-debit` `{ accountId }` | 월 상환 자동이체 계좌 변경(간편비밀번호 재확인, 내 활성 저축예금만). ACTIVE·OVERDUE 대출 |
 | `POST /{no}/withdraw` | 청약철회(실행 후 14일 이내). 받은 계좌에서 원금·이자를 되돌려 받음 |
 | `POST /{no}/rate-cut` `{ reasons }`, `/{no}/extend` `{ months }`, `/{no}/certificates` `{ type }` | 금리인하요구, 기간연장, 증명서 |
 | `POST /applications` `{ productId, scenarioKey? }` | 신청 시작. 응답 `applicationId`, `flow`(단계 목록) |
@@ -45,9 +46,9 @@
 | `POST /applications/{id}/review` | 심사 |
 | `GET /applications/{id}/recommendations` · `POST .../choose` · `POST .../compare` | 권장 상품 3안, 선택, (대환) 유불리 비교 |
 | `POST /applications/{id}/terms` `{ amount, term, repay, paymentDay, debitAccountId }` | 조건 확정. `debitAccountId`는 내 저축예금 |
-| `POST /applications/{id}/price` | 금리 산정(우대) |
+| `POST /applications/{id}/price` | 금리 산정(우대). 응답에 적용된 우대 `appliedPrefs`, 못 받은 우대 `deniedPrefs`(카드 사용 우대는 직전 달 승인액 순합계 30만원 이상일 때만) |
 | `GET /applications/{id}/quiz` · `POST .../explain` | 이해 확인 문제(정답은 내려주지 않음), 설명의무 확인 |
 | `POST /applications/{id}/contract` · `/collateral` | 약정(전자서명 자리), 담보·보증 설정 |
 | `POST /applications/{id}/execute` `{ accountId }` | 실행. 본인 지급(신용·예금담보) 대출금을 `accountId` 내 저축예금에 입금 |
 
-신청 진행 상태는 서버 메모리에 30분 보관하고 DB(`loan_application.session_state`)에도 저장해, 재시작 뒤에도 내 진행 중 신청을 복원한다(추천 후보는 다시 조회). 매일 00:20 KST에 월 상환 자동이체 배치가 돈다. 자세한 한계는 [대출서비스_종합정리.md 8장](대출서비스_종합정리.md).
+신청 진행 상태는 서버 메모리에 30분 보관하고 DB(`loan_application.session_state`)에도 저장해, 재시작 뒤에도 내 진행 중 신청을 복원한다(추천 후보 포함). 매일 00:20 KST에 월 상환 자동이체 배치가 돈다. 자세한 한계는 [대출서비스_종합정리.md 8장](대출서비스_종합정리.md).
