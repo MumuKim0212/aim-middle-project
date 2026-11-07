@@ -57,12 +57,14 @@ def apply_until_contract(c: TestClient, debit_account_id=1, restart=False) -> st
     reboot()
     assert c.post(f"{base}/review").json()["result"] == "APPROVED"
     reboot()
-    cands = c.get(f"{base}/recommendations").json()["items"]  # 추천 후보는 복원하지 않으므로 선택 직전에 다시 조회한다
+    cands = c.get(f"{base}/recommendations").json()["items"]
+    reboot()  # 추천 후보도 DB 에서 복원되어 다시 조회하지 않고 고를 수 있다
     assert c.post(f"{base}/choose", json={"variant": cands[0]["variant"]}).status_code == 200
     reboot()
     assert c.post(f"{base}/terms", json={"debitAccountId": debit_account_id}).status_code == 200
     reboot()
-    assert c.post(f"{base}/price", json={}).status_code == 200
+    r = c.post(f"{base}/price", json={})
+    assert r.status_code == 200 and (r.json()["appliedPrefs"], r.json()["deniedPrefs"]) == (["AUTO_DEBIT"], [])
     reboot()
     assert len(c.get(f"{base}/quiz").json()["items"]) == 3
     assert c.post(f"{base}/explain", json={"scrolled": True, "answers": ANSWERS}).status_code == 200
@@ -123,6 +125,31 @@ def test_full_flow_credits_account_and_blocks_others(server):
     r = u1.post(f"/api/loans/{no}/prepay", json={"principal": 1_000_000, "accountId": 1}, headers={"Idempotency-Key": uuid.uuid4().hex})
     assert r.status_code == 200, r.text
     assert balance(u1) == before + loan["principal"] - q["total"]
+
+
+def test_change_auto_debit_account(server):
+    u1, u2 = login(server, "user1", verify=False), login(server, "user2")
+    app_id = apply_until_contract(u1)
+    u1.post("/api/auth/pin/verify", json={"pin": USERS["user1"][1]})
+    no = u1.post(f"/api/loans/applications/{app_id}/execute", json={"accountId": 1}, headers={"Idempotency-Key": uuid.uuid4().hex}).json()["contractNo"]
+    detail = u1.get(f"/api/loans/{no}").json()
+    assert (detail["debitAccountId"], detail["overdue"]) == (1, None)
+    assert u1.get(f"/api/loans/{no}/prepay-quote?principal=1000000").json()["penalty"] == 0
+    url = f"/api/loans/{no}/auto-debit"
+    u1_nopin = login(server, "user1", verify=False)
+    r = u1_nopin.put(url, json={"accountId": 2})
+    assert (r.status_code, r.json()["code"]) == (403, "PIN_VERIFICATION_REQUIRED")
+    r = u2.put(url, json={"accountId": 5})  # 남의 대출은 404
+    assert (r.status_code, r.json()["code"]) == (404, "LOAN_NOT_FOUND")
+    r = u1.put(url, json={"accountId": 5})  # 남의 계좌는 404
+    assert (r.status_code, r.json()["code"]) == (404, "ACCOUNT_NOT_FOUND")
+    r = u1.put(url, json={"accountId": 3})  # 정기예금은 자동이체 계좌가 될 수 없다
+    assert (r.status_code, r.json()["code"]) == (409, "ACCOUNT_STATE_INVALID")
+    assert u1.put(url, json={}).json()["code"] == "VALIDATION_FAILED"
+    r = u1.put(url, json={"accountId": 2})
+    assert (r.status_code, r.json()) == (200, {"contractNo": no, "debitAccountId": 2})
+    assert u1.get(f"/api/loans/{no}").json()["debitAccountId"] == 2
+    assert row("SELECT auto_debit_account_id FROM loan_terms t JOIN contract c USING (application_id) WHERE c.contract_no = :n", n=no)[0][0] == 2
 
 
 def test_execute_requires_pin_verification(server):

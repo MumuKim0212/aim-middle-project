@@ -4,6 +4,7 @@
   GET  /api/loans/{no}  /schedule  /prepay-quote  대출 상세·상환 일정·중도상환 견적
   POST /api/loans/{no}/prepay|withdraw           중도상환(간편비밀번호 재확인 + Idempotency-Key)·청약철회(간편비밀번호 재확인)
   POST /api/loans/{no}/rate-cut|extend|certificates   금리인하요구·기간연장·증명서
+  PUT  /api/loans/{no}/auto-debit                자동이체 출금 계좌 변경(간편비밀번호 재확인)
   POST /api/loans/applications                   신청 시작(상품, 체험 고객 선택)    GET  /api/loans/applications/{id}   진행 상태
   POST /api/loans/applications/{id}/<단계>        precheck, consents, existing, targets, profile, policy-check,
                                                  guarantee, affiliation, docs, review, choose, compare, terms, price,
@@ -42,7 +43,7 @@ router = APIRouter(prefix="/api/loans", tags=["loans"])
 dev_router = APIRouter(prefix="/api/dev/loans", tags=["dev"])
 
 SESSION_TTL = 30 * 60
-_SESSIONS: dict[str, dict] = {}  # application_id → {"s": Session, "t": 마지막 사용 시각, "cands": 추천 후보}
+_SESSIONS: dict[str, dict] = {}  # application_id → {"s": Session, "t": 마지막 사용 시각}
 Won = Annotated[int, Field(strict=True)]
 IdemKey = Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=36)]
 
@@ -70,7 +71,7 @@ def _entry(dbs: DbSession, user: m.User, app_id: str) -> dict:
         s = Session.restore(Database(dbs), app_id, user.id)
         if s is None:
             raise NotFound("신청을 찾을 수 없습니다. 만료되었다면 처음부터 다시 신청해 주세요.")
-        e = _SESSIONS[app_id] = {"s": s, "t": now, "cands": []}
+        e = _SESSIONS[app_id] = {"s": s, "t": now}
     e["t"] = now
     e["s"].db = Database(dbs)  # 요청마다 DB 세션이 달라지므로 다시 묶는다
     # 이 요청이 커밋될 때 진행 상태도 같은 트랜잭션에 저장한다(단계마다 dbs.commit() 을 부르므로 한 곳에서 처리)
@@ -128,7 +129,7 @@ def start_application(body: StartIn, request: Request, user: m.User = Depends(cu
     db = Database(dbs)
     s = Session.start(db, body.productId, body.scenarioKey, channel="WEB", user_id=user.id, auth_ref=_login_ref(request))
     dbs.commit()
-    _SESSIONS[s.app_id] = {"s": s, "t": time.time(), "cands": []}
+    _SESSIONS[s.app_id] = {"s": s, "t": time.time()}
     return out({**_app_state(s), "product": s.product})
 
 
@@ -333,10 +334,10 @@ def upload_doc(app_id: str, docKey: Annotated[str, Form(max_length=20)], file: U
 
 @router.post("/applications/{app_id}/review")
 def run_review(app_id: str, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
-    s, e = _step(dbs, user, app_id)
+    s, _ = _step(dbs, user, app_id)
     RATE_LIMITER.check(f"user:{user.id}:review")
     r = s.run_review()
-    e["cands"] = []
+    s.cands = []
     dbs.commit()
     return out({"result": r.result, "limit": r.limit, "rate": r.rate, "dsr": r.dsr, "hardCodes": r.hard, "conditionCodes": r.cond,
                 "docCodes": r.docs, "stages": [{"name": n, "mark": k, "text": t} for n, k, t in r.stages], **_app_state(s)})
@@ -344,17 +345,17 @@ def run_review(app_id: str, user: m.User = Depends(current_user), dbs: DbSession
 
 @router.get("/applications/{app_id}/recommendations")
 def recommendations(app_id: str, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
-    s, e = _step(dbs, user, app_id)
+    s, _ = _step(dbs, user, app_id)
     _need(s, 'applicant', 'review')
-    e["cands"] = s.recommend()
+    s.cands = s.recommend()
     dbs.commit()
-    return out({"items": e["cands"]})
+    return out({"items": s.cands})
 
 
 @router.post("/applications/{app_id}/choose")
 def choose(app_id: str, body: ChooseIn, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
-    s, e = _step(dbs, user, app_id)
-    cand = next((c for c in e["cands"] if c["variant"] == body.variant), None)
+    s, _ = _step(dbs, user, app_id)
+    cand = next((c for c in s.cands if c["variant"] == body.variant), None)
     if cand is None:
         raise NotFound("추천 후보를 찾을 수 없습니다. 추천을 다시 조회해 주세요.")
     s.choose(cand)
@@ -387,7 +388,7 @@ def price(app_id: str, body: PriceIn, user: m.User = Depends(current_user), dbs:
     _need(s, 'review')
     final = s.price(body.prefs)
     dbs.commit()
-    return out({"finalRate": final, "monthly": s.monthly(), **_app_state(s)})
+    return out({"finalRate": final, "monthly": s.monthly(), "appliedPrefs": s.pref_result["applied"], "deniedPrefs": s.pref_result["denied"], **_app_state(s)})
 
 
 @router.get("/applications/{app_id}/quiz")
@@ -465,10 +466,14 @@ class CertIn(BaseModel):
     type: str
 
 
+class AutoDebitIn(BaseModel):
+    accountId: Won
+
+
 @router.get("/{no}")
 def loan_detail(no: str, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
-    _, acc = _mine(dbs, user, no)
-    return out(_public(acc))
+    db, acc = _mine(dbs, user, no)
+    return out({**_public(acc), "overdue": M.overdue_info(db, acc)})
 
 
 @router.get("/{no}/schedule")
@@ -479,8 +484,8 @@ def loan_schedule(no: str, user: m.User = Depends(current_user), dbs: DbSession 
 
 @router.get("/{no}/prepay-quote")
 def prepay_quote(no: str, principal: int = Query(ge=1), user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
-    _, acc = _mine(dbs, user, no)
-    return out(M.prepay_quote(acc, principal))
+    db, acc = _mine(dbs, user, no)
+    return out(M.prepay_quote(acc, principal, db))
 
 
 @router.post("/{no}/prepay")
@@ -513,6 +518,15 @@ def rate_cut(no: str, body: RateCutIn, user: m.User = Depends(current_user), dbs
 def extend(no: str, body: ExtendIn, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
     db, _ = _mine(dbs, user, no)
     res = M.extend(db, no, body.months)
+    dbs.commit()
+    return out(res)
+
+
+@router.put("/{no}/auto-debit")
+def change_auto_debit(no: str, body: AutoDebitIn, request: Request, user: m.User = Depends(current_user), dbs: DbSession = Depends(get_db)):
+    db, _ = _mine(dbs, user, no)
+    require_pin_verified(request)
+    res = M.change_auto_debit(db, no, user.id, body.accountId)
     dbs.commit()
     return out(res)
 

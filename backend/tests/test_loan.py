@@ -1,13 +1,14 @@
-"""[역할] 대출 서비스 회귀·보안 테스트: 21개 정답표, 동의 게이트, 상태 전이, SQL 가드, 마스킹, 멱등성, 사가 보상, 감사 로그, 파일 검사, 자동이체 배치, 신청 상태 복원, 증빙 업로드."""
+"""[역할] 대출 서비스 회귀·보안 테스트: 21개 정답표, 동의 게이트, 상태 전이, SQL 가드, 마스킹, 멱등성, 사가 보상, 감사 로그, 파일 검사, 자동이체 배치·연체·계좌 변경, 신청 상태 복원, 카드 사용 우대, 증빙 업로드."""
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal as D
 from pathlib import Path
 from unittest import mock
@@ -28,7 +29,7 @@ from app.loan.application import Session, product_row  # noqa: E402
 from app.loan.consent import gate  # noqa: E402
 from app.loan.database import Database  # noqa: E402
 from app.loan.errors import (ConsentMissing, DuplicateRequest, InvalidTransition, LimitExceeded,  # noqa: E402
-                             RateLimited, SagaFailed, ValidationError)
+                             NotFound, RateLimited, SagaFailed, ValidationError)
 from app.loan.evidence import inspect_bytes, inspect_file  # noqa: E402
 from app.loan.llm_gateway import validate  # noqa: E402
 from app.loan.scenarios import EXPECTED, run_all, run_one  # noqa: E402
@@ -401,6 +402,84 @@ class AutoDebitTests(LoanCase):
         M.withdraw(db, no)  # 철회하면 더는 진행 중 대출이 아니다
         self.assertEqual(M.count_active_debit_loans(db.session, 6), 0)
 
+    def test_failed_debit_goes_overdue_then_clears_with_penalty(self):
+        db = fresh_db()
+        no, acc, due, _ = self.loan(db, debit_account_id=2)  # 계좌 2 는 500,000원뿐이라 월 상환액에 모자란다
+        dlq = lambda: db.one("SELECT * FROM delinquency WHERE contract_no = ?", (no,))
+        self.assertEqual(M.auto_debit(db.session, due), 0)
+        self.assertEqual(M.account(db, no)["status"], "OVERDUE")
+        d = dlq()
+        row = calc.schedule(acc["balance"], D(str(acc["rate"])), acc["term_months"], acc["repay_method"], date.fromisoformat(acc["start_date"]))[0]
+        self.assertEqual((d["start_date"], d["days"], d["amount"], d["stage"]), (due.isoformat(), 0, row["principal"] + row["interest"], "D1"))
+        self.assertEqual(db.one("SELECT COUNT(*) AS n FROM notification WHERE contract_no = ? AND event_code = 'OVERDUE'", (no,))["n"], 1)
+        # 같은 날 다시 돌려도, 며칠 뒤에 다시 돌려도 연체 기록·미납 기록·안내는 늘지 않고 일수만 갱신된다
+        self.assertEqual(M.auto_debit(db.session, due), 0)
+        self.assertEqual(M.auto_debit(db.session, due + timedelta(days=5)), 0)
+        d = dlq()
+        self.assertEqual((d["days"], d["stage"], [n["code"] for n in json.loads(d["notices"])]), (5, "D5", ["OVERDUE", "OVERDUE_REMIND"]))
+        self.assertEqual(db.one("SELECT COUNT(*) AS n FROM delinquency WHERE contract_no = ?", (no,))["n"], 1)
+        self.assertEqual(db.one("SELECT COUNT(*) AS n FROM payment_txn WHERE contract_no = ? AND result = 'FAILED'", (no,))["n"], 1)
+        self.assertEqual(db.one("SELECT COUNT(*) AS n FROM notification WHERE contract_no = ? AND event_code LIKE 'OVERDUE%'", (no,))["n"], 2)
+        # 연체 중에도 중도상환 견적은 나오고, 지연배상금은 전액 상환 견적에만 붙는다
+        penalty = calc.to_won(D(row["principal"]) * (D(str(acc["rate"])) + loan_config.LATE_ADD) / 100 * 5 / 365)
+        with mock.patch.object(account_service, "today_kst", return_value=due + timedelta(days=5)):
+            self.assertEqual(M.overdue_info(db, M.account(db, no))["penalty"], penalty)
+            self.assertEqual(M.prepay_quote(M.account(db, no), 1_000_000, db)["penalty"], 0)
+            self.assertEqual(M.prepay_quote(M.account(db, no), acc["balance"], db)["penalty"], penalty)
+        with self.assertRaises(ValidationError):
+            M.extend(db, no, 12)  # 연체 중에는 그 밖의 관리 업무는 막힌다
+        db.execute("UPDATE accounts SET balance = 5000000 WHERE id = 2")
+        before = self.bal(db, 2)
+        self.assertEqual(M.auto_debit(db.session, due + timedelta(days=5)), 1)  # 지연배상금을 얹어 받고 연체가 풀린다
+        self.assertEqual(self.bal(db, 2), before - row["principal"] - row["interest"] - penalty)
+        self.assertEqual(M.auto_debit(db.session, due + timedelta(days=5)), 0)  # 이중 출금 없음
+        after = M.account(db, no)
+        self.assertEqual((after["status"], after["balance"]), ("ACTIVE", acc["balance"] - row["principal"]))
+        self.assertEqual((dlq()["stage"], dlq()["days"]), ("RESOLVED", 5))
+        p = db.one("SELECT amount, allocation FROM payment_txn WHERE contract_no = ? AND result = 'DONE'", (no,))
+        self.assertEqual((p["amount"], json.loads(p["allocation"])["penalty"]), (row["principal"] + row["interest"] + penalty, penalty))
+
+    def test_overdue_loan_can_be_paid_off_but_partial_prepay_keeps_it_overdue(self):
+        db = fresh_db()
+        no, acc, due, _ = self.loan(db, debit_account_id=2)
+        self.assertEqual(M.auto_debit(db.session, due), 0)  # 연체
+        db.execute("UPDATE accounts SET balance = 50000000 WHERE id = 2")
+        M.prepay(db, no, 1_000_000, "pp-partial", account_id=2)
+        self.assertEqual(M.account(db, no)["status"], "OVERDUE")
+        bal = M.account(db, no)["balance"]
+        with mock.patch.object(account_service, "today_kst", return_value=due + timedelta(days=3)):
+            q = M.prepay_quote(M.account(db, no), bal, db)
+            res = M.prepay(db, no, bal, "pp-overdue", account_id=2)
+        self.assertEqual((res["total"], q["penalty"] > 0, res["balance"]), (q["total"], True, 0))
+        self.assertEqual(M.account(db, no)["status"], "PAID_OFF")
+        self.assertEqual(db.one("SELECT stage FROM delinquency WHERE contract_no = ?", (no,))["stage"], "RESOLVED")
+
+    def test_change_auto_debit_account(self):
+        db = fresh_db()
+        no, acc, due, _ = self.loan(db, debit_account_id=1)
+        self.assertEqual(M.change_auto_debit(db, no, 1, 2), {"contract_no": no, "debit_account_id": 2})
+        self.assertEqual(M.account(db, no)["debit_account_id"], 2)
+        self.assertEqual(db.one("SELECT auto_debit_account_id AS a FROM loan_terms WHERE application_id = (SELECT application_id FROM contract WHERE contract_no = ?)", (no,))["a"], 2)
+        self.assertEqual((M.count_active_debit_loans(db.session, 1), M.count_active_debit_loans(db.session, 2)), (0, 1))
+        self.assertEqual(db.one("SELECT COUNT(*) AS n FROM loan_audit_log WHERE entity_id = ? AND action = 'AUTO_DEBIT_CHANGE'", (no,))["n"], 1)
+        b1 = self.bal(db, 1)
+        db.execute("UPDATE accounts SET balance = 5000000 WHERE id = 2")
+        self.assertEqual(M.auto_debit(db.session, due), 1)  # 다음 출금부터 새 계좌에서 나간다
+        self.assertEqual((self.bal(db, 1), self.bal(db, 2) < 5_000_000), (b1, True))
+        # 남의 계좌·저축예금이 아닌 계좌·남의 대출은 안 된다
+        with self.assertRaises(HTTPException) as ctx:
+            M.change_auto_debit(db, no, 1, 5)
+        self.assertEqual(ctx.exception.status_code, 404)
+        with self.assertRaises(HTTPException) as ctx:
+            M.change_auto_debit(db, no, 1, 3)  # 계좌 3 은 정기예금
+        self.assertEqual((ctx.exception.status_code, ctx.exception.detail["code"]), (409, "ACCOUNT_STATE_INVALID"))
+        with self.assertRaises(NotFound):
+            M.change_auto_debit(db, no, 2, 5)
+        self.assertEqual(M.account(db, no)["debit_account_id"], 2)
+        M.withdraw(db, no)
+        with self.assertRaises(ValidationError):
+            M.change_auto_debit(db, no, 1, 1)  # 철회된 대출
+
 
 class SessionRestoreTests(LoanCase):
     """신청 진행 상태를 DB 에 남겼다가(session_state) 메모리 없이 되살려 이어서 진행한다."""
@@ -431,11 +510,65 @@ class SessionRestoreTests(LoanCase):
         db.execute("UPDATE loan_application SET expires_at = now() - interval '1 day' WHERE application_id = ?", (s.app_id,))
         self.assertIsNone(Session.restore(db, s.app_id, 1))
 
+    def test_restore_keeps_recommendation_candidates(self):
+        db = fresh_db()
+        s = Session.start(db, "g1", "KIM_OK", user_id=1)
+        s.give_consents({c: True for c in s.required_consents()})
+        s.submit_profile({}, ack_unsuitable=True)
+        s.submit_docs()
+        s.run_review()
+        s.cands = s.recommend()
+        self.save(db, s)
+        r = Session.restore(db, s.app_id, 1)
+        self.assertEqual(r.cands, s.cands)  # Decimal 도 다시 Decimal 이다
+        r.choose(r.cands[0])
+        self.assertEqual(r.chosen_rate, s.cands[0]["rate"])
+
     def test_restore_without_snapshot_is_fresh_session(self):
         db = fresh_db()
         s = Session.start(db, "g1", "KIM_OK", user_id=1)
         r = Session.restore(db, s.app_id, 1)
-        self.assertEqual((r.status(), r.applicant, r.review, r.terms), ("DRAFT", None, None, {}))
+        self.assertEqual((r.status(), r.applicant, r.review, r.terms, r.cands), ("DRAFT", None, None, {}, []))
+
+
+def use_card(db, card_id, amount, cancel_of=None):
+    """직전 달 10일(KST)에 카드 거래 1건을 넣는다(시드 거래의 날짜와 상관없이 카드 사용 우대 기준을 시험한다). (카드 id, 거래 id)"""
+    last = account_service.today_kst().replace(day=1) - timedelta(days=1)
+    tx = m.CardTransaction(card_id=card_id, kind="cancel" if cancel_of else "approval", occurred_at=datetime.combine(last.replace(day=10), time(12), account_service.KST),
+                           merchant="시험 가맹점", amount=amount, original_id=cancel_of)
+    db.session.add(tx)
+    db.session.flush()
+    return card_id, tx.id
+
+
+class CardUsageTests(LoanCase):
+    """카드 사용 우대(CARD_USAGE): 내 사용 중 카드의 직전 달 사용액(승인 − 취소)이 30만원 이상일 때만 −0.1%p."""
+
+    @staticmethod
+    def priced(s, prefs):
+        s.set_terms()  # 금리 확정을 다시 하려면 조건 확정 단계로 돌아간다
+        return s.price(prefs)
+
+    def test_card_cut_needs_last_month_usage(self):
+        db = fresh_db()
+        s = Session.start(db, "g1", "KIM_OK", user_id=2)  # 회원 2 는 사용 중 카드 card_900 한 장, 거래 없음
+        s.give_consents({c: True for c in s.required_consents()})
+        s.submit_profile({}, ack_unsuitable=True)
+        s.submit_docs()
+        s.run_review()
+        s.choose(s.recommend()[0])
+        base = self.priced(s, ["AUTO_DEBIT"])
+        self.assertEqual(self.priced(s, ["AUTO_DEBIT", "CARD_USAGE"]), base)  # 사용 실적 없음: 우대 없음
+        self.assertEqual(s.pref_result["applied"], ["AUTO_DEBIT"])
+        self.assertEqual([(d["code"], d["usage"], d["required"]) for d in s.pref_result["denied"]], [("CARD_USAGE", 0, 300_000)])
+        self.assertEqual([r["pref_code"] for r in db.all("SELECT pref_code FROM pricing_preference WHERE application_id = ?", (s.app_id,))], ["AUTO_DEBIT"])
+        _, ap = use_card(db, "card_900", 400_000)
+        self.assertEqual(self.priced(s, ["AUTO_DEBIT", "CARD_USAGE"]), base - D("0.10"))  # 기준 이상: 우대
+        self.assertEqual((s.pref_result["applied"], s.pref_result["denied"]), (["AUTO_DEBIT", "CARD_USAGE"], []))
+        self.assertEqual(db.one("SELECT card_id FROM pricing_preference WHERE application_id = ? AND pref_code = 'CARD_USAGE'", (s.app_id,))["card_id"], "card_900")
+        use_card(db, "card_900", 150_000, cancel_of=ap)  # 취소하면 순 사용액 250,000원: 다시 기준 미달
+        self.assertEqual(self.priced(s, ["AUTO_DEBIT", "CARD_USAGE"]), base)
+        self.assertEqual(s.pref_result["denied"][0]["usage"], 250_000)
 
 
 class ExternalRefTests(LoanCase):
@@ -450,6 +583,7 @@ class ExternalRefTests(LoanCase):
         s.run_review()
         s.choose(s.recommend()[0])
         s.set_terms(auth_ref="login:100")
+        card = use_card(db, "card_001", 5_000_000)[0]  # 직전 달 사용액이 기준을 넘고 가장 많은 카드(시드 거래 날짜와 상관없이)
         s.price(["AUTO_DEBIT", "CARD_USAGE"])
         s.explain(True, [a for _, a in s.quiz()])
         s.sign_contract([True] * 5, "pin:200")
@@ -457,7 +591,6 @@ class ExternalRefTests(LoanCase):
         refs = {r["auth_ref"] for r in db.all("SELECT auth_ref FROM consent_record WHERE application_id = ?", (s.app_id,))}
         self.assertEqual(refs, {"login:100"})  # 필수 동의와 자동이체 동의 모두
         self.assertEqual(db.one("SELECT signature_ref FROM contract WHERE contract_no = ?", (s.contract,))["signature_ref"], "pin:200")
-        card = db.one("SELECT id FROM cards WHERE user_id = 1 AND status = 'active' ORDER BY issued_at, id")["id"]
         cards = {r["pref_code"]: r["card_id"] for r in db.all("SELECT pref_code, card_id FROM pricing_preference WHERE application_id = ?", (s.app_id,))}
         self.assertEqual(cards, {"AUTO_DEBIT": None, "CARD_USAGE": card})
 

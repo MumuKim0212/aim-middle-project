@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal as D
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, select
 
 from .. import models as m
 from . import catalog as C
@@ -74,6 +74,8 @@ class Session:
     account_no: str | None = None
     agency: str | None = None
     user_id: int | None = None  # 서버에서는 세션의 회원 번호. 콘솔·시험에서는 None
+    cands: list = field(default_factory=list)  # 추천 후보(추천 조회 때 채우고, 선택 때 읽는다)
+    pref_result: dict = field(default_factory=dict)  # 마지막 금리 확정의 우대 적용·불가({"applied": [...], "denied": [...]}), 저장하지 않는다
 
     # ------------------------------------------------------------------ 공통
     @property
@@ -101,11 +103,11 @@ class Session:
     # ------------------------------------------------------------------ 진행 상태 보관·복원
     def snapshot(self) -> dict:
         """메모리에만 있는 진행 상태를 JSON 으로 만든다(loan_application.session_state 에 저장, Decimal 은 문자열이 된다).
-        shortcut: 추천 후보(router 의 cands)와 대환 유불리(refi_result)는 담지 않는다. 후보는 추천을 다시 조회하면 되고 유불리는 어디서도 읽지 않는다."""
+        shortcut: 대환 유불리(refi_result)는 담지 않는다. 어디서도 읽지 않는다."""
         return {"married": self.married, "targets": self.targets, "existing": self.existing, "defects": self.defects,
                 "applicant": asdict(self.applicant) if self.applicant else None, "review": asdict(self.review) if self.review else None,
                 "chosen_rate": self.chosen_rate, "final_rate": self.final_rate, "terms": self.terms,
-                "suit_override": self.suit_override, "contract": self.contract, "agency": self.agency}
+                "suit_override": self.suit_override, "contract": self.contract, "agency": self.agency, "cands": self.cands}
 
     @classmethod
     def restore(cls, db: Database, app_id: str, user_id: int) -> "Session | None":
@@ -121,7 +123,8 @@ class Session:
                    review=Review(**{**rv, "rate": D(rv["rate"]), "dsr": D(rv["dsr"])}) if rv else None,
                    chosen_rate=rate("chosen_rate"), final_rate=rate("final_rate"), married=st.get("married", False),
                    targets=st.get("targets", []), existing=st.get("existing", []), defects=st.get("defects", []),
-                   terms=st.get("terms", {}), suit_override=st.get("suit_override", False), contract=st.get("contract"), agency=st.get("agency"))
+                   terms=st.get("terms", {}), suit_override=st.get("suit_override", False), contract=st.get("contract"), agency=st.get("agency"),
+                   cands=[{**c, **{k: D(c[k]) for k in ("rate", "pref", "score")}} for c in st.get("cands", [])])  # Decimal 은 문자열로 저장됐다
 
     # ------------------------------------------------------------------ C01 시작
     @classmethod
@@ -418,6 +421,13 @@ class Session:
     # ------------------------------------------------------------------ C08 금리
     def price(self, prefs: list[str] | None = None) -> D:
         prefs = prefs if prefs is not None else ["AUTO_DEBIT"]
+        usage = self._card_usage() if "CARD_USAGE" in prefs else None
+        denied = []
+        if usage and not usage["ok"]:  # 카드 사용 실적이 모자라면 그 우대는 빼고 알린다
+            prefs = [p for p in prefs if p != "CARD_USAGE"]
+            denied = [{"code": "CARD_USAGE", "usage": usage["amount"], "required": K.CARD_USAGE_MIN,
+                       "message": f"직전 달 카드 사용액 {usage['amount']:,}원이 기준 {K.CARD_USAGE_MIN:,}원에 못 미쳐 카드 사용 우대는 적용되지 않았습니다."}]
+        self.pref_result = {"applied": [p for p in prefs if p in C.PREFS], "denied": denied}
         r0 = self.chosen_rate or self.review.rate
         cut = sum((C.PREFS[p][0] for p in prefs if p in C.PREFS), D(0))
         final = max(D(str(self.product["rate_min"])) - D("0.3"), r0 - cut).quantize(D("0.01"))
@@ -434,16 +444,24 @@ class Session:
                 if p in C.PREFS:
                     self.db.insert("pricing_preference", {"preference_id": new_id("prf"), "application_id": self.app_id, "pref_code": p,
                                                           "rate_cut": str(C.PREFS[p][0]), "account_id": None,
-                                                          "card_id": self._active_card_id() if p == "CARD_USAGE" else None, "created_at": now_iso()})
+                                                          "card_id": usage["card_id"] if usage and p == "CARD_USAGE" else None, "created_at": now_iso()})
             transition(self.db, self.app_id, "PRICED", "C08")
         self.final_rate = final
         return final
 
-    def _active_card_id(self) -> str | None:
-        """카드 사용 우대의 근거 카드: 내 사용 중(active) 카드 중 먼저 발급한 1장. shortcut: 실제 사용 실적은 확인하지 않는다, 카드 사용 실적 조회가 생기면 그 카드로 바꾼다."""
+    def _card_usage(self) -> dict | None:
+        """카드 사용 우대 확인(프로토타입 명세 "카드 사용 월 30만원 이상"): 내 사용 중(active) 카드의 직전 달(KST) 승인액 − 취소액 합계가 기준 이상인지, 근거 카드와 함께 돌려준다.
+        shortcut: 카드가 여러 장이면 합산하고 근거 카드는 사용액이 가장 큰 1장이다. 회원이 없는 콘솔·시험은 확인할 수 없어 None(우대를 그대로 적용, 근거 카드 없음)."""
         if self.user_id is None:
             return None
-        return self.db.session.scalar(select(m.Card.id).where(m.Card.user_id == self.user_id, m.Card.status == "active").order_by(m.Card.issued_at, m.Card.id))
+        this_month = account_service.today_kst().replace(day=1)
+        start, end = (datetime.combine(d, time.min, account_service.KST) for d in ((this_month - timedelta(days=1)).replace(day=1), this_month))
+        net = func.coalesce(func.sum(case((m.CardTransaction.kind == "approval", m.CardTransaction.amount), else_=-m.CardTransaction.amount)), 0)
+        rows = self.db.session.execute(
+            select(m.Card.id, net).outerjoin(m.CardTransaction, and_(m.CardTransaction.card_id == m.Card.id, m.CardTransaction.occurred_at >= start, m.CardTransaction.occurred_at < end))
+            .where(m.Card.user_id == self.user_id, m.Card.status == "active").group_by(m.Card.id).order_by(m.Card.issued_at, m.Card.id)).all()
+        amount = int(sum(r[1] for r in rows))
+        return {"ok": amount >= K.CARD_USAGE_MIN, "amount": amount, "card_id": max(rows, key=lambda r: r[1])[0] if rows else None}
 
     def quiz(self) -> list[tuple[str, str]]:
         q = list(QUIZ)

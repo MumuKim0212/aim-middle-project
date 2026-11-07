@@ -28,6 +28,7 @@ SUIT_MAX_BURDEN = Decimal("0.70")      # 적합성 상환 부담률 70%
 LEGAL_MAX_RATE = Decimal("20.0")       # 법정 최고 금리 연 20%
 BASE_RATE = Decimal("3.10")            # 기준금리(예시)
 LATE_ADD = Decimal("3.0")              # 지연배상금 가산 +3%p
+CARD_USAGE_MIN = 300_000               # 카드 사용 우대 기준: 직전 달 카드 사용액 30만원(예시)
 
 # ---- 대환 ----
 REFI_MIN_SINCE = 6                     # 실행 후 6개월
