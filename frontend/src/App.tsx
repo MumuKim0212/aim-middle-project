@@ -21,6 +21,7 @@ import SecurityPage from './features/card/pages/SecurityPage'
 import TerminatePage from './features/card/pages/TerminatePage'
 import TransactionsPage from './features/card/pages/TransactionsPage'
 import LedgerPage from './features/ledger/LedgerPage'
+import { ApplyFlow, ApplyStart } from './features/loans/apply/Flow'
 import LoanDetail from './features/loans/Detail'
 import LoanList from './features/loans/LoanList'
 import LoanPrepay from './features/loans/Prepay'
@@ -97,6 +98,8 @@ export default function App() {
             <Route path=":cardId/terminate" element={<TerminatePage />} />
           </Route>
           <Route path="loans" element={<LoanList />} />
+          <Route path="loans/apply/:productId" element={<ApplyStart />} />
+          <Route path="loans/apply/:applicationId/:step" element={<ApplyFlow />} />
           <Route path="loans/:no" element={<LoanDetail />} />
           <Route path="loans/:no/schedule" element={<LoanSchedule />} />
           <Route path="loans/:no/prepay" element={<LoanPrepay />} />

@@ -23,6 +23,9 @@ export type LoanSummary = Loan & { productName: string }
 
 export type LoanProduct = {
   productId: string
+  businessType: 'GENERAL' | 'POLICY' | 'INST' | 'REFI'
+  instKind: 'A' | 'B' | null
+  collateralType: 'CREDIT' | 'JEONSE' | 'MORTGAGE' | 'AUTO' | 'DEPOSIT'
   name: string
   subtitle: string
   targetDesc: string
@@ -54,4 +57,27 @@ export async function prepay(no: string, body: { principal: number; accountId: n
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApiFail(res.status, data as ApiErrorBody)
   return data as PrepayQuote & { balance: number }
+}
+
+/** 대출 실행도 Idempotency-Key 가 필요하다. 본문을 JSON 으로 보내고 실패하면 ApiFail 을 던진다. */
+export async function postIdem<T>(url: string, body: unknown, key: string) {
+  const res = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiFail(res.status, data as ApiErrorBody)
+  return data as T
+}
+
+/** 증빙 파일 1건 업로드(multipart). Content-Type 은 브라우저가 경계값과 함께 정한다. */
+export async function uploadDoc(id: string, docKey: string, file: File) {
+  const form = new FormData()
+  form.append('docKey', docKey)
+  form.append('file', file)
+  const res = await apiFetch(`/api/loans/applications/${id}/docs/upload`, { method: 'POST', body: form })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiFail(res.status, data as ApiErrorBody)
+  return data as { docKey: string; defects: string[] }
 }

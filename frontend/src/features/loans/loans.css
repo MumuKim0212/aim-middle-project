@@ -1,0 +1,62 @@
+/* 대출 신청 화면(features/loans/apply). 공통 색·카드·폼 스타일은 styles.css, auth.css, accounts.css 를 그대로 쓴다. */
+a.ac-retry { display: inline-block; }
+.auth-terms b { white-space: nowrap; }
+.tag.wa { background: #fff1d6; color: #b46a00; }
+.tag.ng { background: #fde7e5; color: #d54d44; }
+
+.ln-box { margin: 0 0 12px; padding: 13px 14px; border-radius: 14px; background: #fff; border: 1px solid var(--line); font-size: 13.5px; line-height: 1.55; }
+.ln-box.ok { background: #e8f6ee; border-color: #cbeadb; color: #1f7a4a; }
+.ln-box.wa { background: #fff6e0; border-color: #f3dfae; color: #8a5a00; }
+.ln-box.ng { background: #fdeceb; border-color: #f4cfcc; color: #b63b33; }
+.ln-box p { margin: 4px 0 0; }
+.ln-reasons { display: grid; gap: 4px; margin: 8px 0 0; font-size: 12.5px; color: var(--ink); }
+.ln-reasons code { padding: 1px 6px; border-radius: 6px; background: rgba(0, 0, 0, 0.06); font-size: 11px; }
+.ln-hint { color: var(--muted); font-size: 12px; font-weight: 600; }
+.ln-sub { margin: 6px 2px 0; font-size: 15px; }
+.ln-sub small { color: var(--muted); font-weight: 500; }
+.ln-line { margin-top: 2px; }
+
+.ln-seg { display: flex; gap: 8px; }
+.ln-seg button { flex: 1; min-height: 44px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-weight: 700; }
+.ln-seg button.on { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); }
+
+.ln-list { display: grid; gap: 10px; }
+.ln-list > li { padding: 13px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.ln-loan { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ln-loan .auth-check { flex: none; white-space: nowrap; }
+.ln-loan strong, .ln-loan small, .ln-loan b { display: block; }
+.ln-loan small { margin: 2px 0 4px; color: var(--muted); font-size: 11.5px; }
+.ln-doc { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ln-doc strong { margin-right: 6px; font-size: 14px; }
+.ln-doc small { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; word-break: break-all; }
+.ln-file { flex: none; padding: 9px 12px; border-radius: 10px; background: var(--blue-soft); color: var(--blue); font-size: 13px; font-weight: 800; cursor: pointer; }
+.ac-pick .ln-off { opacity: 0.5; }
+.ac-pick button > span { line-height: 1.55; }
+.ac-pick button small { display: block; }
+
+.ln-stage { display: grid; gap: 8px; }
+.ln-stage li { display: flex; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.ln-stage i { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-style: normal; font-size: 13px; font-weight: 800; color: #fff; }
+.ln-stage .ok i { background: var(--green); }
+.ln-stage .wa i { background: #e8920a; }
+.ln-stage .ng i { background: #d54d44; }
+.ln-stage strong { display: block; font-size: 14px; }
+.ln-stage small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+
+.ln-cmp { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; }
+.ln-cmp th, .ln-cmp td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+.ln-cmp th:first-child { text-align: left; color: var(--muted); font-weight: 600; }
+.ln-cmp td.good { color: var(--green); font-weight: 800; }
+.ln-cmp td.bad { color: #d54d44; font-weight: 800; }
+
+.ln-scroll { height: 220px; overflow-y: auto; padding: 4px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font-size: 13px; line-height: 1.65; }
+.ln-scroll h4 { margin: 12px 0 2px; font-size: 13.5px; }
+.ln-scroll p { margin: 0; color: #3d4a63; }
+.ln-scroll .end { margin: 16px 0 8px; text-align: center; color: var(--muted); }
+.ln-quiz { display: grid; gap: 12px; margin: 0; padding-left: 20px; }
+.ln-quiz p { margin: 0 0 6px; font-size: 13.5px; line-height: 1.5; }
+
+.ln-done { padding: 20px 0; text-align: center; }
+.ln-done h3 { margin: 12px 0 18px; font-size: 20px; }
+.ln-done .auth-summary { text-align: left; }
+.ln-check { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; background: var(--green); color: #fff; font-size: 34px; font-weight: 800; }

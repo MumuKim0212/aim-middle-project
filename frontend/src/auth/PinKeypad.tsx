@@ -17,15 +17,18 @@ export default function PinKeypad({ length = 6, onComplete, disabled, resetKey }
 
   useEffect(() => setPin(''), [resetKey])
 
+  // 업데이트 함수 안에서 부르면 StrictMode 에서 두 번 불려 같은 요청이 두 번 나간다
+  useEffect(() => {
+    if (pin.length !== length) return
+    const t = window.setTimeout(() => onComplete(pin), 120)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pin])
+
   function press(k: string) {
     if (disabled || !k) return
     if (k === '⌫') return setPin((p) => p.slice(0, -1))
-    setPin((p) => {
-      if (p.length >= length) return p
-      const next = p + k
-      if (next.length === length) window.setTimeout(() => onComplete(next), 120)
-      return next
-    })
+    setPin((p) => (p.length >= length ? p : p + k))
   }
 
   return (
