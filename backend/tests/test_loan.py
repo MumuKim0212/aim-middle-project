@@ -123,6 +123,13 @@ class ScenarioTests(LoanCase):
 
 
 class GuardrailTests(LoanCase):
+    def test_precheck_ineligible_is_a_result_not_an_error(self):
+        db = fresh_db()
+        s = Session.start(db, "p1", None)
+        res = s.precheck(False, False, 900_000_000, 900_000_000)  # 자격 미충족 입력도 오류가 아니라 판정 결과로 돌려준다
+        self.assertFalse(all(ok for _, ok, _ in res))
+        self.assertEqual(db.one("SELECT status FROM loan_application WHERE application_id = ?", (s.app_id,))["status"], "POLICY_INELIGIBLE")
+
     def test_consent_gate_blocks_and_logs(self):
         db = fresh_db()
         s = Session.start(db, "g1", "KIM_OK")
