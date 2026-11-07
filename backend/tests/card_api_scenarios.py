@@ -208,6 +208,8 @@ def main():
     with admin.connect() as c:
         c.execute(text("DROP DATABASE IF EXISTS cardtest"))
         c.execute(text("CREATE DATABASE cardtest"))
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True,
+                   env={**os.environ, "DATABASE_URL": TEST_URL})  # 서버는 최신 마이그레이션이 아니면 시작하지 않는다
     server = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8001"],
         env={**os.environ, "DATABASE_URL": TEST_URL}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
